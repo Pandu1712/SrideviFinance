@@ -42,6 +42,7 @@ export const LineProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error("Line fetch failed:", error);
       setLoadingLines(false); // Stop loading even if it fails
     });
+    return unsub;
   }, []);
 
   const setSelectedLineId = (id: string | null) => {

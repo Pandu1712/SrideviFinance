@@ -1,13 +1,19 @@
-import { Outlet, useLocation, Navigate } from "react-router-dom";
+import { Outlet, useLocation, Navigate, useNavigate } from "react-router-dom";
 import AppSidebar from "@/components/AppSidebar";
-import { Bell, Search, Settings, HelpCircle, MapPin } from "lucide-react";
+import { Bell, Search, Settings, HelpCircle, MapPin, LogOut } from "lucide-react";
 import { useLine } from "@/contexts/LineContext";
 import { useAuth } from "@/contexts/AuthContext";
 
 const DashboardLayout = () => {
   const location = useLocation();
-  const { userData } = useAuth();
+  const { userData, logout } = useAuth();
   const { selectedLineId, lines, hasSelectedOnce } = useLine();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
+  };
   
   // Logic: Mandatory Selection Step
   // Redirect to selection page if no line is selected for high-level roles and we aren't already there
@@ -64,6 +70,13 @@ const DashboardLayout = () => {
               </button>
               <button className="h-10 w-10 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400 hover:text-primary transition-all">
                 <Settings size={20} />
+              </button>
+              <button 
+                onClick={handleLogout}
+                className="h-10 w-10 flex items-center justify-center rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all border border-transparent hover:border-red-100"
+                title="Logout"
+              >
+                <LogOut size={20} />
               </button>
             </div>
           </div>

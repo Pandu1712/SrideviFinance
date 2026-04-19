@@ -108,6 +108,9 @@ const Dashboard = () => {
               }));
             });
           });
+        }, (err) => {
+          console.error("Dashboard accounts fail:", err);
+          setLoading(false);
         });
 
         let postingsRef: any = collection(db, "postings");
@@ -130,6 +133,9 @@ const Dashboard = () => {
           setChartData(formatted);
           setStats(prev => ({ ...prev, totalCollection: totalCol }));
           setLoading(false);
+        }, (err) => {
+          console.error("Dashboard postings fail:", err);
+          setLoading(false);
         });
 
       } else if (userData.role === "admin") {
@@ -143,6 +149,9 @@ const Dashboard = () => {
           getDocs(query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", userData.uid))).then(ags => {
             setStats(prev => ({ ...prev, totalAgents: ags.size, totalAccounts: snapshot.size, pendingAmount: pending }));
           });
+        }, (err) => {
+          console.error("Admin accounts fail:", err);
+          setLoading(false);
         });
 
         let postingsRef : any = query(collection(db, "postings"), where("adminId", "==", userData.uid));
@@ -155,6 +164,9 @@ const Dashboard = () => {
            setRecentPostings(recent);
            setStats(prev => ({ ...prev, dailyCollection: daily }));
            setLoading(false);
+        }, (err) => {
+          console.error("Admin postings fail:", err);
+          setLoading(false);
         });
 
       } else if (userData.role === "agent") {
@@ -162,6 +174,9 @@ const Dashboard = () => {
            let pendingCount = 0;
            snapshot.forEach(d => { if (d.data().balance > 0) pendingCount++; });
            setStats(prev => ({ ...prev, assignedAccounts: snapshot.size, pendingAccounts: pendingCount }));
+        }, (err) => {
+          console.error("Agent accounts fail:", err);
+          setLoading(false);
         });
 
         unsubscribePostings = onSnapshot(query(collection(db, "postings"), where("agentId", "==", userData.uid)), (snapshot) => {
@@ -170,6 +185,9 @@ const Dashboard = () => {
            const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
            setRecentPostings(recent);
            setStats(prev => ({ ...prev, todayCollection: todayCol }));
+           setLoading(false);
+        }, (err) => {
+           console.error("Agent postings fail:", err);
            setLoading(false);
         });
       }
