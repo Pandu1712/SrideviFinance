@@ -1,0 +1,666 @@
+import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLine } from "@/contexts/LineContext";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc } from "firebase/firestore";
+import { useParams, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Wallet, UserPlus, Calendar, Info, Calculator, UserCheck, IndianRupee, TrendingUp, Download, CreditCard, MapPin } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
+const accountSchema = z.object({
+  accountNo: z.string().min(1, "Account number is required"),
+  name: z.string().min(3, "Name must be at least 3 characters"),
+  fatherHusbandName: z.string().optional(),
+  phone: z.string().regex(/^[0-9]{10}$/, "Invalid phone number").optional().or(z.literal("")),
+  village: z.string().optional(),
+  occupation: z.string().optional(),
+  guarantorName: z.string().optional(),
+  guarantorPhone: z.string().optional(),
+  loanAmount: z.string().min(1, "Loan amount is required"),
+  interestAmount: z.string().min(1, "Interest amount is required"),
+  customerLocation: z.string().optional(),
+  paymentFrequency: z.enum(["daily", "weekly", "monthly"]),
+  installmentAmount: z.string().min(1, "Required"),
+  totalAmount: z.string().min(1, "Required"),
+  startDate: z.string().min(1, "Required"),
+  endDate: z.string().min(1, "Required"),
+  paymentType: z.enum(["cash", "upi", "account"]),
+  upiId: z.string().optional(),
+  bankAccountNumber: z.string().optional(),
+  bankIfsc: z.string().optional(),
+  commission: z.string().default("0"),
+  agentId: z.string().min(1, "Please assign an agent"),
+});
+
+type AccountForm = z.infer<typeof accountSchema>;
+
+const NewAccount = () => {
+  const { userData } = useAuth();
+  const { selectedLineId } = useLine();
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const isEdit = !!id;
+  const [agents, setAgents] = useState<{ uid: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchingLocation, setFetchingLocation] = useState(false);
+
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported by your browser");
+      return;
+    }
+    setFetchingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+        setValue("customerLocation", url);
+        toast.success("Current location captured!");
+        setFetchingLocation(false);
+      },
+      (error) => {
+        toast.error("Failed to get location: " + error.message);
+        setFetchingLocation(false);
+      },
+      { enableHighAccuracy: true }
+    );
+  };
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<AccountForm>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: {
+      startDate: new Date().toISOString().split("T")[0],
+      commission: "0",
+      paymentFrequency: "daily",
+      interestAmount: "0",
+      paymentType: "cash",
+      customerLocation: "",
+    },
+  });
+
+  const loanAmount = watch("loanAmount");
+  const interestAmount = watch("interestAmount");
+  const paymentFrequency = watch("paymentFrequency");
+  const installmentAmount = watch("installmentAmount");
+  const totalAmount = watch("totalAmount");
+  const startDate = watch("startDate");
+  const paymentType = watch("paymentType");
+
+  // Calculate Total Amount based on Principal and Direct Interest
+  useEffect(() => {
+    if (loanAmount && interestAmount) {
+      const principal = parseFloat(loanAmount);
+      const interest = parseFloat(interestAmount);
+      if (!isNaN(principal) && !isNaN(interest)) {
+        const total = principal + interest;
+        setValue("totalAmount", total.toString());
+      }
+    }
+  }, [loanAmount, interestAmount, setValue]);
+
+  // Calculate End Date based on Total Amount, Installment, and Frequency
+  useEffect(() => {
+    if (installmentAmount && totalAmount && startDate && paymentFrequency) {
+      const inst = parseFloat(installmentAmount);
+      const total = parseFloat(totalAmount);
+      if (inst > 0 && total > 0) {
+        const tenureUnits = Math.ceil(total / inst);
+        const start = new Date(startDate);
+        const end = new Date(start);
+        
+        if (paymentFrequency === "daily") {
+          end.setDate(start.getDate() + tenureUnits);
+        } else if (paymentFrequency === "weekly") {
+          end.setDate(start.getDate() + (tenureUnits * 7));
+        } else if (paymentFrequency === "monthly") {
+          end.setMonth(start.getMonth() + tenureUnits);
+        }
+        
+        setValue("endDate", end.toISOString().split("T")[0]);
+      }
+    }
+  }, [installmentAmount, totalAmount, startDate, paymentFrequency, setValue]);
+
+  useEffect(() => {
+    const fetchExisting = async () => {
+      if (!id || !isEdit) return;
+      try {
+        const snap = await getDoc(doc(db, "accounts", id));
+        if (snap.exists()) {
+          const data = snap.data();
+          reset({
+            ...data,
+            loanAmount: String(data.loanAmount || ""),
+            interestAmount: String(data.interestAmount || ""),
+            installmentAmount: String(data.installmentAmount || ""),
+            totalAmount: String(data.totalAmount || ""),
+            commission: String(data.commission || "0"),
+            customerLocation: data.customerLocation || "",
+          } as any);
+        }
+      } catch (err) {
+        toast.error("Failed to load account details");
+      }
+    };
+    fetchExisting();
+  }, [id, isEdit, reset]);
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      if (!userData) return;
+      try {
+        const adminId = userData.role === "super_admin" ? undefined : userData.uid;
+        let q;
+        if (adminId) {
+          q = query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", adminId));
+        } else {
+          q = query(collection(db, "users"), where("role", "==", "agent"));
+        }
+        const snap = await getDocs(q);
+        setAgents(snap.docs.map(d => ({ uid: d.id, name: (d.data() as any).name })));
+      } catch (err) {
+        console.error("Error fetching agents:", err);
+      }
+    };
+    fetchAgents();
+  }, [userData]);
+
+  const generatePDF = (data: any) => {
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFillColor(15, 23, 42); // #0F172A
+    doc.rect(0, 0, 210, 40, "F");
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(24);
+    doc.setFont("helvetica", "bold");
+    doc.text("SRI FINANCE HUB", 105, 20, { align: "center" });
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("Premium Financial Management Services", 105, 30, { align: "center" });
+    
+    // Account Summary Title
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.text("Account Registration Receipt", 14, 55);
+    
+    doc.setDrawColor(245, 158, 11); // Accent color
+    doc.setLineWidth(1);
+    doc.line(14, 60, 60, 60);
+
+    // Data for Tables
+    const basicInfo = [
+      ["Account Number", data.accountNo],
+      ["Customer Name", data.name],
+      ["Phone Number", data.phone || "N/A"],
+      ["Village/Area", data.village || "N/A"],
+      ["Occupation", data.occupation || "N/A"],
+    ];
+
+    const financeInfo = [
+      ["Principal Amount", formatCurrency(data.loanAmount)],
+      ["Interest Amount", formatCurrency(data.interestAmount)],
+      ["Total Payable", formatCurrency(data.totalAmount)],
+      ["Payment Type", data.paymentType?.toUpperCase()],
+      ["Direction/Location", data.customerLocation || "N/A"],
+    ];
+
+    if (data.paymentType === "upi" && data.upiId) {
+      financeInfo.push(["UPI ID", data.upiId]);
+    } else if (data.paymentType === "account") {
+      financeInfo.push(["A/C Number", data.bankAccountNumber || "N/A"]);
+      financeInfo.push(["IFSC Code", data.bankIfsc || "N/A"]);
+    }
+
+    financeInfo.push(
+      ["Frequency", data.paymentFrequency?.toUpperCase()],
+      ["Installment", formatCurrency(data.installmentAmount)],
+      ["Start Date", data.startDate],
+      ["Tentative End Date", data.endDate],
+    );
+
+    autoTable(doc, {
+      startY: 70,
+      head: [["Field", "Details"]],
+      body: basicInfo,
+      theme: "striped",
+      headStyles: { fillStyle: "F", fillColor: [15, 23, 42], textColor: 255 },
+    });
+
+    doc.setFontSize(14);
+    doc.text("Financing Details", 14, (doc as any).lastAutoTable.finalY + 15);
+
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 20,
+      head: [["Field", "Value"]],
+      body: financeInfo,
+      theme: "grid",
+      headStyles: { fillColor: [245, 158, 11] },
+    });
+
+    // Footer
+    const finalY = (doc as any).lastAutoTable.finalY + 30;
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text("Authorized Signature", 14, finalY);
+    doc.line(14, finalY + 10, 60, finalY + 10);
+    doc.text("Customer Signature", 140, finalY);
+    doc.line(140, finalY + 10, 190, finalY + 10);
+
+    doc.setFontSize(8);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 105, 285, { align: "center" });
+
+    const safeAccountNo = (data.accountNo || "NEW").replace(/[^a-zA-Z0-9]/g, "_");
+    const safeName = (data.name || "Member").replace(/[^a-zA-Z0-9]/g, "_");
+    const fileName = `Receipt_${safeAccountNo}_${safeName}.pdf`;
+
+    doc.save(fileName);
+    toast.success(`PDF ${fileName} Downloaded Successfully`);
+  };
+
+  const onSubmit = async (data: AccountForm) => {
+    setLoading(true);
+    try {
+      const total = parseFloat(data.totalAmount);
+      const payload = {
+        ...data,
+        installmentAmount: parseFloat(data.installmentAmount),
+        totalAmount: total,
+        loanAmount: parseFloat(data.loanAmount),
+        interestAmount: parseFloat(data.interestAmount),
+        commission: parseFloat(data.commission) || 0,
+        customerLocation: data.customerLocation || "",
+      };
+
+      if (isEdit && id) {
+        await updateDoc(doc(db, "accounts", id), payload);
+        toast.success("Account updated successfully");
+        navigate("/members");
+      } else {
+        const newPayload = {
+          ...payload,
+          paid: 0,
+          balance: total,
+          status: "active",
+          adminId: userData?.uid,
+          lineId: selectedLineId || "default",
+          createdAt: new Date().toISOString(),
+        };
+        await addDoc(collection(db, "accounts"), newPayload);
+        toast.success("Account created successfully");
+        reset();
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Operation failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-6"
+    >
+      <div className="flex items-center gap-3">
+        <div className="h-12 w-12 rounded-xl bg-premium-gradient flex items-center justify-center shadow-lg">
+          <UserPlus className="text-white h-6 w-6" />
+        </div>
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">
+            {isEdit ? "Update Account" : "New Account"}
+          </h1>
+          <p className="text-muted-foreground font-medium">
+            {isEdit ? `Modifying details for ${watch("accountNo")}` : "Register a new member with automated loan calculation."}
+          </p>
+        </div>
+      </div>
+
+      <Card className="glass-card overflow-hidden">
+        <CardHeader className="bg-primary/5 border-b border-primary/10">
+          <CardTitle className="text-xl flex items-center gap-2">
+            <Info className="h-5 w-5 text-accent" />
+            Basic Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Account Number *</Label>
+                <Input 
+                  {...register("accountNo")} 
+                  className={`finance-input ${errors.accountNo ? "border-destructive" : ""}`}
+                  placeholder="e.g. ACC-1001"
+                />
+                {errors.accountNo && <p className="text-xs text-destructive mt-1">{errors.accountNo.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Customer Name *</Label>
+                <Input 
+                  {...register("name")} 
+                  className={`finance-input ${errors.name ? "border-destructive" : ""}`}
+                  placeholder="Full Legal Name"
+                />
+                {errors.name && <p className="text-xs text-destructive mt-1">{errors.name.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Father / Husband Name</Label>
+                <Input {...register("fatherHusbandName")} className="finance-input" placeholder="Relation Name" />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Phone Number</Label>
+                <Input {...register("phone")} className="finance-input" placeholder="10-digit mobile" />
+                {errors.phone && <p className="text-xs text-destructive mt-1">{errors.phone.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Village / Area</Label>
+                <Input {...register("village")} className="finance-input" placeholder="Location" />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Occupation</Label>
+                <Input {...register("occupation")} className="finance-input" placeholder="Business or Job" />
+              </div>
+
+              <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold text-accent">Customer Location / Google Maps Link (for Agents)</Label>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-8 text-[10px] uppercase font-black tracking-widest bg-accent shadow-lg shadow-accent/20 text-white hover:bg-slate-900 border-none transition-all flex items-center gap-2"
+                    onClick={handleGetLocation}
+                    disabled={fetchingLocation}
+                  >
+                    <MapPin className="h-3 w-3" />
+                    {fetchingLocation ? "Fetching GPS..." : "Find My Location"}
+                  </Button>
+                </div>
+                <Input 
+                  {...register("customerLocation")} 
+                  className="finance-input border-accent/20 bg-accent/5" 
+                  placeholder="Captured GPS link or manual address" 
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-primary/10 pt-8">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Calculator className="h-5 w-5 text-accent" />
+                Finance Details
+              </h3>
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Principal Loan Amount (₹) *</Label>
+                  <div className="relative">
+                    <Wallet className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
+                    <Input 
+                      type="text"
+                      inputMode="decimal"
+                      {...register("loanAmount")} 
+                      className="pl-9 finance-input font-bold" 
+                      placeholder="e.g. 10000"
+                    />
+                  </div>
+                  {errors.loanAmount && <p className="text-[10px] text-destructive">{errors.loanAmount.message}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Interest Amount (₹) *</Label>
+                  <div className="relative">
+                    <TrendingUp className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
+                    <Input 
+                      type="text"
+                      inputMode="decimal"
+                      {...register("interestAmount")} 
+                      className="pl-9 finance-input" 
+                      placeholder="e.g. 25000"
+                    />
+                  </div>
+                  {errors.interestAmount && <p className="text-[10px] text-destructive">{errors.interestAmount.message}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Payment Frequency *</Label>
+                  <Select onValueChange={(v: any) => setValue("paymentFrequency", v)} value={paymentFrequency}>
+                    <SelectTrigger className="finance-input">
+                      <SelectValue placeholder="Select frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Installment Amount (₹) *</Label>
+                  <div className="relative">
+                    <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
+                    <Input 
+                      type="text"
+                      inputMode="decimal"
+                      {...register("installmentAmount")} 
+                      className="pl-9 finance-input" 
+                      placeholder="Amount per payment"
+                    />
+                  </div>
+                  {errors.installmentAmount && <p className="text-[10px] text-destructive">{errors.installmentAmount.message}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-primary">Total Amount to Pay (₹)</Label>
+                  <div className="relative">
+                    <Calculator className="absolute left-3 top-3 h-4 w-4 text-primary" />
+                    <Input 
+                      type="text"
+                      inputMode="decimal"
+                      {...register("totalAmount")} 
+                      className="pl-9 finance-input bg-emerald-50 border-emerald-200 font-black text-emerald-700" 
+                      readOnly
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground px-1 italic">Auto-calculated (Principal + Interest)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Start Date *</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
+                    <Input type="date" {...register("startDate")} className="pl-9 finance-input" />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">End Date</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
+                    <Input type="date" {...register("endDate")} className="pl-9 finance-input bg-muted/30" readOnly />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground px-1 italic">Auto-calculated expiry</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-[#0F172A]">Payment Type *</Label>
+                    <Select onValueChange={(v: any) => setValue("paymentType", v)} value={paymentType}>
+                      <SelectTrigger className="finance-input">
+                        <SelectValue placeholder="Payment mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash Payment</SelectItem>
+                        <SelectItem value="upi">UPI Transfer</SelectItem>
+                        <SelectItem value="account">Bank Account</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <AnimatePresence mode="wait">
+                    {paymentType === "upi" && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-2 overflow-hidden"
+                      >
+                        <Label className="text-sm font-semibold text-primary">UPI ID Details</Label>
+                        <Input 
+                          {...register("upiId")} 
+                          className="finance-input border-primary/20 bg-primary/5" 
+                          placeholder="vpa@upi" 
+                        />
+                      </motion.div>
+                    )}
+
+                    {paymentType === "account" && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-4 overflow-hidden pt-2"
+                      >
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold text-primary">Account Number</Label>
+                          <Input 
+                            {...register("bankAccountNumber")} 
+                            className="finance-input border-primary/20 bg-primary/5" 
+                            placeholder="Bank A/C Number" 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold text-primary">IFSC Code</Label>
+                          <Input 
+                            {...register("bankIfsc")} 
+                            className="finance-input border-primary/20 bg-primary/5 uppercase" 
+                            placeholder="e.g. SBIN0001234" 
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Assign Agent *</Label>
+                  <Select onValueChange={(v) => setValue("agentId", v)}>
+                    <SelectTrigger className="finance-input">
+                      <SelectValue placeholder="Select agent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {agents.map(a => (
+                        <SelectItem key={a.uid} value={a.uid}>{a.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.agentId && <p className="text-[10px] text-destructive">{errors.agentId.message}</p>}
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-primary/10 pt-8">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <UserCheck className="h-5 w-5 text-accent" />
+                Guarantor Information
+              </h3>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Guarantor Name</Label>
+                  <Input {...register("guarantorName")} className="finance-input" placeholder="Guarantor legal name" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Guarantor Phone</Label>
+                  <Input {...register("guarantorPhone")} className="finance-input" placeholder="10-digit mobile" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 p-6 bg-slate-900 rounded-3xl text-white shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-accent/10 blur-[100px] rounded-full -mr-32 -mt-32" />
+              <div className="flex justify-between items-start relative z-10">
+                <div className="space-y-6 flex-1">
+                  <h4 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Financing Summary</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Taken Amount</p>
+                      <p className="text-2xl font-black text-white">{loanAmount ? formatCurrency(parseFloat(loanAmount)) : "₹0"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Interest Amount</p>
+                      <p className="text-2xl font-black text-accent">{interestAmount ? formatCurrency(parseFloat(interestAmount)) : "₹0"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Payable</p>
+                      <p className="text-2xl font-black text-emerald-400">{totalAmount ? formatCurrency(parseFloat(totalAmount)) : "₹0"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Tenure ({paymentFrequency})</p>
+                      <p className="text-2xl font-black text-blue-400">
+                        {installmentAmount && totalAmount ? Math.ceil(parseFloat(totalAmount) / parseFloat(installmentAmount)) : "0"} {paymentFrequency === "daily" ? "Days" : paymentFrequency === "weekly" ? "Weeks" : "Months"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <Button 
+                  type="button" 
+                  onClick={() => generatePDF(watch())}
+                  className="bg-white/10 hover:bg-white/20 text-white gap-2 border border-white/10"
+                >
+                  <Download size={16} />
+                  Download PDF
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end border-t border-primary/10 pt-6">
+              <div className="flex gap-4">
+                <Button variant="outline" type="button" onClick={() => reset()} disabled={loading}>
+                  Reset Form
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="flex-1 premium-gradient text-white h-12 rounded-xl shadow-lg border-none font-bold text-lg"
+                  disabled={loading}
+                >
+                  {loading ? "Processing..." : (isEdit ? "Update Member Account" : "Create Account & Activate")}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+};
+
+export default NewAccount;

@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Premium Financial Palette - Deep Navy & Gold */
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 221 39% 11%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 45 93% 47%;
+    --secondary-foreground: 221 39% 11%;
+
+    --muted: 214 32% 91%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 45 93% 47%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 39% 11%;
+
+    --radius: 1rem;
+
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-[#F8FAFC] text-foreground antialiased selection:bg-accent/30 selection:text-accent-foreground;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_48px_rgba(0,0,0,0.08)] transition-all duration-300;
+  }
+  
+  .premium-gradient {
+    @apply bg-gradient-to-br from-[#0F172A] via-[#1E293B] to-[#334155];
+  }
+
+  .accent-gradient {
+    @apply bg-gradient-to-br from-[#F59E0B] via-[#D97706] to-[#B45309];
+  }
+
+  .premium-shadow {
+    @apply shadow-[0_20px_50px_rgba(8,_112,_184,_0.07)];
+  }
+
+  /* Responsive & Premium Table System */
+  .finance-table-container {
+    @apply w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  .finance-table {
+    @apply w-full text-left border-collapse;
+  }
+
+  .finance-table thead tr {
+    @apply bg-slate-50/80 border-b border-slate-200;
+  }
+
+  .finance-table th {
+    @apply px-6 py-4 text-[11px] font-black uppercase tracking-[0.15em] text-slate-500 whitespace-nowrap;
+  }
+
+  .finance-table tbody tr {
+    @apply transition-colors hover:bg-slate-50/50 border-b border-slate-100 last:border-0;
+  }
+
+  .finance-table td {
+    @apply px-6 py-4 text-sm font-medium text-slate-700 whitespace-nowrap align-middle;
+  }
+
+  .finance-input {
+    @apply h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-accent focus:ring-accent/20 transition-all rounded-xl;
+  }
+
+  /* Custom Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    @apply w-1.5 h-1.5;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
+  }
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
