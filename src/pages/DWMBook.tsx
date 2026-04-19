@@ -60,7 +60,7 @@ const DWMBook = () => {
       } else {
         q = query(
           postingsRef, 
-          where("agentId", "==", userData.uid),
+          where("lineId", "==", userData.lineId || ""),
           where("date", ">=", startDateStr), 
           where("date", "<=", dateFilter), 
           orderBy("date", "desc"),

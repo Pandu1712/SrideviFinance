@@ -1,12 +1,12 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData } from "firebase/firestore";
+import { collection, getDocs, query, where, DocumentData, doc, runTransaction } from "firebase/firestore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const DailyData = () => {
@@ -15,24 +15,64 @@ const DailyData = () => {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [loading, setLoading] = useState(true);
 
+  const fetchPostings = async () => {
+    if (!userData) return;
+    setLoading(true);
+    let q;
+    if (userData.role === "super_admin") q = query(collection(db, "postings"), where("date", "==", date));
+    else if (userData.role === "admin") q = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", "==", date));
+    else q = query(collection(db, "postings"), where("lineId", "==", userData.lineId || ""), where("date", "==", date));
+    try {
+      const snap = await getDocs(q);
+      const list: DocumentData[] = [];
+      snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
+      setPostings(list);
+    } catch { setPostings([]); }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetch = async () => {
-      if (!userData) return;
-      setLoading(true);
-      let q;
-      if (userData.role === "super_admin") q = query(collection(db, "postings"), where("date", "==", date));
-      else if (userData.role === "admin") q = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", "==", date));
-      else q = query(collection(db, "postings"), where("agentId", "==", userData.uid), where("date", "==", date));
-      try {
-        const snap = await getDocs(q);
-        const list: DocumentData[] = [];
-        snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
-        setPostings(list);
-      } catch { setPostings([]); }
-      setLoading(false);
-    };
-    fetch();
+    fetchPostings();
   }, [userData, date]);
+
+  const handleDeletePosting = async (posting: DocumentData) => {
+    if (userData?.role !== "super_admin") return;
+    if (!window.confirm(`Are you sure you want to delete this payment of ₹${posting.amount}? The member's balance will be REVERSED (increased).`)) return;
+
+    setLoading(true);
+    try {
+      const accountRef = doc(db, "accounts", posting.accountId);
+      const postingRef = doc(db, "postings", posting.id);
+
+      await runTransaction(db, async (transaction) => {
+        const accDoc = await transaction.get(accountRef);
+        if (!accDoc.exists()) throw new Error("Account not found");
+
+        const accData = accDoc.data();
+        const postingAmount = posting.amount || 0;
+        const principalAmount = posting.principal || (postingAmount - (posting.lateFee || 0));
+        
+        const newPaid = (accData.paid || 0) - postingAmount;
+        const newBalance = (accData.balance || 0) + principalAmount;
+        const newStatus = newBalance > 0 ? "active" : "completed";
+
+        transaction.update(accountRef, {
+          paid: newPaid,
+          balance: newBalance,
+          status: newStatus
+        });
+
+        transaction.delete(postingRef);
+      });
+
+      toast.success("Transaction deleted and balance reconciled.");
+      fetchPostings();
+    } catch (err: any) {
+      console.error("Delete Posting Error:", err);
+      toast.error("Failed to delete transaction: " + err.message);
+      setLoading(false);
+    }
+  };
 
   const totalAmount = postings.reduce((s, p) => s + (p.amount || 0), 0);
 
@@ -58,14 +98,43 @@ const DailyData = () => {
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <table className="finance-table w-full">
-            <thead><tr><th className="p-3">S.No</th><th className="p-3">Acc No</th><th className="p-3">Name</th><th className="p-3">Amount</th><th className="p-3">Status</th><th className="p-3">Mode</th></tr></thead>
+            <thead>
+              <tr>
+                <th className="p-3">S.No</th>
+                <th className="p-3">Acc No</th>
+                <th className="p-3">Name</th>
+                <th className="p-3">Amount</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Mode</th>
+                {userData?.role === "super_admin" && <th className="p-3 text-right">Action</th>}
+              </tr>
+            </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</td></tr>
               ) : postings.length === 0 ? (
                 <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No postings for this date</td></tr>
               ) : postings.map((p, i) => (
-                <tr key={p.id}><td>{i + 1}</td><td className="font-mono">{p.accountNo}</td><td>{p.memberName}</td><td>₹{(p.amount || 0).toLocaleString("en-IN")}</td><td className="capitalize">{p.status}</td><td className="capitalize">{p.payMode}</td></tr>
+                <tr key={p.id}>
+                  <td>{i + 1}</td>
+                  <td className="font-mono">{p.accountNo}</td>
+                  <td>{p.memberName}</td>
+                  <td>₹{(p.amount || 0).toLocaleString("en-IN")}</td>
+                  <td className="capitalize">{p.status}</td>
+                  <td className="capitalize">{p.payMode}</td>
+                  {userData?.role === "super_admin" && (
+                    <td className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-destructive/50 hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeletePosting(p)}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </td>
+                  )}
+                </tr>
               ))}
               {postings.length > 0 && (
                 <tr className="font-bold bg-muted"><td colSpan={3} className="text-right p-3">Total:</td><td className="p-3">₹{totalAmount.toLocaleString("en-IN")}</td><td colSpan={2}></td></tr>

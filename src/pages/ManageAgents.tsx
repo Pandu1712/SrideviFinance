@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, auth } from "@/lib/firebase";
-import { collection, getDocs, query, where, deleteDoc, doc, setDoc, DocumentData } from "firebase/firestore";
+import { collection, getDocs, query, where, deleteDoc, doc, setDoc, updateDoc, DocumentData } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -10,10 +10,18 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Trash2, Plus, UserCog, Mail, Phone, Lock, User, ShieldCheck, ArrowRight, Activity, Smartphone, BadgeCheck } from "lucide-react";
+import { Trash2, Plus, UserCog, Mail, Phone, Lock, User, ShieldCheck, ArrowRight, Activity, Smartphone, BadgeCheck, MapPin, Edit2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { useLine } from "@/contexts/LineContext";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
@@ -21,11 +29,16 @@ import { firebaseConfig } from "@/lib/firebase";
 
 const ManageAgents = () => {
   const { userData, loading: authLoading } = useAuth();
+  const { lines } = useLine();
   const navigate = useNavigate();
   const [agents, setAgents] = useState<DocumentData[]>([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", lineId: "" });
   const [loading, setLoading] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<DocumentData | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", phone: "", lineId: "" });
+  const [updating, setUpdating] = useState(false);
 
   const fetchAgents = async () => {
     if (!userData) return;
@@ -44,6 +57,35 @@ const ManageAgents = () => {
   };
 
   useEffect(() => { fetchAgents(); }, [userData]);
+
+  const handleEditClick = (agent: DocumentData) => {
+    setEditingAgent(agent);
+    setEditForm({ name: agent.name || "", phone: agent.phone || "", lineId: agent.lineId || "" });
+    setEditOpen(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!editForm.name) {
+      toast.error("Agent name is required");
+      return;
+    }
+    setUpdating(true);
+    try {
+      if (!editingAgent?.id) throw new Error("Agent ID is missing");
+      await updateDoc(doc(db, "users", editingAgent.id), {
+        name: editForm.name,
+        phone: editForm.phone,
+        lineId: editForm.lineId,
+      });
+      toast.success("Agent profile updated");
+      setEditOpen(false);
+      fetchAgents();
+    } catch (err) {
+      toast.error("Update failed");
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   const handleCreate = async () => {
     if (!form.name || !form.email || !form.password) {
@@ -64,13 +106,14 @@ const ManageAgents = () => {
         email: form.email,
         phone: form.phone,
         role: "agent",
+        lineId: form.lineId,
         adminId: userData?.uid,
         createdAt: new Date().toISOString(),
       });
 
       toast.success(`Field agent ${form.name} successfully deployed`);
       setOpen(false);
-      setForm({ name: "", email: "", phone: "", password: "" });
+      setForm({ name: "", email: "", phone: "", password: "", lineId: "" });
       fetchAgents();
     } catch (err: any) {
       toast.error(err.message || "Deployment failed");
@@ -155,17 +198,77 @@ const ManageAgents = () => {
                 </div>
               </div>
 
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Line</Label>
+                <Select onValueChange={(v) => setForm(p => ({ ...p, lineId: v }))} value={form.lineId}>
+                  <SelectTrigger className="h-11 finance-input">
+                    <SelectValue placeholder="Select Territory Line" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lines.map((line) => (
+                      <SelectItem key={line.id} value={line.id}>{line.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="bg-amber-50 rounded-xl p-4 border border-amber-100 mt-4">
                 <p className="text-[10px] text-amber-700 font-black uppercase tracking-widest flex items-center gap-2">
-                  <Activity size={12} /> Force Exit Warning
+                  <BadgeCheck size={12} /> Logistic Authority
                 </p>
                 <p className="text-[11px] text-amber-600 font-medium leading-relaxed mt-1">
-                  Firebase security policies will terminate your current session upon new user creation. Be ready to log back in.
+                  Creation will log you out. This agent will only have access to the selected operational line.
                 </p>
               </div>
 
               <Button onClick={handleCreate} className="w-full h-12 bg-accent text-accent-foreground font-black text-lg hover:bg-slate-900 mt-2 shadow-xl border-none" disabled={loading}>
                 {loading ? "Syncing with Vault..." : "Establish Credentials"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className="sm:max-w-[440px] glass-card border-white/20 p-8 shadow-2xl">
+            <DialogHeader className="mb-6 text-center">
+              <div className="h-16 w-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 mx-auto">
+                <Edit2 size={32} className="text-blue-500" />
+              </div>
+              <DialogTitle className="text-2xl font-black text-primary text-center">Modify Personnel</DialogTitle>
+              <DialogDescription className="text-center text-slate-500 font-medium">Update the operational parameters for this agent.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-5">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Agent Full Name</Label>
+                <div className="relative group">
+                   <User className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                   <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="e.g. Rahul Sharma" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Phone Number</Label>
+                <div className="relative group">
+                  <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                  <Input value={editForm.phone} onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="+91 XXXXX XXXXX" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Line</Label>
+                <Select onValueChange={(v) => setEditForm(p => ({ ...p, lineId: v }))} value={editForm.lineId || undefined}>
+                  <SelectTrigger className="h-11 finance-input text-blue-900 border-blue-200 bg-blue-50/30 font-semibold focus:ring-blue-500">
+                    <SelectValue placeholder="Select Territory Line" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lines.map((line) => (
+                      <SelectItem key={line.id} value={line.id}>{line.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button onClick={handleUpdate} className="w-full h-12 bg-blue-600 text-white font-black text-lg hover:bg-blue-700 mt-2 shadow-xl border-none" disabled={updating}>
+                {updating ? "Committing Changes..." : "Update Profile"}
               </Button>
             </div>
           </DialogContent>
@@ -203,6 +306,16 @@ const ManageAgents = () => {
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="space-y-0.5 col-span-2 p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between">
+                      <div>
+                         <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Assigned Territory</p>
+                         <p className="text-xs font-black text-primary">
+                          {lines.find(l => l.id === agent.lineId)?.name || "Unassigned Territory"}
+                         </p>
+                      </div>
+                      <MapPin size={16} className="text-accent/40" />
+                    </div>
+
                     <div className="space-y-0.5">
                       <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Mobile</p>
                       <p className="text-xs font-bold text-slate-600 flex items-center gap-1"><Phone size={10} /> {agent.phone || '-'}</p>
@@ -222,7 +335,10 @@ const ManageAgents = () => {
                       <Button variant="ghost" size="sm" onClick={() => navigate(`/agent-audit/${agent.uid || agent.id}`)} className="h-8 w-8 p-0 text-slate-300 hover:text-accent hover:bg-accent/10" title="View Agent Audit">
                         <Activity size={16} />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(agent.id)} className="h-8 w-8 p-0 text-slate-300 hover:text-destructive hover:bg-destructive/10">
+                      <Button variant="ghost" size="sm" onClick={() => handleEditClick(agent)} className="h-8 w-8 p-0 text-slate-300 hover:text-blue-500 hover:bg-blue-500/10" title="Edit Agent Profile">
+                        <Edit2 size={16} />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(agent.id)} className="h-8 w-8 p-0 text-slate-300 hover:text-destructive hover:bg-destructive/10" title="Revoke Access">
                         <Trash2 size={16} />
                       </Button>
                     </div>

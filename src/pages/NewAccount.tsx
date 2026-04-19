@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc, orderBy, limit } from "firebase/firestore";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,18 +41,17 @@ const accountSchema = z.object({
   bankAccountNumber: z.string().optional(),
   bankIfsc: z.string().optional(),
   commission: z.string().default("0"),
-  agentId: z.string().min(1, "Please assign an agent"),
+  lineId: z.string().min(1, "Please select an operational line"),
 });
 
 type AccountForm = z.infer<typeof accountSchema>;
 
 const NewAccount = () => {
   const { userData } = useAuth();
-  const { selectedLineId } = useLine();
+  const { lines, selectedLineId } = useLine();
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = !!id;
-  const [agents, setAgents] = useState<{ uid: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchingLocation, setFetchingLocation] = useState(false);
 
@@ -165,24 +164,41 @@ const NewAccount = () => {
   }, [id, isEdit, reset]);
 
   useEffect(() => {
-    const fetchAgents = async () => {
-      if (!userData) return;
+    const generateNextAccountNo = async () => {
+      if (isEdit) return;
       try {
-        const adminId = userData.role === "super_admin" ? undefined : userData.uid;
-        let q;
-        if (adminId) {
-          q = query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", adminId));
-        } else {
-          q = query(collection(db, "users"), where("role", "==", "agent"));
-        }
+        const q = query(collection(db, "accounts"), orderBy("accountNo", "desc"), limit(1));
         const snap = await getDocs(q);
-        setAgents(snap.docs.map(d => ({ uid: d.id, name: (d.data() as any).name })));
+        
+        if (snap.empty) {
+          setValue("accountNo", "ACC-001");
+        } else {
+          const lastAccNo = snap.docs[0].data().accountNo;
+          const match = lastAccNo.match(/ACC-(\d+)/);
+          if (match) {
+            const nextNum = parseInt(match[1]) + 1;
+            const paddedNum = String(nextNum).padStart(3, '0');
+            setValue("accountNo", `ACC-${paddedNum}`);
+          } else {
+            // Fallback if format is weird
+            setValue("accountNo", "ACC-001");
+          }
+        }
       } catch (err) {
-        console.error("Error fetching agents:", err);
+        console.error("Error generating account number:", err);
+        setValue("accountNo", "ACC-001"); // Safe default
       }
     };
-    fetchAgents();
-  }, [userData]);
+
+    generateNextAccountNo();
+  }, [userData, isEdit, setValue]);
+
+  // Set default lineId if selectedLineId is present and form doesn't have one
+  useEffect(() => {
+    if (selectedLineId && !isEdit) {
+      setValue("lineId", selectedLineId);
+    }
+  }, [selectedLineId, isEdit, setValue]);
 
   const generatePDF = (data: any) => {
     const doc = new jsPDF();
@@ -305,7 +321,6 @@ const NewAccount = () => {
           balance: total,
           status: "active",
           adminId: userData?.uid,
-          lineId: selectedLineId || "default",
           createdAt: new Date().toISOString(),
         };
         await addDoc(collection(db, "accounts"), newPayload);
@@ -353,9 +368,11 @@ const NewAccount = () => {
                 <Label className="text-sm font-semibold">Account Number *</Label>
                 <Input 
                   {...register("accountNo")} 
-                  className={`finance-input ${errors.accountNo ? "border-destructive" : ""}`}
-                  placeholder="e.g. ACC-1001"
+                  className={`finance-input ${errors.accountNo ? "border-destructive" : ""} ${!isEdit ? "bg-slate-50 font-bold text-primary" : ""}`}
+                  placeholder="ACC-001"
+                  readOnly={!isEdit}
                 />
+                {!isEdit && <p className="text-[10px] text-muted-foreground px-1 italic">Auto-generated unique ID</p>}
                 {errors.accountNo && <p className="text-xs text-destructive mt-1">{errors.accountNo.message}</p>}
               </div>
 
@@ -571,18 +588,22 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Assign Agent *</Label>
-                  <Select onValueChange={(v) => setValue("agentId", v)}>
-                    <SelectTrigger className="finance-input">
-                      <SelectValue placeholder="Select agent" />
+                  <Label className="text-sm font-semibold text-[#0F172A]">Assign Operational Line *</Label>
+                  <Select 
+                    onValueChange={(v) => setValue("lineId", v)} 
+                    value={watch("lineId") || undefined}
+                    disabled={!!selectedLineId} // Lock the selection if already inside a Line Dashboard
+                  >
+                    <SelectTrigger className="finance-input disabled:opacity-50">
+                      <SelectValue placeholder="Select Line" />
                     </SelectTrigger>
                     <SelectContent>
-                      {agents.map(a => (
-                        <SelectItem key={a.uid} value={a.uid}>{a.name}</SelectItem>
+                      {lines.map(line => (
+                        <SelectItem key={line.id} value={line.id}>{line.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {errors.agentId && <p className="text-[10px] text-destructive">{errors.agentId.message}</p>}
+                  {errors.lineId && <p className="text-[10px] text-destructive">{errors.lineId.message}</p>}
                 </div>
               </div>
             </div>

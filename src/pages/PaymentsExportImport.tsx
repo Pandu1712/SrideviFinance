@@ -19,7 +19,7 @@ const PaymentsExportImport = () => {
       let q;
       if (userData.role === "super_admin") q = query(collection(db, "postings"));
       else if (userData.role === "admin") q = query(collection(db, "postings"), where("adminId", "==", userData.uid));
-      else q = query(collection(db, "postings"), where("agentId", "==", userData.uid));
+      else q = query(collection(db, "postings"), where("lineId", "==", userData.lineId || ""));
       const snap = await getDocs(q);
       const list: DocumentData[] = [];
       snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));

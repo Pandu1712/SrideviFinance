@@ -17,6 +17,7 @@ interface UserData {
   name: string;
   role: UserRole;
   adminId?: string; // for agents, the admin they belong to
+  lineId?: string; // the territory line assigned to the agent
 }
 
 interface AuthContextType {

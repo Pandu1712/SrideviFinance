@@ -5,9 +5,20 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { db } from "@/lib/firebase";
-import { collection, addDoc } from "firebase/firestore";
+import { collection, addDoc, deleteDoc, doc, getDocs, query, where, writeBatch } from "firebase/firestore";
 import { toast } from "sonner";
-import { LayoutDashboard, MapPin, Plus, Database, ArrowRight } from "lucide-react";
+import { LayoutDashboard, MapPin, Plus, Database, ArrowRight, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 /**
  * MEGA-STABLE Line Selection Page
@@ -21,6 +32,7 @@ const LineSelection = () => {
   const [newLineName, setNewLineName] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
 
   // Safety Redirect for Agents
   useEffect(() => {
@@ -54,6 +66,41 @@ const LineSelection = () => {
       setShowCreate(false);
     } catch (err) {
       toast.error("Failed to establish line");
+    }
+  };
+
+  const handleDeleteLine = async (id: string) => {
+    setDeletingLineId(id);
+    try {
+      // 1. Fetch all associated accounts
+      const accountsQuery = query(collection(db, "accounts"), where("lineId", "==", id));
+      const accountsSnapshot = await getDocs(accountsQuery);
+      
+      // 2. Fetch all associated postings
+      const postingsQuery = query(collection(db, "postings"), where("lineId", "==", id));
+      const postingsSnapshot = await getDocs(postingsQuery);
+      
+      // 3. Consolidate all documents for batch deletion
+      const allDocs = [
+        ...postingsSnapshot.docs,
+        ...accountsSnapshot.docs,
+        { ref: doc(db, "lines", id) } // Include the line itself
+      ];
+
+      // 4. Execute deletion in batches of 500 (Firestore limit)
+      for (let i = 0; i < allDocs.length; i += 500) {
+        const batch = writeBatch(db);
+        const chunk = allDocs.slice(i, i + 500);
+        chunk.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+
+      toast.success("Operational Line & Associated Data Purged");
+    } catch (err) {
+      console.error("Delete Error:", err);
+      toast.error("Failed to decommissioning line");
+    } finally {
+      setDeletingLineId(null);
     }
   };
 
@@ -106,20 +153,54 @@ const LineSelection = () => {
 
             {/* Dynamic Lines */}
             {lines.map((line) => (
-              <button
-                key={line.id}
-                onClick={() => handleSelection(line.id)}
-                className="group p-8 rounded-3xl bg-slate-800/50 border border-white/5 hover:border-amber-500 hover:bg-slate-800 transition-all text-left relative flex flex-col gap-6"
-              >
-                <div className="h-12 w-12 bg-slate-700 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-amber-500/10 group-hover:text-amber-500 transition-all">
-                  <MapPin size={24} />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black truncate pr-4">{line.name}</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Regional Operative</p>
-                </div>
-                <ArrowRight className="absolute bottom-8 right-8 text-slate-700 group-hover:text-amber-500 group-hover:translate-x-1 transition-all" size={18} />
-              </button>
+              <div key={line.id} className="relative group">
+                <button
+                  disabled={!!deletingLineId}
+                  onClick={() => handleSelection(line.id)}
+                  className={`w-full p-8 rounded-3xl bg-slate-800/50 border border-white/5 hover:border-amber-500 hover:bg-slate-800 transition-all text-left relative flex flex-col gap-6 ${deletingLineId === line.id ? 'opacity-50 grayscale' : ''}`}
+                >
+                  <div className="h-12 w-12 bg-slate-700 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-amber-500/10 group-hover:text-amber-500 transition-all">
+                    {deletingLineId === line.id ? <div className="h-5 w-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" /> : <MapPin size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black truncate pr-12">{line.name}</h3>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                      {deletingLineId === line.id ? 'Decommissioning Data...' : 'Regional Operative'}
+                    </p>
+                  </div>
+                  {!deletingLineId && <ArrowRight className="absolute bottom-8 right-8 text-slate-700 group-hover:text-amber-500 group-hover:translate-x-1 transition-all" size={18} />}
+                </button>
+
+                {(userData?.role === "super_admin" || userData?.role === "admin") && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button 
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute top-8 right-8 p-2 rounded-lg bg-slate-700/50 text-slate-400 hover:bg-red-500/20 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="bg-slate-900 border-white/10 text-white">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-xl font-black italic">CONFIRM DECOMMISSIONING?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-slate-400 font-bold">
+                          You are about to permanently remove <span className="text-amber-500">{line.name}</span> from the active operative landscape. This action is irreversible.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="bg-slate-800 border-white/5 text-white hover:bg-slate-700">ABORT</AlertDialogCancel>
+                        <AlertDialogAction 
+                          onClick={() => handleDeleteLine(line.id)}
+                          className="bg-red-600 hover:bg-red-700 text-white font-black"
+                        >
+                          PROCEED WITH DELETE
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
             ))}
 
             {/* New Line */}

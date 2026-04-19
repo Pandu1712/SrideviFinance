@@ -34,8 +34,8 @@ const WeeklyLineA4 = () => {
         accQ = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
         postQ = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", ">=", startDate), where("date", "<=", endDate));
       } else {
-        accQ = query(collection(db, "accounts"), where("agentId", "==", userData.uid));
-        postQ = query(collection(db, "postings"), where("agentId", "==", userData.uid), where("date", ">=", startDate), where("date", "<=", endDate));
+        accQ = query(collection(db, "accounts"), where("lineId", "==", userData.lineId || ""));
+        postQ = query(collection(db, "postings"), where("lineId", "==", userData.lineId || ""), where("date", ">=", startDate), where("date", "<=", endDate));
       }
 
       if (selectedLineId) {

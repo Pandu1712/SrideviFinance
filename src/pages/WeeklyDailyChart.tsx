@@ -23,7 +23,7 @@ const WeeklyDailyChart = () => {
       let q;
       if (userData.role === "super_admin") q = query(collection(db, "postings"), where("date", ">=", startDate), where("date", "<=", endDate));
       else if (userData.role === "admin") q = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", ">=", startDate), where("date", "<=", endDate));
-      else q = query(collection(db, "postings"), where("agentId", "==", userData.uid), where("date", ">=", startDate), where("date", "<=", endDate));
+      else q = query(collection(db, "postings"), where("lineId", "==", userData.lineId || ""), where("date", ">=", startDate), where("date", "<=", endDate));
       try {
         const snap = await getDocs(q);
         const list: DocumentData[] = [];

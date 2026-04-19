@@ -194,19 +194,29 @@ const AppSidebar = () => {
   return (
     <>
       {/* Mobile Interaction Bar */}
-      <div className="lg:hidden fixed top-0 left-0 w-full h-20 bg-[#0F172A] border-b border-white/5 flex items-center px-6 z-40 shadow-2xl">
-        <button
-          className="p-3 -ml-3 text-slate-400 hover:text-white active:scale-95 transition-all"
-          onClick={() => setMobileOpen(true)}
-        >
-          <Menu size={28} />
-        </button>
-        <div className="ml-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-accent-gradient flex items-center justify-center shadow-lg">
-            <IndianRupee className="h-5 w-5 text-white" />
+      <div className="lg:hidden fixed top-0 left-0 w-full h-20 bg-[#0F172A] border-b border-white/5 flex items-center justify-between px-6 z-40 shadow-2xl">
+        <div className="flex items-center">
+          <button
+            className="p-3 -ml-3 text-slate-400 hover:text-white active:scale-95 transition-all"
+            onClick={() => setMobileOpen(true)}
+          >
+            <Menu size={28} />
+          </button>
+          <div className="ml-2 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-accent-gradient flex items-center justify-center shadow-lg">
+              <IndianRupee className="h-5 w-5 text-white" />
+            </div>
+            <span className="font-black text-white text-lg tracking-tighter hidden sm:inline-block">Sridevi Finance</span>
+            <span className="font-black text-white text-lg tracking-tighter sm:hidden">Sridevi</span>
           </div>
-          <span className="font-black text-white text-lg tracking-tighter">Sridevi Finance</span>
         </div>
+        
+        <button
+          onClick={handleLogout}
+          className="flex items-center justify-center h-10 w-10 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm"
+        >
+          <LogOut size={18} />
+        </button>
       </div>
 
       <AnimatePresence>

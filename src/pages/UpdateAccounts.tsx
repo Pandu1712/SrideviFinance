@@ -54,7 +54,7 @@ const UpdateAccounts = () => {
         q = query(accountsRef, where("adminId", "==", userData.uid));
         if (selectedLineId) q = query(q, where("lineId", "==", selectedLineId));
       } else {
-        q = query(accountsRef, where("agentId", "==", userData.uid));
+        q = query(accountsRef, where("lineId", "==", userData.lineId || ""));
         if (selectedLineId) q = query(q, where("lineId", "==", selectedLineId));
       }
       const snap = await getDocs(q);

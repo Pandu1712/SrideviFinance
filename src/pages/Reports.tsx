@@ -36,7 +36,7 @@ const Reports = () => {
       } else if (userData?.role === "admin") {
         q = query(collection(db, "postings"), where("date", "==", selectedDate), where("adminId", "==", userData.uid));
       } else {
-        q = query(collection(db, "postings"), where("date", "==", selectedDate), where("agentId", "==", userData.uid));
+        q = query(collection(db, "postings"), where("date", "==", selectedDate), where("lineId", "==", userData.lineId || ""));
       }
 
       if (selectedLineId) {

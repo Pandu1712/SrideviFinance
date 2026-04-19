@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where, DocumentData, orderBy, doc, runTransaction } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown } from "lucide-react";
+import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +43,46 @@ const Ledger = () => {
     if (userData && accountNo) handleSearch();
   }, [userData]);
 
+  const handleDeletePosting = async (posting: DocumentData) => {
+    if (userData?.role !== "super_admin") return;
+    if (!window.confirm(`Are you sure you want to delete this payment of ${formatCurrency(posting.amount)}? The member's balance will be REVERSED (increased).`)) return;
+
+    setLoading(true);
+    try {
+      const accountRef = doc(db, "accounts", posting.accountId);
+      const postingRef = doc(db, "postings", posting.id);
+
+      await runTransaction(db, async (transaction) => {
+        const accDoc = await transaction.get(accountRef);
+        if (!accDoc.exists()) throw new Error("Account not found");
+
+        const accData = accDoc.data();
+        const postingAmount = posting.amount || 0;
+        
+        // Reversal logic
+        const newPaid = (accData.paid || 0) - postingAmount;
+        const newBalance = (accData.balance || 0) + postingAmount;
+        const newStatus = newBalance > 0 ? "active" : "completed";
+
+        transaction.update(accountRef, {
+          paid: newPaid,
+          balance: newBalance,
+          status: newStatus
+        });
+
+        transaction.delete(postingRef);
+      });
+
+      toast.success("Transaction deleted and balance reconciled.");
+      handleSearch(); // Refresh data
+    } catch (err: any) {
+      console.error("Delete Posting Error:", err);
+      toast.error("Failed to delete transaction: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSearch = async () => {
     if (!accountNo || !userData) return;
     setLoading(true);
@@ -54,7 +94,7 @@ const Ledger = () => {
         q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("adminId", "==", userData.uid));
       } else {
         // Agent role
-        q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("agentId", "==", userData.uid));
+        q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("lineId", "==", userData.lineId || ""));
       }
 
       if (selectedLineId) {
@@ -75,12 +115,13 @@ const Ledger = () => {
       // Fetch all postings for this account, sorted by date
       const pq = query(
         collection(db, "postings"), 
-        where("accountId", "==", acc.id),
-        orderBy("date", "asc")
+        where("accountId", "==", acc.id)
       );
       
       const pSnap = await getDocs(pq);
       const posts: DocumentData[] = pSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      // Sort locally to avoid index requirement
+      posts.sort((a, b) => (a.date > b.date ? 1 : -1));
       setPostings(posts);
       toast.success("Ledger generated successfully");
     } catch (err) {
@@ -267,6 +308,9 @@ const Ledger = () => {
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Running Total</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Payment Mode</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-center">Status</th>
+                      {userData?.role === "super_admin" && (
+                        <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Delete</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-primary/5">
@@ -302,6 +346,18 @@ const Ledger = () => {
                                 {p.status}
                               </span>
                             </td>
+                            {userData?.role === "super_admin" && (
+                              <td className="p-4 text-right">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-destructive/50 hover:text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDeletePosting(p)}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              </td>
+                            )}
                           </motion.tr>
                         );
                       })

@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { deleteDoc, doc, updateDoc, writeBatch } from "firebase/firestore";
 import { toast } from "sonner";
 
 const Members = () => {
@@ -38,7 +38,7 @@ const Members = () => {
           q = query(accountsRef, where("adminId", "==", userData.uid));
           if (selectedLineId) q = query(q, where("lineId", "==", selectedLineId));
         } else {
-          q = query(accountsRef, where("agentId", "==", userData.uid));
+          q = query(accountsRef, where("lineId", "==", userData.lineId || ""));
           if (selectedLineId) q = query(q, where("lineId", "==", selectedLineId));
         }
         
@@ -56,12 +56,22 @@ const Members = () => {
   }, [userData, selectedLineId]);
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Are you absolutely sure you want to delete ${name}'s account? This cannot be undone.`)) return;
+    if (!window.confirm(`Are you absolutely sure you want to delete ${name}'s account? This will also purge ALL transaction history for this member. This cannot be undone.`)) return;
     
     try {
-      await deleteDoc(doc(db, "accounts", id));
+      // 1. Fetch all postings for this account
+      const postingsQuery = query(collection(db, "postings"), where("accountId", "==", id));
+      const postingsSnapshot = await getDocs(postingsQuery);
+      
+      // 2. Batch delete postings and account
+      const batch = writeBatch(db);
+      postingsSnapshot.forEach(d => batch.delete(d.ref));
+      batch.delete(doc(db, "accounts", id));
+      
+      await batch.commit();
+      
       setMembers(prev => prev.filter(m => m.id !== id));
-      toast.success("Account permanently deleted.");
+      toast.success("Account and transaction history purged.");
     } catch (err: any) {
       toast.error("Failed to delete account: " + err.message);
     }

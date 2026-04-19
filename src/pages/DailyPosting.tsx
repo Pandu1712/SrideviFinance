@@ -40,7 +40,7 @@ const DailyPosting = () => {
       try {
         let q;
         if (userData.role === 'agent') {
-          q = query(collection(db, "accounts"), where("agentId", "==", userData.uid));
+          q = query(collection(db, "accounts"), where("lineId", "==", userData.lineId || ""));
         } else {
           q = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
         }
@@ -80,7 +80,7 @@ const DailyPosting = () => {
       let q;
       // Role-based account access
       if (userData?.role === "agent") {
-        q = query(collection(db, "accounts"), where("accountNo", "==", form.accountNo), where("agentId", "==", userData.uid));
+        q = query(collection(db, "accounts"), where("accountNo", "==", form.accountNo), where("lineId", "==", userData.lineId || ""));
       } else if (userData?.role === "admin") {
         q = query(collection(db, "accounts"), where("accountNo", "==", form.accountNo), where("adminId", "==", userData.uid));
       } else {

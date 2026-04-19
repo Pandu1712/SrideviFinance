@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment } from "firebase/firestore";
+import { collection, getDocs, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Smartphone, Edit3, Navigation, PhoneCall, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap } from "lucide-react";
+import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Smartphone, Edit3, Navigation, PhoneCall, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -46,12 +46,12 @@ const DailyCollection = () => {
     if (!userData || userData.role !== "agent") return;
     setLoading(true);
     try {
-      const custQuery = query(collection(db, "accounts"), where("agentId", "==", userData.uid));
+      const custQuery = query(collection(db, "accounts"), where("lineId", "==", userData.lineId || ""));
       const custSnap = await getDocs(custQuery);
       const custData = custSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       setCustomers(custData);
       
-      const postQuery = query(collection(db, "postings"), where("agentId", "==", userData.uid));
+      const postQuery = query(collection(db, "postings"), where("lineId", "==", userData.lineId || ""));
       const postSnap = await getDocs(postQuery);
       const postMap: Record<string, Record<string, any>> = {};
       
@@ -67,6 +67,47 @@ const DailyCollection = () => {
     } catch (err) {
       console.error(err);
       toast.error("Sync Error. Please Check Internet.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeletePosting = async (posting: DocumentData) => {
+    if (userData?.role !== "super_admin") return;
+    if (!window.confirm(`Are you sure you want to delete this payment of ${formatCurrency(posting.amount)}? The member's balance will be REVERSED (increased).`)) return;
+
+    setLoading(true);
+    try {
+      const accountRef = doc(db, "accounts", posting.accountId);
+      const postingRef = doc(db, "postings", posting.id);
+
+      await runTransaction(db, async (transaction) => {
+        const accDoc = await transaction.get(accountRef);
+        if (!accDoc.exists()) throw new Error("Account not found");
+
+        const accData = accDoc.data();
+        const postingAmount = posting.amount || 0;
+        const principalAmount = posting.principal || (postingAmount - (posting.lateFee || 0));
+        
+        // Reversal logic
+        const newPaid = (accData.paid || 0) - postingAmount;
+        const newBalance = (accData.balance || 0) + principalAmount;
+        const newStatus = newBalance > 0 ? "active" : "completed";
+
+        transaction.update(accountRef, {
+          paid: newPaid,
+          balance: newBalance,
+          status: newStatus
+        });
+
+        transaction.delete(postingRef);
+      });
+
+      toast.success("Transaction deleted and balance reconciled.");
+      handleSearch(); // Refresh admin records
+    } catch (err: any) {
+      console.error("Delete Posting Error:", err);
+      toast.error("Failed to delete transaction: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -509,6 +550,9 @@ const DailyCollection = () => {
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Mode</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Verify ID</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-center">Audit</th>
+                {userData?.role === "super_admin" && (
+                  <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Delete</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -521,6 +565,18 @@ const DailyCollection = () => {
                   <td className="p-5"><Badge className="bg-slate-100 text-slate-600 border-none font-black text-[9px] uppercase tracking-widest">{r.payMode}</Badge></td>
                   <td className="p-5"><span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">{r.digiPayer || '—'}</span></td>
                   <td className="p-5 text-center"><Badge variant="outline" className="text-slate-400 text-[9px] font-black uppercase">{r.status}</Badge></td>
+                  {userData?.role === "super_admin" && (
+                    <td className="p-5 text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-slate-300 hover:text-destructive hover:bg-destructive/5"
+                        onClick={() => handleDeletePosting(r)}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

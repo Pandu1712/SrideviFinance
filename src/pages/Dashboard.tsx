@@ -170,7 +170,12 @@ const Dashboard = () => {
         });
 
       } else if (userData.role === "agent") {
-        unsubscribeAccounts = onSnapshot(query(collection(db, "accounts"), where("agentId", "==", userData.uid)), (snapshot) => {
+        if (!userData.lineId) {
+           console.error("Agent lacks lineId assignment");
+           setLoading(false);
+           return;
+        }
+        unsubscribeAccounts = onSnapshot(query(collection(db, "accounts"), where("lineId", "==", userData.lineId)), (snapshot) => {
            let pendingCount = 0;
            snapshot.forEach(d => { if (d.data().balance > 0) pendingCount++; });
            setStats(prev => ({ ...prev, assignedAccounts: snapshot.size, pendingAccounts: pendingCount }));
@@ -179,7 +184,7 @@ const Dashboard = () => {
           setLoading(false);
         });
 
-        unsubscribePostings = onSnapshot(query(collection(db, "postings"), where("agentId", "==", userData.uid)), (snapshot) => {
+        unsubscribePostings = onSnapshot(query(collection(db, "postings"), where("lineId", "==", userData.lineId)), (snapshot) => {
            let todayCol = 0;
            snapshot.forEach(d => { if (d.data().date === todayStr) todayCol += d.data().amount || 0; });
            const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);

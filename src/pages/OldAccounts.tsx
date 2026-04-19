@@ -21,7 +21,7 @@ const OldAccounts = () => {
       let q;
       if (userData.role === "super_admin") q = query(collection(db, "accounts"), where("status", "==", "completed"));
       else if (userData.role === "admin") q = query(collection(db, "accounts"), where("adminId", "==", userData.uid), where("status", "==", "completed"));
-      else q = query(collection(db, "accounts"), where("agentId", "==", userData.uid), where("status", "==", "completed"));
+      else q = query(collection(db, "accounts"), where("lineId", "==", userData.lineId || ""), where("status", "==", "completed"));
       try {
         const snap = await getDocs(q);
         const list: DocumentData[] = [];
