@@ -38,8 +38,10 @@ export const LineProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Line));
       setLines(list);
       setLoadingLines(false);
+    }, (error) => {
+      console.error("Line fetch failed:", error);
+      setLoadingLines(false); // Stop loading even if it fails
     });
-    return unsub;
   }, []);
 
   const setSelectedLineId = (id: string | null) => {
