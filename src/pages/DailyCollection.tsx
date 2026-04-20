@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import { generateRepaymentSchedule, getGoogleMapsUrl } from "@/lib/loanUtils";
 const DailyCollection = () => {
   const navigate = useNavigate();
   const { userData } = useAuth();
+  const { lines } = useLine();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [records, setRecords] = useState<DocumentData[]>([]);
   const [customers, setCustomers] = useState<DocumentData[]>([]);
@@ -35,6 +37,13 @@ const DailyCollection = () => {
   const [digiPayer, setDigiPayer] = useState("");
   const [lateFee, setLateFee] = useState("");
   const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // Admin Override States
+  const [overrideModalOpen, setOverrideModalOpen] = useState(false);
+  const [adminCustomerSearch, setAdminCustomerSearch] = useState("");
+  const [allAccounts, setAllAccounts] = useState<any[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [selectedAdminCustomer, setSelectedAdminCustomer] = useState<any>(null);
 
   const gridDates = Array.from({ length: 5 }, (_, i) => {
     const d = new Date();
@@ -187,7 +196,8 @@ const DailyCollection = () => {
           adminId: activeCustomer?.adminId || "",
           lineId: activeCustomer?.lineId || "default",
           timestamp: serverTimestamp(),
-          status: 'COLLECTION'
+          status: 'COLLECTION',
+          collectedByRole: userData?.role || 'agent'
         };
 
         await addDoc(collection(db, "postings"), postingData);
@@ -224,6 +234,74 @@ const DailyCollection = () => {
     } catch (err) {
       console.error(err);
       toast.error("Recovery failed to sync");
+    } finally { setSubmitting(false); }
+  };
+
+  const openOverrideModal = async () => {
+    setOverrideModalOpen(true);
+    setPayDate(new Date().toISOString().split("T")[0]);
+    if (allAccounts.length === 0) {
+      setLoadingAccounts(true);
+      try {
+        const snap = await getDocs(query(collection(db, "accounts"), where("status", "==", "active")));
+        setAllAccounts(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      } catch (err) {
+        toast.error("Failed to fetch accounts");
+      } finally {
+        setLoadingAccounts(false);
+      }
+    }
+  };
+
+  const adminSubmitOverride = async () => {
+    if (!selectedAdminCustomer) return;
+    const amountNum = parseFloat(payAmount);
+    const lateFeeNum = parseFloat(lateFee) || 0;
+    const principalAmount = amountNum - lateFeeNum;
+
+    if (isNaN(amountNum) || amountNum < 0) {
+      toast.error("Invalid Amount");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const postingData = {
+        accountId: selectedAdminCustomer.id,
+        accountNo: selectedAdminCustomer.accountNo,
+        memberName: selectedAdminCustomer.memberName || selectedAdminCustomer.name,
+        amount: amountNum,
+        principal: principalAmount,
+        lateFee: lateFeeNum,
+        digiPayer: payMode === 'online' ? digiPayer : '',
+        date: payDate,
+        payMode: payMode,
+        agentId: selectedAdminCustomer.agentId || userData?.uid || "",
+        adminId: userData?.uid || "",
+        lineId: selectedAdminCustomer.lineId || "default",
+        timestamp: serverTimestamp(),
+        status: 'COLLECTION',
+        collectedByRole: 'super_admin'
+      };
+
+      await addDoc(collection(db, "postings"), postingData);
+      
+      const accountRef = doc(db, "accounts", selectedAdminCustomer.id);
+      await updateDoc(accountRef, {
+        paid: increment(amountNum),
+        balance: increment(-principalAmount),
+        status: ((selectedAdminCustomer.balance || 0) - principalAmount) > 0 ? "active" : "completed"
+      });
+
+      toast.success(`Success ₹${amountNum} for ${selectedAdminCustomer.memberName}`);
+      setOverrideModalOpen(false);
+      setSelectedAdminCustomer(null);
+      setPayAmount("");
+      setLateFee("");
+      setDigiPayer("");
+      handleSearch(); // Refresh admin list
+    } catch (err) {
+      toast.error("Failed to manual post");
     } finally { setSubmitting(false); }
   };
 
@@ -307,9 +385,10 @@ const DailyCollection = () => {
                         {gridDates.map(d => {
                           const post = postings[c.id]?.[d];
                           const isToday = d === new Date().toISOString().split("T")[0];
+                          const isSuperAdminCollected = post?.collectedByRole === 'super_admin';
                           return (
-                            <div key={d} className={`h-7 w-7 rounded-lg flex items-center justify-center text-[7px] font-black border transition-all ${post ? 'bg-emerald-500 border-emerald-400 text-white' : isToday ? 'bg-amber-50 border-amber-300 text-amber-600' : 'bg-slate-50 border-slate-100 text-slate-200'}`}>
-                               {d.slice(8, 10)}
+                            <div key={d} className={`h-7 w-7 rounded-lg flex items-center justify-center text-[7px] font-black border transition-all ${isSuperAdminCollected ? 'bg-indigo-500 border-indigo-400 text-white' : post ? 'bg-emerald-500 border-emerald-400 text-white' : isToday ? 'bg-amber-50 border-amber-300 text-amber-600' : 'bg-slate-50 border-slate-100 text-slate-200'}`}>
+                               {isSuperAdminCollected ? <Zap size={8} /> : d.slice(8, 10)}
                             </div>
                           );
                         })}
@@ -412,17 +491,25 @@ const DailyCollection = () => {
                           const isSettled = (activeCustomer.balance || 0) <= 0;
 
                           return (
-                            <div key={d} onClick={() => !post && !isSettled && handleCellClick(activeCustomer, d)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${post ? 'bg-emerald-50 border-emerald-100' : isToday && !isSettled ? 'bg-[#5f259f]/5 border-[#5f259f]/10' : 'bg-white border-slate-50'}`}>
-                               <div className={`h-8 w-8 shrink-0 rounded-lg flex items-center justify-center font-black text-[9px] ${post ? 'bg-emerald-500 text-white' : isToday && !isSettled ? 'bg-[#5f259f] text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}>{d.slice(8, 10)}</div>
-                               <div className="flex-1">
-                                  <p className="text-[12px] font-black text-slate-900 leading-none">₹{post ? post.amount : activeCustomer.installmentAmount}</p>
-                                  <p className="text-[7px] font-bold text-slate-400 uppercase mt-0.5">{formatDate(d)} • Plan #{i+1}</p>
-                               </div>
-                               <div className="text-right">
-                                  {post ? <Check size={12} className="text-emerald-500" /> : isSettled ? <div className="px-2 py-0.5 rounded-md text-[6px] font-black uppercase bg-emerald-50 text-emerald-500 border border-emerald-100 italic">SETTLED</div> : <div className={`px-2 py-0.5 rounded-md text-[6px] font-black uppercase ${isToday ? 'bg-primary text-white' : 'bg-slate-50 text-slate-300'}`}>{isToday ? 'COLLECT' : 'PLAN'}</div>}
-                               </div>
-                            </div>
-                          );
+                             <div key={d} onClick={() => !post && !isSettled && handleCellClick(activeCustomer, d)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${post?.collectedByRole === 'super_admin' ? 'bg-indigo-50 border-indigo-100' : post ? 'bg-emerald-50 border-emerald-100' : isToday && !isSettled ? 'bg-[#5f259f]/5 border-[#5f259f]/10' : 'bg-white border-slate-50'}`}>
+                                <div className={`h-8 w-8 shrink-0 rounded-lg flex items-center justify-center font-black text-[9px] ${post?.collectedByRole === 'super_admin' ? 'bg-indigo-500 text-white' : post ? 'bg-emerald-500 text-white' : isToday && !isSettled ? 'bg-[#5f259f] text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
+                                   {post?.collectedByRole === 'super_admin' ? <Zap size={12} /> : d.slice(8, 10)}
+                                </div>
+                                <div className="flex-1">
+                                   <p className="text-[12px] font-black text-slate-900 leading-none">₹{post ? post.amount : activeCustomer.installmentAmount}</p>
+                                   <p className="text-[7px] font-bold text-slate-400 uppercase mt-0.5">{formatDate(d)} • Plan #{i+1}</p>
+                                </div>
+                                <div className="text-right">
+                                   {post ? (
+                                      post.collectedByRole === 'super_admin' ? (
+                                         <div className="px-2 py-0.5 rounded-md text-[6px] font-black uppercase bg-indigo-50 text-indigo-500 border border-indigo-200 italic mt-1">ADMIN RECEIVED</div>
+                                      ) : (
+                                         <Check size={12} className="text-emerald-500 mt-1" />
+                                      )
+                                   ) : isSettled ? <div className="px-2 py-0.5 rounded-md text-[6px] font-black uppercase bg-emerald-50 text-emerald-500 border border-emerald-100 italic mt-1">SETTLED</div> : <div className={`px-2 py-0.5 rounded-md text-[6px] font-black uppercase mt-1 ${isToday ? 'bg-primary text-white' : 'bg-slate-50 text-slate-300'}`}>{isToday ? 'COLLECT' : 'PLAN'}</div>}
+                                </div>
+                             </div>
+                           );
                        })}
                     </div>
                  </div>
@@ -529,8 +616,11 @@ const DailyCollection = () => {
           <div><h1 className="text-3xl font-extrabold tracking-tight text-[#5f259f] uppercase italic">Recovery Intelligence</h1><p className="text-muted-foreground font-medium">Global session auditing matrix.</p></div>
         </div>
         <div className="flex items-center gap-3">
+          {(userData?.role === "super_admin" || userData?.role === "admin") && (
+             <Button onClick={openOverrideModal} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg h-11 px-6 font-bold uppercase tracking-widest text-[10px]"><Zap size={14} className="mr-2" /> Manual Override</Button>
+          )}
           <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-11 w-44 glass-card border-none shadow-sm font-bold text-[#5f259f]" />
-          <Button onClick={handleSearch} className="bg-[#5f259f] text-white h-11 px-6 shadow-lg" disabled={loading}>{loading ? "Syncing..." : "Sync Matrix"}</Button>
+          <Button onClick={handleSearch} className="bg-[#5f259f] hover:bg-[#4a1c7c] text-white h-11 px-6 shadow-lg font-bold" disabled={loading}>{loading ? "Syncing..." : "Sync Matrix"}</Button>
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -583,6 +673,124 @@ const DailyCollection = () => {
           </table>
         </CardContent>
       </Card>
+        
+        {/* Administrator Manual Override Modal */}
+        <AnimatePresence>
+          {overrideModalOpen && (
+            <div className="fixed inset-0 z-[20000] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOverrideModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative bg-white rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-lg z-10 max-h-[90vh] overflow-y-auto no-scrollbar">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600"><Zap size={20} /></div>
+                    <div>
+                      <h3 className="font-black text-xl italic uppercase tracking-tight text-slate-900">Manual Override</h3>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Admin Collection Gateway</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setOverrideModalOpen(false)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition-all"><X size={20} /></button>
+                </div>
+                
+                <div className="space-y-6">
+                  {/* Customer Search */}
+                  {!selectedAdminCustomer ? (
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-3.5 text-slate-400 h-5 w-5" />
+                        <Input 
+                          placeholder="Search Members..." 
+                          value={adminCustomerSearch}
+                          onChange={(e) => setAdminCustomerSearch(e.target.value)}
+                          className="pl-10 h-12 rounded-xl text-sm font-bold bg-slate-50 border-slate-200"
+                        />
+                      </div>
+                      <div className="space-y-2 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                         {loadingAccounts ? (
+                           <div className="flex justify-center p-4"><div className="animate-spin h-5 w-5 border-2 border-indigo-600 border-t-transparent rounded-full" /></div>
+                         ) : 
+                           allAccounts.filter(c => 
+                             (c.memberName?.toLowerCase().includes(adminCustomerSearch.toLowerCase()) || 
+                              c.accountNo?.toLowerCase().includes(adminCustomerSearch.toLowerCase()))
+                           ).slice(0, 50).map(c => (
+                             <div 
+                               key={c.id} 
+                               onClick={() => {
+                                 setSelectedAdminCustomer(c);
+                                 setPayAmount(String(c.installmentAmount || ''));
+                               }} 
+                               className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm flex justify-between items-center cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all"
+                             >
+                               <div>
+                                 <h4 className="font-black text-sm text-slate-900 uppercase">{c.memberName || c.name}</h4>
+                                 <p className="text-[10px] font-bold text-slate-500">ACC: {c.accountNo} • LINE: {lines.find((l:any) => l.id === c.lineId)?.name || c.lineId}</p>
+                               </div>
+                               <Badge className="bg-emerald-50 text-emerald-600 border-none">₹{c.balance}</Badge>
+                             </div>
+                           ))
+                         }
+                      </div>
+                    </div>
+                  ) : (
+                    // Payment Form
+                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-5">
+                      <div className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border border-slate-100">
+                        <div>
+                           <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Selected Member</p>
+                           <h4 className="font-black text-lg text-slate-900 leading-none uppercase">{selectedAdminCustomer.memberName}</h4>
+                           <p className="text-xs font-bold text-indigo-500 mt-1">{selectedAdminCustomer.accountNo}</p>
+                        </div>
+                        <button onClick={() => setSelectedAdminCustomer(null)} className="text-xs font-bold text-rose-500 underline uppercase">Change</button>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="text-center bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                          <p className="text-[9px] font-black uppercase text-indigo-400 tracking-[0.2em] mb-2">RECOVERY AMOUNT</p>
+                          <input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="bg-transparent border-none text-4xl font-black text-indigo-700 focus:outline-none w-full text-center tabular-nums" />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <Label className="text-[9px] font-black uppercase text-slate-500">Date</Label>
+                            <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="h-11 rounded-xl bg-slate-50 uppercase text-xs font-bold" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[9px] font-black uppercase text-slate-500">Mode</Label>
+                            <div className="flex gap-2">
+                               <button onClick={() => setPayMode('cash')} className={`flex-1 h-11 rounded-xl flex items-center justify-center gap-1.5 border transition-all ${payMode === 'cash' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
+                                  <Banknote size={14} /> <span className="text-[9px] font-black">CASH</span>
+                               </button>
+                               <button onClick={() => setPayMode('online')} className={`flex-1 h-11 rounded-xl flex items-center justify-center gap-1.5 border transition-all ${payMode === 'online' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
+                                  <CreditCard size={14} /> <span className="text-[9px] font-black">DIGI</span>
+                               </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <Label className="text-[9px] font-black uppercase text-slate-500">Late Fee</Label>
+                            <Input type="number" placeholder="₹0" value={lateFee} onChange={(e) => setLateFee(e.target.value)} className="h-11 rounded-xl bg-orange-50 border-orange-100 text-orange-600 font-bold" />
+                          </div>
+                          {payMode === 'online' && (
+                            <div className="space-y-1.5">
+                              <Label className="text-[9px] font-black uppercase text-slate-500">Receiver Name</Label>
+                              <Input type="text" placeholder="Digital ID" value={digiPayer} onChange={(e) => setDigiPayer(e.target.value)} className="h-11 rounded-xl bg-indigo-50 border-indigo-100 text-indigo-600 font-bold uppercase" />
+                            </div>
+                          )}
+                        </div>
+
+                        <Button disabled={submitting} onClick={adminSubmitOverride} className="w-full h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xl shadow-indigo-600/20 font-black uppercase tracking-widest text-sm flex items-center gap-2">
+                          {submitting ? <RefreshCw className="animate-spin h-5 w-5" /> : <><CheckCircle2 size={18} /> CONFIRM OVERRIDE</>}
+                        </Button>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
     </motion.div>
   );
 };
