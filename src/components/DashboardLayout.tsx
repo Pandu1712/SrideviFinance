@@ -16,8 +16,8 @@ const DashboardLayout = () => {
   };
   
   // Logic: Mandatory Selection Step
-  // Redirect to selection page if no line is selected for high-level roles and we aren't already there
-  if ((userData?.role === 'super_admin' || userData?.role === 'admin') && !selectedLineId && !hasSelectedOnce) {
+  // Redirect to selection page if no line is selected and we aren't already there
+  if (!selectedLineId && !hasSelectedOnce) {
      return <Navigate to="/select-line" replace />;
   }
 

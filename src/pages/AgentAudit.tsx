@@ -23,12 +23,15 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLine } from "@/contexts/LineContext";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
 const AgentAudit = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { selectedLineId } = useLine();
   const [agent, setAgent] = useState<DocumentData | null>(null);
   const [assignedCustomers, setAssignedCustomers] = useState<DocumentData[]>([]);
   const [postings, setPostings] = useState<DocumentData[]>([]);
@@ -42,21 +45,29 @@ const AgentAudit = () => {
         // 1. Fetch Agent Profile
         const agentDoc = await getDoc(doc(db, "users", id));
         if (agentDoc.exists()) {
-          setAgent({ id: agentDoc.id, ...agentDoc.data() });
+          setAgent({ id: agentDoc.id, ...agentDoc.data() as any });
         }
 
-        // 2. Fetch Assigned Customers
-        const custQ = query(collection(db, "accounts"), where("agentId", "==", id));
-        const custSnap = await getDocs(custQ);
-        setAssignedCustomers(custSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        // 2. Fetch Assigned Customers (Strictly for the selected line)
+        if (!selectedLineId) {
+          setAssignedCustomers([]);
+          setPostings([]);
+          setLoading(false);
+          return;
+        }
 
-        // 3. Fetch Recent Postings
+        const custQ = query(collection(db, "accounts"), where("agentId", "==", id), where("lineId", "==", selectedLineId));
+        const custSnap = await getDocs(custQ);
+        setAssignedCustomers(custSnap.docs.map(d => ({ id: d.id, ...d.data() as any })));
+
+        // 3. Fetch Recent Postings (Strictly for the selected line)
         const postQ = query(
           collection(db, "postings"), 
-          where("agentId", "==", id)
+          where("agentId", "==", id),
+          where("lineId", "==", selectedLineId)
         );
         const postSnap = await getDocs(postQ);
-        const postList = postSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const postList = postSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
         // Manual sort by date since compound index might not exist yet
         postList.sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
         setPostings(postList);

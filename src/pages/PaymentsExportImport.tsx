@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Download, Upload } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { formatCurrency, formatDate } from "@/lib/utils";
 
 const PaymentsExportImport = () => {
   const { userData } = useAuth();
@@ -31,12 +34,44 @@ const PaymentsExportImport = () => {
 
   const exportPayments = () => {
     if (postings.length === 0) { toast.error("No payments to export"); return; }
-    const headers = "Date,Account No,Name,Amount,Status,Mode\n";
-    const rows = postings.map(p => `${p.date},${p.accountNo},${p.memberName},${p.amount},${p.status},${p.payMode}`).join("\n");
-    const blob = new Blob([headers + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "payments_export.csv"; a.click();
-    toast.success("Payments exported!");
+    
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42);
+    doc.text("SRIDEVI FINANCE HUB", 14, 22);
+    
+    doc.setFontSize(14);
+    doc.text("Global Payment Master Export", 14, 30);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 38);
+    doc.text(`Total Records: ${postings.length}`, 14, 43);
+
+    const tableColumn = ["Date", "Account No", "Member Name", "Amount", "Status", "Mode"];
+    const tableRows = postings.map(p => [
+      formatDate(p.date),
+      p.accountNo,
+      p.memberName,
+      formatCurrency(p.amount),
+      p.status.toUpperCase(),
+      p.payMode.toUpperCase()
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 50,
+      theme: 'grid',
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: {
+        3: { halign: 'right', fontStyle: 'bold' }
+      }
+    });
+
+    doc.save(`Payments_Master_Export_${new Date().toISOString().split("T")[0]}.pdf`);
+    toast.success("Payments Master exported as PDF");
   };
 
   const handleImport = () => {
@@ -49,7 +84,7 @@ const PaymentsExportImport = () => {
       <Tabs defaultValue="export">
         <TabsList><TabsTrigger value="export">Export</TabsTrigger><TabsTrigger value="import">Import</TabsTrigger></TabsList>
         <TabsContent value="export">
-          <div className="mb-4"><Button onClick={exportPayments} className="bg-accent text-accent-foreground hover:bg-accent/90"><Download className="mr-2 h-4 w-4" />Export All Payments (CSV)</Button></div>
+          <div className="mb-4"><Button onClick={exportPayments} className="bg-accent text-accent-foreground hover:bg-accent/90"><Download className="mr-2 h-4 w-4" />Export Master PDF</Button></div>
           <Card>
             <CardContent className="p-0 overflow-x-auto">
               <table className="finance-table w-full">

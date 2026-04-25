@@ -11,6 +11,7 @@ import { formatCurrency } from "@/lib/utils";
 
 const OldAccounts = () => {
   const { userData } = useAuth();
+  const { selectedLineId } = useLine();
   const [accounts, setAccounts] = useState<DocumentData[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -18,10 +19,18 @@ const OldAccounts = () => {
   useEffect(() => {
     const fetch = async () => {
       if (!userData) return;
-      let q;
-      if (userData.role === "super_admin") q = query(collection(db, "accounts"), where("status", "==", "completed"));
-      else if (userData.role === "admin") q = query(collection(db, "accounts"), where("adminId", "==", userData.uid), where("status", "==", "completed"));
-      else q = query(collection(db, "accounts"), where("lineId", "==", userData.lineId || ""), where("status", "==", "completed"));
+      if (!selectedLineId) {
+        setAccounts([]);
+        setLoading(false);
+        return;
+      }
+
+      let q = query(collection(db, "accounts"), where("status", "==", "completed"), where("lineId", "==", selectedLineId));
+      
+      if (userData.role === "admin") {
+        q = query(q, where("adminId", "==", userData.uid));
+      }
+
       try {
         const snap = await getDocs(q);
         const list: DocumentData[] = [];
@@ -31,7 +40,7 @@ const OldAccounts = () => {
       setLoading(false);
     };
     fetch();
-  }, [userData]);
+  }, [userData, selectedLineId]);
 
   const filtered = accounts.filter(a =>
     a.name?.toLowerCase().includes(search.toLowerCase()) ||

@@ -4,12 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Users, IndianRupee, FileText, TrendingUp, UserCog, Wallet, 
   ArrowUpRight, BarChart3, Target, Search, Plus, ArrowRightLeft, 
-  LayoutDashboard, MapPin, ArrowRight, AlertCircle 
+  LayoutDashboard, MapPin, ArrowRight, AlertCircle, Calendar,
+  ArrowDownRight, Receipt, Banknote, Calculator, Scale, Database
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, limit, orderBy, onSnapshot } from "firebase/firestore";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { collection, getDocs, query, where, orderBy, limit, DocumentData, Timestamp, onSnapshot } from "firebase/firestore";
+import { logActivity, AuditAction } from "@/lib/audit";
+import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -46,7 +48,9 @@ const StatCard = ({ title, value, icon, color, trend, index }: { title: string; 
 const Dashboard = () => {
   const { userData } = useAuth();
   const { selectedLineId, setSelectedLineId, lines } = useLine();
+  const [logs, setLogs] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [closureStats, setClosureStats] = useState({ agentCol: 0, adminCol: 0, disburse: 0, docCharges: 0, expenses: 0 });
   const [stats, setStats] = useState({
     totalAdmins: 0,
     totalAgents: 0,
@@ -65,10 +69,13 @@ const Dashboard = () => {
   const [timeFilter, setTimeFilter] = useState("all");
   const [chartData, setChartData] = useState<any[]>([]);
   const [recentPostings, setRecentPostings] = useState<any[]>([]);
+  const [streamDateFilter, setStreamDateFilter] = useState(new Date().toISOString().split("T")[0]);
+  const [showAllStream, setShowAllStream] = useState(false);
 
   useEffect(() => {
     let unsubscribeAccounts: (() => void) | null = null;
     let unsubscribePostings: (() => void) | null = null;
+    let unsubscribeLogs: (() => void) | null = null;
 
     const today = new Date();
     const todayStr = today.toISOString().split("T")[0];
@@ -79,12 +86,24 @@ const Dashboard = () => {
       if (!userData) return;
       setLoading(true);
 
+      const activeLineId = selectedLineId || (userData.role === 'agent' ? (userData.lineId || 'none') : null);
+
+      if (!activeLineId && userData.role !== 'super_admin') {
+         setLoading(false);
+         return;
+      }
+
       if (userData.role === "super_admin") {
+        unsubscribeLogs = onSnapshot(query(collection(db, "audit_logs"), orderBy("timestamp", "desc"), limit(50)), (snapshot) => {
+           setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
+        });
+
         let accountsRef: any = collection(db, "accounts");
-        if (selectedLineId) accountsRef = query(accountsRef, where("lineId", "==", selectedLineId));
+        if (activeLineId) accountsRef = query(accountsRef, where("lineId", "==", activeLineId));
 
         unsubscribeAccounts = onSnapshot(accountsRef, (snapshot) => {
           let spent = 0; let balance = 0; let expected = 0;
+          let dtDisburse = 0; let dtDocCharge = 0;
           snapshot.forEach(d => {
             const acc = d.data();
             const isMatch = timeFilter === "all" || (timeFilter === "month" && acc.startDate >= startOfMonth) || (timeFilter === "year" && acc.startDate >= startOfYear);
@@ -93,7 +112,12 @@ const Dashboard = () => {
               balance += (acc.balance || 0);
               expected += (acc.totalAmount || 0);
             }
+            if (acc.createdAt && acc.createdAt.startsWith(todayStr)) {
+               dtDisburse += (acc.loanAmount || 0);
+               dtDocCharge += (acc.documentCharge || 0);
+            }
           });
+          setClosureStats(p => ({ ...p, disburse: dtDisburse, docCharges: dtDocCharge }));
           
           getDocs(query(collection(db, "users"), where("role", "==", "admin"))).then(ads => {
             getDocs(query(collection(db, "users"), where("role", "==", "agent"))).then(ags => {
@@ -114,19 +138,26 @@ const Dashboard = () => {
         });
 
         let postingsRef: any = collection(db, "postings");
-        if (selectedLineId) postingsRef = query(postingsRef, where("lineId", "==", selectedLineId));
+        if (activeLineId) postingsRef = query(postingsRef, where("lineId", "==", activeLineId));
 
         unsubscribePostings = onSnapshot(postingsRef, (snapshot) => {
-          let totalCol = 0;
+          let totalCol = 0; let agCol = 0; let adCol = 0;
           const chartCol: Record<string, number> = {};
           snapshot.forEach(d => {
             const data = d.data();
             const isMatch = timeFilter === "all" || (timeFilter === "month" && data.date >= startOfMonth) || (timeFilter === "year" && data.date >= startOfYear);
             if (isMatch) totalCol += (data.amount || 0);
+            
+            if (data.date === todayStr) {
+               if (data.collectedByRole === 'super_admin') adCol += (data.amount || 0);
+               else agCol += (data.amount || 0);
+            }
+            
             const monthKey = data.date?.substring(0, 7) || "Unknown";
             chartCol[monthKey] = (chartCol[monthKey] || 0) + (data.amount || 0);
           });
-          const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
+          setClosureStats(p => ({ ...p, agentCol: agCol, adminCol: adCol }));
+          const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
           setRecentPostings(recent);
           const allKeys = Array.from(new Set([...Object.keys(chartCol)]));
           const formatted = allKeys.sort().slice(-12).map(k => ({ date: k, collected: chartCol[k] || 0, invested: 0 }));
@@ -140,7 +171,7 @@ const Dashboard = () => {
 
       } else if (userData.role === "admin") {
         let accountsRef: any = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
-        if (selectedLineId) accountsRef = query(accountsRef, where("lineId", "==", selectedLineId));
+        if (activeLineId) accountsRef = query(accountsRef, where("lineId", "==", activeLineId));
 
         unsubscribeAccounts = onSnapshot(accountsRef, (snapshot) => {
           let pending = 0;
@@ -155,12 +186,12 @@ const Dashboard = () => {
         });
 
         let postingsRef : any = query(collection(db, "postings"), where("adminId", "==", userData.uid));
-        if (selectedLineId) postingsRef = query(postingsRef, where("lineId", "==", selectedLineId));
+        if (activeLineId) postingsRef = query(postingsRef, where("lineId", "==", activeLineId));
 
         unsubscribePostings = onSnapshot(postingsRef, (snapshot) => {
            let daily = 0;
            snapshot.forEach(d => { if (d.data().date === todayStr) daily += d.data().amount || 0; });
-           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
+           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
            setRecentPostings(recent);
            setStats(prev => ({ ...prev, dailyCollection: daily }));
            setLoading(false);
@@ -170,12 +201,25 @@ const Dashboard = () => {
         });
 
       } else if (userData.role === "agent") {
-        if (!userData.lineId) {
-           console.error("Agent lacks lineId assignment");
+        let assignedLineIds = userData.lineIds || (userData.lineId ? [userData.lineId] : []);
+        if (assignedLineIds.length === 0) {
+           console.error("Agent lacks line assignment");
            setLoading(false);
            return;
         }
-        unsubscribeAccounts = onSnapshot(query(collection(db, "accounts"), where("lineId", "==", userData.lineId)), (snapshot) => {
+
+        let accQuery;
+        let postQuery;
+
+        if (selectedLineId) {
+          accQuery = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
+          postQuery = query(collection(db, "postings"), where("lineId", "==", selectedLineId));
+        } else {
+          accQuery = query(collection(db, "accounts"), where("lineId", "in", assignedLineIds));
+          postQuery = query(collection(db, "postings"), where("lineId", "in", assignedLineIds));
+        }
+        
+        unsubscribeAccounts = onSnapshot(accQuery, (snapshot) => {
            let pendingCount = 0;
            snapshot.forEach(d => { if (d.data().balance > 0) pendingCount++; });
            setStats(prev => ({ ...prev, assignedAccounts: snapshot.size, pendingAccounts: pendingCount }));
@@ -184,10 +228,10 @@ const Dashboard = () => {
           setLoading(false);
         });
 
-        unsubscribePostings = onSnapshot(query(collection(db, "postings"), where("lineId", "==", userData.lineId)), (snapshot) => {
+        unsubscribePostings = onSnapshot(postQuery, (snapshot) => {
            let todayCol = 0;
            snapshot.forEach(d => { if (d.data().date === todayStr) todayCol += d.data().amount || 0; });
-           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
+           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
            setRecentPostings(recent);
            setStats(prev => ({ ...prev, todayCollection: todayCol }));
            setLoading(false);
@@ -202,6 +246,7 @@ const Dashboard = () => {
     return () => {
       if (unsubscribeAccounts) unsubscribeAccounts();
       if (unsubscribePostings) unsubscribePostings();
+      if (unsubscribeLogs) unsubscribeLogs();
     };
   }, [userData, timeFilter, selectedLineId]);
 
@@ -245,6 +290,40 @@ const Dashboard = () => {
 
       {userData?.role === "super_admin" && (
         <div className="space-y-8">
+          <Card className="glass-card border-none shadow-xl bg-gradient-to-br from-indigo-50 to-white relative overflow-hidden">
+             <CardHeader className="pb-4">
+                <CardTitle className="text-xl font-black uppercase text-indigo-900 tracking-widest italic flex items-center gap-2">
+                  <Wallet size={20}/> Daily Closure Account
+                </CardTitle>
+             </CardHeader>
+             <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-center">
+                   <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Agent Collection</p>
+                      <h4 className="text-2xl font-black text-emerald-600 mt-1">+{formatCurrency(closureStats.agentCol)}</h4>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Admin Collection</p>
+                      <h4 className="text-2xl font-black text-indigo-600 mt-1">+{formatCurrency(closureStats.adminCol)}</h4>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Disbursements (Paid)</p>
+                      <h4 className="text-2xl font-black text-rose-500 mt-1">-{formatCurrency(closureStats.disburse)}</h4>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Doc Charges (Income)</p>
+                      <h4 className="text-2xl font-black text-emerald-500 mt-1">+{formatCurrency(closureStats.docCharges)}</h4>
+                   </div>
+                   <div className="border-l border-slate-200 pl-6">
+                      <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">Net Closing Cash</p>
+                      <h4 className={`text-3xl font-black mt-1 ${closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                        {formatCurrency((closureStats.agentCol + closureStats.adminCol + closureStats.docCharges) - closureStats.disburse)}
+                      </h4>
+                   </div>
+                </div>
+             </CardContent>
+          </Card>
+          
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <StatCard index={0} title="Portfolio Spent" value={formatCurrency(stats.totalSpent)} icon={<Target className="h-7 w-7 text-white" />} color="bg-slate-900" />
             <StatCard index={1} title="Total Recovered" value={formatCurrency(stats.totalCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="premium-gradient" />
@@ -302,37 +381,40 @@ const Dashboard = () => {
               <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Account Officer</p>
               <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">{userData.name || "Personnel"}</h1>
             </div>
-            <div className="flex gap-2">
-              <Button size="icon" variant="secondary" className="rounded-2xl h-12 w-12 bg-white shadow-sm border border-slate-100 hover:bg-accent hover:text-white transition-all">
-                <Search size={22} />
-              </Button>
-              <Button size="icon" variant="secondary" className="rounded-2xl h-12 w-12 bg-white shadow-sm border border-slate-100 hover:bg-accent hover:text-white transition-all">
-                <Plus size={22} />
-              </Button>
-            </div>
           </div>
 
           <div className="space-y-5">
-            <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">Your Collection Circles</h3>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-              <motion.div whileHover={{ scale: 1.02 }} onClick={() => window.location.href = "/daily-collection"} className="cursor-pointer">
-                <Card className="rounded-[40px] border-none shadow-xl bg-gradient-to-br from-cyan-50 to-white p-8 h-56 flex flex-col justify-between group overflow-hidden relative">
-                   <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-100/50 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-cyan-200/50 transition-all" />
-                   <div className="h-14 w-14 rounded-2xl bg-white shadow-sm flex items-center justify-center">
-                     <span className="font-black text-cyan-600 text-sm">DAY</span>
-                   </div>
-                   <div>
-                     <p className="text-[10px] font-black text-cyan-600/60 uppercase tracking-widest">Ongoing</p>
-                     <h4 className="text-3xl font-black text-cyan-900 leading-none mt-1">DAILY</h4>
-                   </div>
-                </Card>
-              </motion.div>
-              <Card className="rounded-[40px] border-none shadow-sm bg-slate-50 border border-dashed border-slate-200 p-8 h-56 flex flex-col items-center justify-center text-center opacity-60">
-                 <div className="h-12 w-12 rounded-2xl bg-white flex items-center justify-center mb-4">
-                   <BarChart3 className="text-slate-300" />
-                 </div>
-                 <h4 className="font-black text-slate-400 uppercase tracking-widest text-xs">Future Circles</h4>
-              </Card>
+            <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">Your Assigned Lines</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {(userData.lineIds && userData.lineIds.length > 0 ? userData.lineIds : (userData.lineId ? [userData.lineId] : [])).map((lid, idx) => {
+                const line = lines.find(l => l.id === lid);
+                if (!line) return null;
+                return (
+                  <motion.div
+                    key={line.id}
+                    whileHover={{ y: -5 }}
+                    onClick={() => {
+                       setSelectedLineId(line.id);
+                       window.location.href = "/daily-collection";
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <Card className="glass-card hover:border-accent border-transparent transition-all p-6 group">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-accent transition-colors">
+                          <MapPin size={18} className="text-slate-500 group-hover:text-white" />
+                        </div>
+                        <Badge className="bg-emerald-50 text-emerald-600 border-none text-[8px] font-black uppercase">Active</Badge>
+                      </div>
+                      <h4 className="text-lg font-black text-slate-800">{line.name}</h4>
+                      <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between">
+                         <span className="text-[10px] font-black text-accent uppercase">Open Collections</span>
+                         <ArrowRight size={14} className="text-slate-300 group-hover:text-accent group-hover:translate-x-1 transition-all" />
+                      </div>
+                    </Card>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
 
@@ -340,6 +422,86 @@ const Dashboard = () => {
             <StatCard index={0} title="Portfolio Registry" value={stats.assignedAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="bg-slate-900" />
             <StatCard index={1} title="Recovery Today" value={formatCurrency(stats.todayCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="premium-gradient" />
             <StatCard index={2} title="Deficit Count" value={stats.pendingAccounts} icon={<AlertCircle size={24} className="text-white" />} color="bg-rose-600" />
+          </div>
+        </div>
+      )}
+
+      {/* Daily Shift Reconciliation - Focused Audit */}
+      {(userData?.role === "super_admin" || userData?.role === "admin") && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter flex items-center gap-2">
+              <Calculator className="h-5 w-5 text-accent" />
+              Daily Shift Reconciliation
+            </h3>
+            <Badge className="bg-slate-900 text-white border-none text-[8px] font-black uppercase tracking-widest px-3 py-1">
+              Live Balance Audit
+            </Badge>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="glass-card border-none shadow-xl p-6 relative overflow-hidden group">
+               <div className="absolute -right-4 -top-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+                  <IndianRupee size={80} />
+               </div>
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Collection Breakdown</p>
+               <div className="mt-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Agent Collection</span>
+                    <span className="text-sm font-black text-emerald-600">+{formatCurrency(closureStats.agentCol)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Admin Collection</span>
+                    <span className="text-sm font-black text-indigo-600">+{formatCurrency(closureStats.adminCol)}</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
+                    <span className="text-[10px] font-black text-slate-900 uppercase">Total Recovered</span>
+                    <span className="text-md font-black text-slate-900">{formatCurrency(closureStats.agentCol + closureStats.adminCol)}</span>
+                  </div>
+               </div>
+            </Card>
+
+            <Card className="glass-card border-none shadow-xl p-6 relative overflow-hidden group">
+               <div className="absolute -right-4 -top-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+                  <Banknote size={80} />
+               </div>
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Outflow & Logistics</p>
+               <div className="mt-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Disbursements</span>
+                    <span className="text-sm font-black text-rose-500">-{formatCurrency(closureStats.disburse)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Daily Expenses</span>
+                    <span className="text-sm font-black text-rose-500">-{formatCurrency(closureStats.expenses)}</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
+                    <span className="text-[10px] font-black text-slate-900 uppercase">Document Charges</span>
+                    <span className="text-md font-black text-emerald-600">+{formatCurrency(closureStats.docCharges)}</span>
+                  </div>
+               </div>
+            </Card>
+
+            <Card className="md:col-span-2 glass-card border-none shadow-2xl bg-slate-900 text-white p-8 relative overflow-hidden flex flex-col justify-center">
+               <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
+               <div className="flex items-center justify-between relative z-10">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Final Shift Balance</p>
+                    <h2 className={`text-5xl font-black tracking-tighter ${ (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                       {formatCurrency(closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse - closureStats.expenses)}
+                    </h2>
+                    <div className="flex items-center gap-3 mt-4">
+                       <Badge className="bg-white/10 text-white border-none font-black text-[9px] uppercase tracking-widest px-3">
+                          Reconciled Status
+                       </Badge>
+                       <span className="text-[10px] font-bold text-slate-500 italic uppercase">Validated by System Audit</span>
+                    </div>
+                  </div>
+                  <div className="h-20 w-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
+                     <Scale className={`h-10 w-10 ${ (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                  </div>
+               </div>
+            </Card>
           </div>
         </div>
       )}
@@ -388,41 +550,121 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-card border-none shadow-2xl">
-          <CardHeader className="border-b border-slate-50">
-            <CardTitle className="text-xl font-black uppercase tracking-tighter">Live Stream</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-6">
-            {recentPostings.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-slate-300">
-                <LayoutDashboard className="h-12 w-12 opacity-10 mb-2" />
-                <p className="text-[10px] font-black uppercase tracking-widest">No Recent Telemetry</p>
+        <div className="md:col-span-1 space-y-6 flex flex-col h-full">
+          {/* Recovery Intelligence Stream */}
+          <Card className="flex-1 flex flex-col glass-card border-slate-200/60 overflow-hidden min-h-[450px]">
+            <CardHeader className="border-b border-slate-100 pb-4 bg-slate-50/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-lg bg-slate-900 text-white flex items-center justify-center shadow-lg">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                  </div>
+                  <CardTitle className="text-[11px] font-black uppercase tracking-widest text-slate-900 italic">Live Postings</CardTitle>
+                </div>
+                <button 
+                  onClick={() => setShowAllStream(!showAllStream)}
+                  className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${showAllStream ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                 >
+                   {showAllStream ? 'Global Stream' : 'By Date'}
+                 </button>
               </div>
-            ) : (
-              recentPostings.map((p, idx) => (
-                <motion.div 
-                  initial={{ opacity: 0, x: 20 }} 
-                  animate={{ opacity: 1, x: 0 }} 
-                  transition={{ delay: idx * 0.1 }}
-                  key={p.id} 
-                  className="flex items-center gap-4 group"
-                >
-                  <div className="h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs shadow-lg group-hover:bg-accent transition-colors">
-                    {p.memberName?.charAt(0)}
+            </CardHeader>
+            <CardContent className="flex-1 overflow-hidden p-0">
+              <div className="h-full overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                {(showAllStream ? recentPostings : recentPostings.filter(p => p.date === streamDateFilter)).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-slate-300">
+                    <LayoutDashboard className="h-12 w-12 opacity-10 mb-2" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">{showAllStream ? 'No global telemetry' : 'No telemetry for this date'}</p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-black text-slate-800 truncate leading-none">{p.memberName}</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{p.accountNo}</p>
+                ) : (
+                  (showAllStream ? recentPostings : recentPostings.filter(p => p.date === streamDateFilter))
+                    .map((p, idx) => (
+                      <motion.div 
+                        initial={{ opacity: 0, x: 20 }} 
+                        animate={{ opacity: 1, x: 0 }} 
+                        transition={{ delay: idx * 0.05 }}
+                        key={p.id} 
+                        className="flex items-center gap-4 group"
+                      >
+                        <div className="h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs shadow-lg group-hover:bg-accent transition-colors">
+                          {p.memberName?.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-black text-slate-800 truncate leading-none">{p.memberName}</p>
+                            {p.collectedByRole && (
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="outline" className={`text-[8px] px-1 py-0 h-4 border-none ${p.collectedByRole === 'super_admin' ? 'bg-indigo-50 text-indigo-500' : 'bg-emerald-50 text-emerald-500'} italic font-black uppercase tracking-widest`}>
+                                  {p.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'}
+                                </Badge>
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{p.accountNo}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-accent leading-none">+{formatCurrency(p.amount)}</p>
+                          <p className="text-[8px] font-black text-slate-400 uppercase mt-1">{formatDate(p.date)}</p>
+                        </div>
+                      </motion.div>
+                    ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Audit Log Stream */}
+          {userData?.role === 'super_admin' && (
+            <Card className="flex-1 flex flex-col glass-card border-slate-200/60 overflow-hidden min-h-[400px]">
+              <CardHeader className="border-b border-slate-100 pb-4 bg-slate-50/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="h-6 w-6 rounded-lg bg-accent text-accent-foreground flex items-center justify-center shadow-lg">
+                      <Database className="h-3.5 w-3.5" />
+                    </div>
+                    <CardTitle className="text-[11px] font-black uppercase tracking-widest text-slate-900 italic">Security Audit</CardTitle>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-black text-accent leading-none">+{formatCurrency(p.amount)}</p>
-                    <p className="text-[8px] font-black text-slate-400 uppercase mt-1">{formatDate(p.date)}</p>
-                  </div>
-                </motion.div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                  <Badge className="bg-slate-100 text-slate-500 text-[8px] border-none font-black uppercase tracking-tighter">Admin View</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="flex-1 overflow-hidden p-0">
+                <div className="h-full overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                  {logs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-slate-300">
+                      <Database className="h-12 w-12 opacity-10 mb-2" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">No audit trails</p>
+                    </div>
+                  ) : (
+                    logs.map((log, idx) => (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }} 
+                        animate={{ opacity: 1, y: 0 }} 
+                        transition={{ delay: idx * 0.05 }}
+                        key={log.id} 
+                        className="p-3 rounded-xl bg-slate-50/50 border border-slate-100 group hover:border-accent/30 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <Badge variant="outline" className={cn(
+                            "text-[8px] px-1.5 py-0 h-4 border-none font-black uppercase tracking-widest",
+                            log.action?.includes('DELETE') ? 'bg-destructive/10 text-destructive' : 'bg-accent/10 text-accent-foreground'
+                          )}>
+                            {log.action}
+                          </Badge>
+                          <span className="text-[8px] font-bold text-slate-400">{log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString() : 'Recent'}</span>
+                        </div>
+                        <p className="text-[11px] font-medium text-slate-700 leading-relaxed mb-1">{log.details}</p>
+                        <div className="flex items-center gap-2">
+                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight">By: {log.userName}</span>
+                           <Badge className="text-[7px] px-1 py-0 h-3 bg-white border border-slate-200 text-slate-400 font-bold uppercase">{log.userRole?.replace('_', ' ')}</Badge>
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </div>
   );

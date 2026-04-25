@@ -11,6 +11,9 @@ import { motion } from "framer-motion";
 import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const COLORS = ["#0F172A", "#D4AF37", "#64748B", "#F59E0B", "#10B981"];
 
@@ -30,17 +33,17 @@ const Reports = () => {
   const fetchReportData = async (selectedDate: string) => {
     setLoading(true);
     try {
-      let q;
-      if (userData?.role === "super_admin") {
-        q = query(collection(db, "postings"), where("date", "==", selectedDate));
-      } else if (userData?.role === "admin") {
-        q = query(collection(db, "postings"), where("date", "==", selectedDate), where("adminId", "==", userData.uid));
-      } else {
-        q = query(collection(db, "postings"), where("date", "==", selectedDate), where("lineId", "==", userData.lineId || ""));
+      if (!selectedLineId) {
+        setData([]);
+        setStats({ total: 0, cash: 0, online: 0, byAgent: {} });
+        setLoading(false);
+        return;
       }
 
-      if (selectedLineId) {
-        q = query(q, where("lineId", "==", selectedLineId));
+      let q = query(collection(db, "postings"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId));
+      
+      if (userData?.role === "admin") {
+        q = query(q, where("adminId", "==", userData.uid));
       }
       const snap = await getDocs(q);
       const docs = snap.docs.map(d => d.data());
@@ -108,22 +111,49 @@ const Reports = () => {
           </div>
           <Button 
             variant="outline" 
-            className="gap-2 bg-white/50 backdrop-blur-sm"
+            className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-slate-700 hover:bg-slate-100 font-bold"
             onClick={() => {
-              if (data.length === 0) return;
-              const headers = ["Member", "Account", "Amount", "Mode", "Status"];
-              const rows = data.map(item => [item.memberName, item.accountNo, item.amount, item.payMode, item.status]);
-              const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-              const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-              const url = URL.createObjectURL(blob);
-              const link = document.createElement("a");
-              link.href = url;
-              link.download = `Report_${date}.csv`;
-              link.click();
-              toast.success("Report exported as CSV");
+              if (data.length === 0) {
+                toast.error("No data to export");
+                return;
+              }
+              
+              const doc = new jsPDF();
+              
+              // Header
+              doc.setFontSize(20);
+              doc.setTextColor(15, 23, 42); // slate-900
+              doc.text("Sridevi Finance Hub - Audit Report", 14, 22);
+              
+              doc.setFontSize(10);
+              doc.setTextColor(100, 116, 139); // slate-500
+              doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+              doc.text(`Report Date: ${formatDate(date)}`, 14, 35);
+              
+              const tableColumn = ["Member Name", "Account No", "Amount", "Mode", "Status"];
+              const tableRows = data.map(item => [
+                item.memberName, 
+                item.accountNo, 
+                formatCurrency(item.amount), 
+                item.payMode.toUpperCase(), 
+                item.status.toUpperCase()
+              ]);
+
+              autoTable(doc, {
+                head: [tableColumn],
+                body: tableRows,
+                startY: 45,
+                theme: 'striped',
+                headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+                alternateRowStyles: { fillColor: [248, 250, 252] },
+                styles: { fontSize: 9, cellPadding: 4 }
+              });
+
+              doc.save(`Report_${date}.pdf`);
+              toast.success("PDF Report Exported Successfully");
             }}
           >
-            <Download className="h-4 w-4" /> Export CSV
+            <Download className="h-4 w-4" /> Export PDF
           </Button>
         </div>
       </div>

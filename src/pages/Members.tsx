@@ -32,14 +32,16 @@ const Members = () => {
         let q;
         let accountsRef: any = collection(db, "accounts");
         
-        if (userData.role === "super_admin") {
-          q = selectedLineId ? query(accountsRef, where("lineId", "==", selectedLineId)) : query(accountsRef);
-        } else if (userData.role === "admin") {
-          q = query(accountsRef, where("adminId", "==", userData.uid));
-          if (selectedLineId) q = query(q, where("lineId", "==", selectedLineId));
-        } else {
-          q = query(accountsRef, where("lineId", "==", userData.lineId || ""));
-          if (selectedLineId) q = query(q, where("lineId", "==", selectedLineId));
+        if (!selectedLineId) {
+          setMembers([]);
+          setLoading(false);
+          return;
+        }
+
+        q = query(accountsRef, where("lineId", "==", selectedLineId));
+        
+        if (userData.role === "admin") {
+          q = query(q, where("adminId", "==", userData.uid));
         }
         
         const snap = await getDocs(q);
@@ -289,22 +291,26 @@ const Members = () => {
                           >
                             <Eye size={14} />
                           </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5"
-                            onClick={() => openEdit(m)}
-                          >
-                            <Edit size={14} />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-destructive hover:bg-destructive/5"
-                            onClick={() => handleDelete(m.id, m.name)}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
+                          {(userData?.role === "super_admin" || userData?.role === "admin") && (
+                            <>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5"
+                                onClick={() => openEdit(m)}
+                              >
+                                <Edit size={14} />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 rounded-lg text-slate-400 hover:text-destructive hover:bg-destructive/5"
+                                onClick={() => handleDelete(m.id, m.name)}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </motion.tr>

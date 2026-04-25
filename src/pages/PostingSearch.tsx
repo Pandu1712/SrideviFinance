@@ -12,6 +12,8 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const PostingSearch = () => {
   const { userData } = useAuth();
@@ -64,7 +66,7 @@ const PostingSearch = () => {
       }
 
       const snap = await getDocs(q);
-      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() as any }));
 
       // Client-side filtering for member name or account no
       if (searchTerm) {
@@ -79,7 +81,7 @@ const PostingSearch = () => {
           const accNo = list[0].accountNo;
           const accSnap = await getDocs(query(collection(db, "accounts"), where("accountNo", "==", accNo)));
           if (!accSnap.empty) {
-            setMemberSummary({ id: accSnap.docs[0].id, ...accSnap.docs[0].data() });
+            setMemberSummary({ id: accSnap.docs[0].id, ...accSnap.docs[0].data() as any });
           }
         }
       }
@@ -197,7 +199,7 @@ const PostingSearch = () => {
                </Button>
                <Button variant="outline" className="flex-1 finance-input bg-white h-full flex flex-col items-center justify-center p-4">
                   <Download size={20} className="text-slate-400 mb-2" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">CSV Export</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">PDF Export</span>
                </Button>
             </div>
           </motion.div>
@@ -234,14 +236,50 @@ const PostingSearch = () => {
         </Card>
 
         <div className="flex gap-4">
-           <Button variant="outline" className="flex-1 h-full bg-white border-2 border-slate-100 text-slate-400 font-bold flex flex-col items-center justify-center gap-2 active:scale-95 transition-all shadow-sm">
-             <Printer size={20} />
-             <span className="text-[10px] uppercase tracking-widest">Print Slips</span>
-           </Button>
-           <Button variant="outline" className="flex-1 h-full bg-white border-2 border-slate-100 text-slate-400 font-bold flex flex-col items-center justify-center gap-2 active:scale-95 transition-all shadow-sm">
-             <Download size={20} />
-             <span className="text-[10px] uppercase tracking-widest">Export CSV</span>
-           </Button>
+           <Button 
+            variant="outline" 
+            className="flex-1 h-14 rounded-2xl border-slate-200 text-slate-500 font-bold hover:bg-slate-50 transition-all flex flex-col items-center justify-center gap-1"
+            onClick={() => {
+              if (results.length === 0) {
+                toast.error("No data to export");
+                return;
+              }
+              
+              const doc = new jsPDF();
+              doc.setFontSize(22);
+              doc.setTextColor(15, 23, 42);
+              doc.text("SRIDEVI FINANCE HUB", 14, 22);
+              
+              doc.setFontSize(12);
+              doc.text(`Search Results`, 14, 30);
+              doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 36);
+
+              const tableColumn = ["Date", "Member Name", "Account No", "Amount", "Mode", "Collected By"];
+              const tableRows = results.map(p => [
+                formatDate(p.date),
+                p.memberName,
+                p.accountNo,
+                formatCurrency(p.amount),
+                p.payMode.toUpperCase(),
+                agents.find(a => a.id === p.agentId)?.name || "System"
+              ]);
+
+              autoTable(doc, {
+                head: [tableColumn],
+                body: tableRows,
+                startY: 45,
+                theme: 'striped',
+                headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+                styles: { fontSize: 8, cellPadding: 3 }
+              });
+
+              doc.save(`Search_Export_${date || 'all'}.pdf`);
+              toast.success("Results Exported as PDF");
+            }}
+          >
+             <Download size={18} />
+             <span className="text-[10px] uppercase tracking-widest">Export PDF</span>
+          </Button>
         </div>
       </div>
 

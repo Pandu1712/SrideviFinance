@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, DocumentData } from "firebase/firestore";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,19 +10,29 @@ const AdvancedLists = () => {
   const { userData } = useAuth();
   const [accounts, setAccounts] = useState<DocumentData[]>([]);
 
+  const { selectedLineId } = useLine();
+
   useEffect(() => {
     const fetchData = async () => {
       if (!userData) return;
-      let q;
-      if (userData.role === "super_admin") q = query(collection(db, "accounts"));
-      else q = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
+      if (!selectedLineId) {
+        setAccounts([]);
+        return;
+      }
+
+      let q = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
+      
+      if (userData.role === "admin") {
+        q = query(q, where("adminId", "==", userData.uid));
+      }
+
       const snap = await getDocs(q);
       const list: DocumentData[] = [];
       snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
       setAccounts(list);
     };
     fetchData();
-  }, [userData]);
+  }, [userData, selectedLineId]);
 
   const pending = accounts.filter(a => a.status === "active" && (a.balance || 0) > 0);
   const completed = accounts.filter(a => a.status === "completed");

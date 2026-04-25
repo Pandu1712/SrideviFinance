@@ -40,6 +40,7 @@ import NotFound from "@/pages/NotFound";
 import SetupSuperAdmin from "@/pages/SetupSuperAdmin";
 import SeedData from "@/pages/SeedData";
 import LineSelection from "@/pages/LineSelection";
+import ManageVillages from "@/pages/ManageVillages";
 
 const queryClient = new QueryClient();
 
@@ -58,7 +59,7 @@ const App = () => (
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/accounts/new" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><NewAccount /></ProtectedRoute>} />
+              <Route path="/accounts/new" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "agent"]}><NewAccount /></ProtectedRoute>} />
               <Route path="/accounts/edit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><NewAccount /></ProtectedRoute>} />
               <Route path="/daily-posting" element={<DailyPosting />} />
               <Route path="/members" element={<Members />} />
@@ -85,6 +86,7 @@ const App = () => (
               <Route path="/export" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ExportPage /></ProtectedRoute>} />
               <Route path="/admin/seed" element={<SeedData />} />
               <Route path="/manage-admins" element={<ProtectedRoute allowedRoles={["super_admin"]}><ManageAdmins /></ProtectedRoute>} />
+              <Route path="/manage-villages" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ManageVillages /></ProtectedRoute>} />
               <Route path="/manage-agents" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ManageAgents /></ProtectedRoute>} />
               <Route path="/agent-audit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><AgentAudit /></ProtectedRoute>} />
             </Route>

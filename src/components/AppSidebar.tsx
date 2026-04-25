@@ -36,7 +36,7 @@ const menuSections: MenuSection[] = [
     items: [
       { label: "Daily Posting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Master Ledger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin"] },
-      { label: "New Account", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin"] },
+      { label: "New Account", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Members Registry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "agent"] },
     ]
   },
@@ -63,6 +63,7 @@ const menuSections: MenuSection[] = [
       { label: "Maintenance", path: "/update-accounts", icon: <Edit size={18} />, roles: ["super_admin", "admin"] },
       { label: "Shift Logistics", path: "/shift-accounts", icon: <ArrowRightLeft size={18} />, roles: ["super_admin"] },
       { label: "Manage Agents", path: "/manage-agents", icon: <UserCog size={18} />, roles: ["super_admin", "admin"] },
+      { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin"] },
       { label: "Admin Control", path: "/manage-admins", icon: <ShieldCheck size={18} />, roles: ["super_admin"] },
     ]
   }
@@ -105,14 +106,14 @@ const AppSidebar = () => {
       </div>
 
       {/* Operational Context Switcher */}
-      {(userData?.role === "super_admin" || userData?.role === "admin") && (
+      {(userData?.role === "super_admin" || userData?.role === "admin" || (userData?.role === "agent" && (userData.lineIds?.length || 0) > 1)) && (
         <div className="px-6 py-6 border-b border-white/5 bg-white/5">
           <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-4">Operative Channel</h3>
           <button 
             onClick={() => {
               setSelectedLineId(null);
               localStorage.removeItem("lineSelectedOnce");
-              window.location.href = "/dashboard"; // Redirect to dashboard and clear state
+              window.location.href = "/select-line"; // Redirect to selection page
             }}
             className="flex w-full items-center justify-between gap-3 p-4 rounded-2xl bg-[#0F172A] border border-accent/20 hover:border-accent transition-all group"
           >

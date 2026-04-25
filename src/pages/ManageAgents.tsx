@@ -15,13 +15,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useLine } from "@/contexts/LineContext";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
@@ -33,11 +27,11 @@ const ManageAgents = () => {
   const navigate = useNavigate();
   const [agents, setAgents] = useState<DocumentData[]>([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", lineId: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", lineIds: [] as string[] });
   const [loading, setLoading] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<DocumentData | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", phone: "", lineId: "" });
+  const [editForm, setEditForm] = useState({ name: "", phone: "", lineIds: [] as string[] });
   const [updating, setUpdating] = useState(false);
 
   const fetchAgents = async () => {
@@ -60,7 +54,11 @@ const ManageAgents = () => {
 
   const handleEditClick = (agent: DocumentData) => {
     setEditingAgent(agent);
-    setEditForm({ name: agent.name || "", phone: agent.phone || "", lineId: agent.lineId || "" });
+    setEditForm({ 
+      name: agent.name || "", 
+      phone: agent.phone || "", 
+      lineIds: agent.lineIds || (agent.lineId ? [agent.lineId] : []) 
+    });
     setEditOpen(true);
   };
 
@@ -75,7 +73,7 @@ const ManageAgents = () => {
       await updateDoc(doc(db, "users", editingAgent.id), {
         name: editForm.name,
         phone: editForm.phone,
-        lineId: editForm.lineId,
+        lineIds: editForm.lineIds,
       });
       toast.success("Agent profile updated");
       setEditOpen(false);
@@ -106,14 +104,14 @@ const ManageAgents = () => {
         email: form.email,
         phone: form.phone,
         role: "agent",
-        lineId: form.lineId,
+        lineIds: form.lineIds,
         adminId: userData?.uid,
         createdAt: new Date().toISOString(),
       });
 
       toast.success(`Field agent ${form.name} successfully deployed`);
       setOpen(false);
-      setForm({ name: "", email: "", phone: "", password: "", lineId: "" });
+      setForm({ name: "", email: "", phone: "", password: "", lineIds: [] });
       fetchAgents();
     } catch (err: any) {
       toast.error(err.message || "Deployment failed");
@@ -198,18 +196,28 @@ const ManageAgents = () => {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Line</Label>
-                <Select onValueChange={(v) => setForm(p => ({ ...p, lineId: v }))} value={form.lineId}>
-                  <SelectTrigger className="h-11 finance-input">
-                    <SelectValue placeholder="Select Territory Line" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {lines.map((line) => (
-                      <SelectItem key={line.id} value={line.id}>{line.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
+                <div className="grid grid-cols-2 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50 max-h-40 overflow-y-auto">
+                  {lines.map((line) => (
+                    <div key={line.id} className="flex items-center space-x-2">
+                      <Checkbox 
+                        id={`create-${line.id}`} 
+                        checked={form.lineIds.includes(line.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setForm(p => ({ ...p, lineIds: [...p.lineIds, line.id] }));
+                          } else {
+                            setForm(p => ({ ...p, lineIds: p.lineIds.filter(id => id !== line.id) }));
+                          }
+                        }}
+                      />
+                      <label htmlFor={`create-${line.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                        {line.name}
+                      </label>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="bg-amber-50 rounded-xl p-4 border border-amber-100 mt-4">
@@ -253,18 +261,28 @@ const ManageAgents = () => {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Line</Label>
-                <Select onValueChange={(v) => setEditForm(p => ({ ...p, lineId: v }))} value={editForm.lineId || undefined}>
-                  <SelectTrigger className="h-11 finance-input text-blue-900 border-blue-200 bg-blue-50/30 font-semibold focus:ring-blue-500">
-                    <SelectValue placeholder="Select Territory Line" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {lines.map((line) => (
-                      <SelectItem key={line.id} value={line.id}>{line.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
+                <div className="grid grid-cols-2 gap-2 border border-blue-200 rounded-xl p-3 bg-blue-50/30 max-h-40 overflow-y-auto">
+                  {lines.map((line) => (
+                    <div key={line.id} className="flex items-center space-x-2">
+                      <Checkbox 
+                        id={`edit-${line.id}`} 
+                        checked={editForm.lineIds.includes(line.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setEditForm(p => ({ ...p, lineIds: [...p.lineIds, line.id] }));
+                          } else {
+                            setEditForm(p => ({ ...p, lineIds: p.lineIds.filter(id => id !== line.id) }));
+                          }
+                        }}
+                      />
+                      <label htmlFor={`edit-${line.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                        {line.name}
+                      </label>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <Button onClick={handleUpdate} className="w-full h-12 bg-blue-600 text-white font-black text-lg hover:bg-blue-700 mt-2 shadow-xl border-none" disabled={updating}>
@@ -308,9 +326,11 @@ const ManageAgents = () => {
                   <div className="grid grid-cols-2 gap-4 pt-2">
                     <div className="space-y-0.5 col-span-2 p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between">
                       <div>
-                         <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Assigned Territory</p>
+                         <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Assigned Territories</p>
                          <p className="text-xs font-black text-primary">
-                          {lines.find(l => l.id === agent.lineId)?.name || "Unassigned Territory"}
+                          {(agent.lineIds && agent.lineIds.length > 0) 
+                              ? agent.lineIds.map((id: string) => lines.find(l => l.id === id)?.name).filter(Boolean).join(", ") 
+                              : (lines.find(l => l.id === agent.lineId)?.name || "Unassigned Territory")}
                          </p>
                       </div>
                       <MapPin size={16} className="text-accent/40" />

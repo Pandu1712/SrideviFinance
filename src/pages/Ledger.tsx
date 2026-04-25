@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2 } from "lucide-react";
+import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 import { useSearchParams } from "react-router-dom";
 
@@ -88,17 +90,16 @@ const Ledger = () => {
     setLoading(true);
     try {
       let q;
-      if (userData.role === "super_admin") {
-        q = query(collection(db, "accounts"), where("accountNo", "==", accountNo));
-      } else if (userData.role === "admin") {
-        q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("adminId", "==", userData.uid));
-      } else {
-        // Agent role
-        q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("lineId", "==", userData.lineId || ""));
+      if (!selectedLineId) {
+        toast.error("Please select a line first from the sidebar");
+        setLoading(false);
+        return;
       }
 
-      if (selectedLineId) {
-        q = query(q, where("lineId", "==", selectedLineId));
+      q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("lineId", "==", selectedLineId));
+      
+      if (userData.role === "admin") {
+        q = query(q, where("adminId", "==", userData.uid));
       }
       
       const accSnap = await getDocs(q);
@@ -151,19 +152,67 @@ const Ledger = () => {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="h-9 gap-2" onClick={() => {
-            if (!accountInfo) return;
-            const headers = ["Sl. No.", "Date", "Amount", "Mode", "Status"];
-            const rows = postings.map((p, i) => [i + 1, formatDate(p.date), p.amount, p.payMode, p.status]);
-            const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `Ledger_${accountNo}_${new Date().toISOString().split("T")[0]}.csv`;
-            link.click();
-            toast.success("Ledger exported successfully");
+          <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-slate-700 font-bold" onClick={() => {
+            if (!accountInfo) {
+              toast.error("Please search and load an account first");
+              return;
+            }
+            
+            const doc = new jsPDF();
+            
+            // Header Section
+            doc.setFontSize(22);
+            doc.setTextColor(15, 23, 42); // slate-900
+            doc.text("SRIDEVI FINANCE HUB", 14, 22);
+            
+            doc.setFontSize(14);
+            doc.text("Official Account Statement", 14, 30);
+            
+            doc.setFontSize(10);
+            doc.setTextColor(100, 116, 139); // slate-500
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 38);
+
+            // Member Info Box
+            doc.setDrawColor(226, 232, 240); // slate-200
+            doc.line(14, 42, 196, 42);
+            
+            doc.setFontSize(10);
+            doc.setTextColor(15, 23, 42);
+            doc.text(`Member Name: ${accountInfo.name}`, 14, 50);
+            doc.text(`Account Number: ${accountInfo.accountNo}`, 14, 55);
+            doc.text(`Village: ${accountInfo.village || "N/A"}`, 14, 60);
+            doc.text(`Phone: ${accountInfo.phone || "N/A"}`, 14, 65);
+            
+            doc.text(`Total Principal: ${formatCurrency(accountInfo.totalAmount)}`, 130, 50);
+            doc.text(`Amount Paid: ${formatCurrency(accountInfo.paid)}`, 130, 55);
+            doc.text(`Outstanding: ${formatCurrency(accountInfo.balance)}`, 130, 60);
+            doc.text(`Status: ${accountInfo.status.toUpperCase()}`, 130, 65);
+
+            const tableColumn = ["Sl No", "Date", "Amount", "Mode", "Collected By"];
+            const tableRows = postings.map((p, i) => [
+              i + 1, 
+              formatDate(p.date), 
+              formatCurrency(p.amount), 
+              p.payMode.toUpperCase(), 
+              p.collectedByName || "System"
+            ]);
+
+            autoTable(doc, {
+              head: [tableColumn],
+              body: tableRows,
+              startY: 75,
+              theme: 'striped',
+              headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+              styles: { fontSize: 9, cellPadding: 4 },
+              columnStyles: {
+                2: { halign: 'right', fontStyle: 'bold' } // Amount column
+              }
+            });
+
+            doc.save(`Ledger_${accountNo}_${new Date().toISOString().split("T")[0]}.pdf`);
+            toast.success("Ledger Exported as PDF");
           }}>
-            <Download className="h-4 w-4" /> Export CSV
+            <Download className="h-4 w-4" /> Export PDF
           </Button>
           <Button 
             className="h-9 gap-2 bg-[#25D366] text-white hover:bg-[#128C7E]"
@@ -288,6 +337,50 @@ const Ledger = () => {
               </Card>
             </div>
 
+            {/* Security Documents Vault */}
+            {accountInfo.documents && accountInfo.documents.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" />
+                    Verified Digital Credentials
+                  </h3>
+                  <Badge variant="outline" className="border-slate-200 text-slate-400 font-bold text-[8px] uppercase tracking-widest px-2">
+                    {accountInfo.documents.length} Secure Files
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {accountInfo.documents.map((doc: any, idx: number) => (
+                    <motion.div 
+                      key={idx}
+                      whileHover={{ y: -2 }}
+                      className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-4 group transition-all hover:shadow-md hover:border-accent/20"
+                    >
+                      <div className="h-12 w-12 rounded-xl bg-slate-50 flex items-center justify-center shrink-0 group-hover:bg-accent/5 transition-colors">
+                         {doc.url.match(/\.(jpg|jpeg|png|webp)$/i) ? (
+                           <ImageIcon size={20} className="text-slate-300 group-hover:text-accent" />
+                         ) : (
+                           <File size={20} className="text-slate-300 group-hover:text-accent" />
+                         )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase text-accent tracking-widest">{doc.type}</p>
+                        <p className="text-xs font-bold text-slate-900 truncate mt-0.5">{doc.description || 'Verified Record'}</p>
+                        <a 
+                          href={doc.url} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="text-[9px] font-black uppercase text-slate-400 hover:text-primary transition-colors flex items-center gap-1 mt-2"
+                        >
+                          <Download size={10} /> View Document
+                        </a>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <Card className="glass-card shadow-lg border-none overflow-hidden">
               <CardHeader className="bg-primary/5 border-b border-primary/10 flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-primary/70">
@@ -307,6 +400,7 @@ const Ledger = () => {
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Credit Amount</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Running Total</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Payment Mode</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Collected By</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-center">Status</th>
                       {userData?.role === "super_admin" && (
                         <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Delete</th>
@@ -336,11 +430,21 @@ const Ledger = () => {
                             <td className="p-4 text-sm font-medium">{formatDate(p.date)}</td>
                             <td className="p-4 text-sm font-bold text-right text-emerald-600">{formatCurrency(p.amount)}</td>
                             <td className="p-4 text-sm font-bold text-right text-primary group-hover:text-accent transition-colors">{formatCurrency(runningTotal)}</td>
-                            <td className="p-4">
-                              <span className="text-[10px] font-bold uppercase py-1 px-2 rounded-md bg-slate-100 text-slate-600">
-                                {p.payMode}
-                              </span>
-                            </td>
+                              <td className="p-4">
+                                <span className="text-[10px] font-bold uppercase py-1 px-2 rounded-md bg-slate-100 text-slate-600">
+                                  {p.payMode}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                <div className="flex flex-col">
+                                  <span className="text-xs font-black text-slate-700 uppercase leading-none">
+                                    {p.collectedByName || "System"}
+                                  </span>
+                                  <span className={`text-[8px] font-bold uppercase mt-1 ${p.collectedByRole === 'super_admin' ? 'text-indigo-500' : 'text-emerald-500'}`}>
+                                    {p.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'}
+                                  </span>
+                                </div>
+                              </td>
                             <td className="p-4 text-center">
                               <span className={`text-[10px] font-bold uppercase py-1 px-2 rounded-md ${p.status === 'penalty' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {p.status}

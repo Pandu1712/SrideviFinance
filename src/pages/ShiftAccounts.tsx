@@ -13,7 +13,7 @@ import { ArrowRightLeft } from "lucide-react";
 
 const ShiftAccounts = () => {
   const { userData } = useAuth();
-  const { lines } = useLine();
+  const { selectedLineId, lines } = useLine();
   const [accounts, setAccounts] = useState<DocumentData[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<DocumentData | null>(null);
   const [newLineId, setNewLineId] = useState("");
@@ -22,23 +22,28 @@ const ShiftAccounts = () => {
   useEffect(() => {
     const fetch = async () => {
       if (!userData) return;
-      let accQ;
-      if (userData.role === "super_admin") {
-        accQ = query(collection(db, "accounts"));
-      } else {
-        accQ = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
+      if (!selectedLineId) {
+        setAccounts([]);
+        setLoading(false);
+        return;
       }
+
+      let accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
+      
+      if (userData.role === "admin") {
+        accQ = query(accQ, where("adminId", "==", userData.uid));
+      }
+
       const accSnap = await getDocs(accQ);
       const accList: DocumentData[] = []; 
       accSnap.forEach(d => accList.push({ id: d.id, ...(d.data() as Record<string, any>) }));
       
-      // Sort alphabetically by name
       accList.sort((a,b) => (a.name || "").localeCompare(b.name || ""));
       setAccounts(accList);
       setLoading(false);
     };
     fetch();
-  }, [userData]);
+  }, [userData, selectedLineId]);
 
   const handleShift = async () => {
     if (!selectedAccount || !newLineId) { toast.error("Select account and target line"); return; }

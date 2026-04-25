@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { IndianRupee, Shield, Mail, Lock, CheckCircle2, ArrowRight, UserCog, Smartphone, Eye, EyeOff } from "lucide-react";
 import { motion } from "framer-motion";
+import { logActivity } from "@/lib/audit";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -20,6 +21,13 @@ const Login = () => {
   // Redirect once identity is cloud-synced
   useEffect(() => {
     if (user && userData) {
+      logActivity(
+        userData.uid,
+        userData.name,
+        userData.role,
+        "LOGIN",
+        `Personnel successfully authenticated and started a new session`
+      );
       navigate("/dashboard");
     }
   }, [user, userData, navigate]);

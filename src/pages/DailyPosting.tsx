@@ -14,6 +14,7 @@ import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRigh
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { logActivity } from "@/lib/audit";
 
 const DailyPosting = () => {
   const { userData } = useAuth();
@@ -23,6 +24,8 @@ const DailyPosting = () => {
   const [accountInfo, setAccountInfo] = useState<DocumentData | null>(null);
   const [assignedMembers, setAssignedMembers] = useState<DocumentData[]>([]);
   const [fetchingMembers, setFetchingMembers] = useState(false);
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [availableVillages, setAvailableVillages] = useState<string[]>([]);
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastPostedAmount, setLastPostedAmount] = useState(0);
   const [form, setForm] = useState({ 
@@ -35,21 +38,25 @@ const DailyPosting = () => {
 
   useEffect(() => {
     const loadAssignedMembers = async () => {
-      if (!userData || (userData.role !== 'agent' && userData.role !== 'admin')) return;
+      if (!userData) return;
       setFetchingMembers(true);
       try {
         let q;
-        if (userData.role === 'agent') {
-          q = query(collection(db, "accounts"), where("lineId", "==", userData.lineId || ""));
-        } else {
-          q = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
-        }
-        
         if (selectedLineId) {
-          q = query(q, where("lineId", "==", selectedLineId));
+          q = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
+        } else {
+          // If no line selected, don't show any data to prevent mixing
+          setAssignedMembers([]);
+          setFetchingMembers(false);
+          return;
         }
         const snap = await getDocs(q);
         const membersList = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+        
+        // Extract unique villages for filter
+        const vils = Array.from(new Set(membersList.map(m => m.village).filter(Boolean))) as string[];
+        setAvailableVillages(vils.sort());
+        
         // Client-side sort to avoid Firestore index requirement
         membersList.sort((a: any, b: any) => (a.accountNo || "").localeCompare(b.accountNo || ""));
         setAssignedMembers(membersList);
@@ -79,16 +86,12 @@ const DailyPosting = () => {
     try {
       let q;
       // Role-based account access
-      if (userData?.role === "agent") {
-        q = query(collection(db, "accounts"), where("accountNo", "==", form.accountNo), where("lineId", "==", userData.lineId || ""));
-      } else if (userData?.role === "admin") {
-        q = query(collection(db, "accounts"), where("accountNo", "==", form.accountNo), where("adminId", "==", userData.uid));
-      } else {
-        q = query(collection(db, "accounts"), where("accountNo", "==", form.accountNo));
-      }
-
       if (selectedLineId) {
-        q = query(q, where("lineId", "==", selectedLineId));
+        q = query(collection(db, "accounts"), where("accountNo", "==", form.accountNo), where("lineId", "==", selectedLineId));
+      } else {
+        toast.error("Please select a line first from the sidebar");
+        setSearching(false);
+        return;
       }
       
       const snap = await getDocs(q);
@@ -144,6 +147,9 @@ const DailyPosting = () => {
           payMode: form.payMode,
           agentId: accountInfo.agentId || userData?.uid,
           adminId: accountInfo.adminId || userData?.adminId || "",
+          collectedById: userData?.uid,
+          collectedByName: userData?.name,
+          collectedByRole: userData?.role,
           lineId: accountInfo.lineId || "default", // Inherit lineId from account
           memberName: accountInfo.name,
           createdAt: new Date().toISOString(),
@@ -154,7 +160,9 @@ const DailyPosting = () => {
           paid: newPaid,
           balance: Math.max(0, newBalance),
           status: newStatus,
-          lastPostingDate: form.date
+          lastPostingDate: form.date,
+          lastCollectedByName: userData?.name,
+          lastCollectedByRole: userData?.role
         });
 
         // Update local state for immediate feedback
@@ -168,6 +176,18 @@ const DailyPosting = () => {
       });
 
       toast.success(`₹${postingAmount} posted successfully to ${accountInfo.name}`);
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "POSTING_CREATE",
+          `Posted ${formatCurrency(postingAmount)} for ${accountInfo.name} (${form.accountNo})`,
+          selectedLineId
+        );
+      }
+
       setLastPostedAmount(postingAmount);
       setIsSuccess(true);
       setForm(prev => ({ ...prev, amount: "" }));
@@ -210,21 +230,32 @@ const DailyPosting = () => {
                 accountInfo ? "hidden md:flex" : "flex"
               )}>
                 <CardHeader className="border-b border-primary/5 bg-slate-50/50 py-4">
-                  <CardTitle className="text-sm font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
-                    <Users className="h-4 w-4 text-accent" />
-                    Member Portfolio
-                  </CardTitle>
+                  <div className="flex items-center justify-between gap-4">
+                    <CardTitle className="text-sm font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
+                      <Users className="h-4 w-4 text-accent" />
+                      Portfolio
+                    </CardTitle>
+                    <Select value={villageFilter} onValueChange={setVillageFilter}>
+                      <SelectTrigger className="h-8 w-32 text-[10px] font-black uppercase tracking-widest border-none bg-white shadow-sm">
+                        <SelectValue placeholder="Village" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Villages</SelectItem>
+                        {availableVillages.map(v => (
+                          <SelectItem key={v} value={v}>{v}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </CardHeader>
                 <CardContent className="p-0 flex-1 overflow-hidden">
                   <ScrollArea className="h-full">
                     <div className="p-3 space-y-2">
                       {fetchingMembers ? (
                         <div className="p-5 text-center text-xs text-muted-foreground animate-pulse">Syncing members...</div>
-                      ) : assignedMembers.length === 0 ? (
-                        <div className="p-10 text-center">
-                          <p className="text-xs text-muted-foreground italic">No members assigned.</p>
-                        </div>
-                      ) : assignedMembers.map((m) => (
+                      ) : assignedMembers
+                          .filter(m => villageFilter === 'all' || m.village === villageFilter)
+                          .map((m) => (
                         <button
                           key={m.id}
                           onClick={() => selectMember(m)}
@@ -248,7 +279,11 @@ const DailyPosting = () => {
                                 <span className={cn("text-[9px] font-bold opacity-60", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
                                   {m.accountNo}
                                 </span>
-                                {m.balance > 0 && <Badge variant="secondary" className="text-[10px] h-4 px-1 bg-white/20 text-white border-none font-black">₹{m.balance}</Badge>}
+                                {m.village && (
+                                  <span className={cn("text-[8px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                    • {m.village}
+                                  </span>
+                                )}
                               </div>
                             </div>
                             <ArrowRight size={14} className={cn("opacity-0 group-hover:opacity-100 transition-all", accountInfo?.id === m.id ? "text-white opacity-100" : "text-slate-300")} />
@@ -455,11 +490,18 @@ const DailyPosting = () => {
                           </div>
                           
                           <div className="space-y-2 bg-white/50 p-3 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Last Payment Activity</p>
-                            <div className="flex items-center gap-2 text-sm font-black text-slate-700">
-                              <Calendar className="h-4 w-4 text-accent" />
-                              {accountInfo.lastPostingDate ? formatDate(accountInfo.lastPostingDate) : 'Initial Entry'}
-                            </div>
+                            <p className="text-[7px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Last Payment Activity</p>
+                        <div className="flex items-center gap-3">
+                           <div className="h-8 w-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-500"><Calendar size={14} /></div>
+                           <div>
+                              <p className="text-sm font-black text-slate-800 leading-none">{accountInfo.lastPostingDate ? formatDate(accountInfo.lastPostingDate) : "Initial Entry"}</p>
+                              {accountInfo.lastCollectedByName && (
+                                <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">
+                                  By {accountInfo.lastCollectedByName} ({accountInfo.lastCollectedByRole === 'super_admin' ? 'Admin' : 'Agent'})
+                                </p>
+                              )}
+                           </div>
+                        </div>
                           </div>
                           
                           <div className="space-y-2 pt-2">

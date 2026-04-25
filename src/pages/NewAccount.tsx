@@ -9,15 +9,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Wallet, UserPlus, Calendar, Info, Calculator, UserCheck, IndianRupee, TrendingUp, Download, CreditCard, MapPin } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { 
+  Wallet, UserPlus, Calendar, Info, Calculator, UserCheck, IndianRupee, TrendingUp, Download, CreditCard, MapPin, Check, ChevronsUpDown, Plus, CheckCircle2,
+  FileText, Upload, X, File, Image as ImageIcon
+} from "lucide-react";
+import { cn, formatCurrency } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { uploadToCloudinary } from "@/lib/cloudinary";
+import { logActivity } from "@/lib/audit";
 
 const accountSchema = z.object({
   accountNo: z.string().min(1, "Account number is required"),
@@ -26,6 +35,9 @@ const accountSchema = z.object({
   phone: z.string().regex(/^[0-9]{10}$/, "Invalid phone number").optional().or(z.literal("")),
   village: z.string().optional(),
   occupation: z.string().optional(),
+  documentsTaken: z.string().optional(),
+  altPhone: z.string().optional(),
+  documentCharge: z.string().optional(),
   guarantorName: z.string().optional(),
   guarantorPhone: z.string().optional(),
   loanAmount: z.string().min(1, "Loan amount is required"),
@@ -41,7 +53,13 @@ const accountSchema = z.object({
   bankAccountNumber: z.string().optional(),
   bankIfsc: z.string().optional(),
   commission: z.string().default("0"),
+  initialPaid: z.string().default("0"),
   lineId: z.string().min(1, "Please select an operational line"),
+  documents: z.array(z.object({
+    url: z.string(),
+    type: z.string(),
+    description: z.string().optional()
+  })).optional().default([]),
 });
 
 type AccountForm = z.infer<typeof accountSchema>;
@@ -54,6 +72,36 @@ const NewAccount = () => {
   const isEdit = !!id;
   const [loading, setLoading] = useState(false);
   const [fetchingLocation, setFetchingLocation] = useState(false);
+  const [villages, setVillages] = useState<any[]>([]);
+  const [villageOpen, setVillageOpen] = useState(false);
+  const [villageSearch, setVillageSearch] = useState("");
+  const [showVillageDialog, setShowVillageDialog] = useState(false);
+  const [newVillageData, setNewVillageData] = useState({
+    name: "",
+    mondalam: "",
+    district: "",
+    pincode: "",
+    postOffice: ""
+  });
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [docDescription, setDocDescription] = useState("");
+  const [docType, setDocType] = useState("Aadhar Card");
+
+  useEffect(() => {
+    const fetchVillages = async () => {
+      try {
+        const snap = await getDocs(collection(db, "villages"));
+        const list: any[] = [];
+        snap.forEach(d => list.push({ id: d.id, ...d.data() as any }));
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setVillages(list);
+      } catch (err) {
+        console.error("Error fetching villages:", err);
+      }
+    };
+    fetchVillages();
+  }, []);
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -77,6 +125,71 @@ const NewAccount = () => {
     );
   };
 
+  const handleCreateVillage = async () => {
+    if (!newVillageData.name.trim()) {
+      toast.error("Village name is required");
+      return;
+    }
+    setLoading(true);
+    try {
+      const docRef = await addDoc(collection(db, "villages"), {
+        ...newVillageData,
+        createdAt: new Date().toISOString(),
+      });
+      const newVillageObj = { id: docRef.id, ...newVillageData };
+      setVillages(prev => [...prev, newVillageObj].sort((a, b) => a.name.localeCompare(b.name)));
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "LINE_CREATE", // Reusing LINE_CREATE for structural geographic data
+          `Added NEW Village: ${newVillageData.name} (${newVillageData.pincode}) to the master database`
+        );
+      }
+
+      setValue("village", newVillageData.name);
+      setShowVillageDialog(false);
+      setVillageOpen(false);
+      setVillageSearch("");
+      setNewVillageData({ name: "", mondalam: "", district: "", pincode: "", postOffice: "" });
+    } catch (err) {
+      console.error("Error creating village:", err);
+      toast.error("Failed to save village to database");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const res = await uploadToCloudinary(file);
+      const newDoc = {
+        url: res.url,
+        type: docType,
+        description: docDescription
+      };
+      setDocuments(prev => [...prev, newDoc]);
+      setDocDescription("");
+      toast.success(`${docType} uploaded successfully`);
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed");
+    } finally {
+      setIsUploading(false);
+      e.target.value = ""; // Reset input
+    }
+  };
+
+  const removeDocument = (index: number) => {
+    setDocuments(prev => prev.filter((_, i) => i !== index));
+    toast.info("Document removed from list");
+  };
+
   const {
     register,
     handleSubmit,
@@ -93,6 +206,9 @@ const NewAccount = () => {
       interestAmount: "0",
       paymentType: "cash",
       customerLocation: "",
+      documentsTaken: "",
+      documentCharge: "0",
+      altPhone: "",
     },
   });
 
@@ -142,6 +258,11 @@ const NewAccount = () => {
   useEffect(() => {
     const fetchExisting = async () => {
       if (!id || !isEdit) return;
+      if (userData?.role === 'agent') {
+        toast.error("Agents cannot edit existing member data.");
+        navigate('/members');
+        return;
+      }
       try {
         const snap = await getDoc(doc(db, "accounts", id));
         if (snap.exists()) {
@@ -153,8 +274,13 @@ const NewAccount = () => {
             installmentAmount: String(data.installmentAmount || ""),
             totalAmount: String(data.totalAmount || ""),
             commission: String(data.commission || "0"),
+            documentCharge: String(data.documentCharge || "0"),
+            initialPaid: String(data.initialPaid || "0"),
             customerLocation: data.customerLocation || "",
           } as any);
+          if (data.documents) {
+            setDocuments(data.documents);
+          }
         }
       } catch (err) {
         toast.error("Failed to load account details");
@@ -163,35 +289,31 @@ const NewAccount = () => {
     fetchExisting();
   }, [id, isEdit, reset]);
 
+  const currentLineId = watch("lineId");
   useEffect(() => {
     const generateNextAccountNo = async () => {
-      if (isEdit) return;
+      if (isEdit || !currentLineId) return;
       try {
-        const q = query(collection(db, "accounts"), orderBy("accountNo", "desc"), limit(1));
+        const q = query(collection(db, "accounts"), where("lineId", "==", currentLineId));
         const snap = await getDocs(q);
         
         if (snap.empty) {
-          setValue("accountNo", "ACC-001");
+          setValue("accountNo", "1");
         } else {
-          const lastAccNo = snap.docs[0].data().accountNo;
-          const match = lastAccNo.match(/ACC-(\d+)/);
-          if (match) {
-            const nextNum = parseInt(match[1]) + 1;
-            const paddedNum = String(nextNum).padStart(3, '0');
-            setValue("accountNo", `ACC-${paddedNum}`);
-          } else {
-            // Fallback if format is weird
-            setValue("accountNo", "ACC-001");
-          }
+          const maxNo = snap.docs.reduce((max, d) => {
+             const accNo = parseInt(d.data().accountNo, 10);
+             return !isNaN(accNo) && accNo > max ? accNo : max;
+          }, 0);
+          setValue("accountNo", String(maxNo + 1));
         }
       } catch (err) {
         console.error("Error generating account number:", err);
-        setValue("accountNo", "ACC-001"); // Safe default
+        setValue("accountNo", "1"); // Safe default
       }
     };
 
     generateNextAccountNo();
-  }, [userData, isEdit, setValue]);
+  }, [userData, isEdit, setValue, currentLineId]);
 
   // Set default lineId if selectedLineId is present and form doesn't have one
   useEffect(() => {
@@ -307,24 +429,52 @@ const NewAccount = () => {
         loanAmount: parseFloat(data.loanAmount),
         interestAmount: parseFloat(data.interestAmount),
         commission: parseFloat(data.commission) || 0,
+        documentCharge: parseFloat(data.documentCharge || "0"),
         customerLocation: data.customerLocation || "",
+        documents: documents,
       };
 
       if (isEdit && id) {
         await updateDoc(doc(db, "accounts", id), payload);
         toast.success("Account updated successfully");
+
+        if (userData) {
+          logActivity(
+            userData.uid,
+            userData.name,
+            userData.role,
+            "MEMBER_CREATE", // Using CREATE as general UPSERT log
+            `Modified Account ${data.accountNo} for ${data.name}. New Balance: ${formatCurrency(total - (parseFloat(data.initialPaid || "0")))}`,
+            data.lineId
+          );
+        }
+
         navigate("/members");
       } else {
+        const initialPaidValue = parseFloat(data.initialPaid || "0");
         const newPayload = {
           ...payload,
-          paid: 0,
-          balance: total,
-          status: "active",
+          paid: initialPaidValue,
+          balance: total - initialPaidValue,
+          status: (total - initialPaidValue) <= 0 ? "completed" : "active",
           adminId: userData?.uid,
           createdAt: new Date().toISOString(),
         };
         await addDoc(collection(db, "accounts"), newPayload);
         toast.success("Account created successfully");
+
+        if (userData) {
+          logActivity(
+            userData.uid,
+            userData.name,
+            userData.role,
+            "MEMBER_CREATE",
+            `Registered NEW Account ${data.accountNo} for ${data.name}. Total: ${formatCurrency(total)}`,
+            data.lineId
+          );
+        }
+
+        setDocuments([]);
         reset();
       }
     } catch (err: any) {
@@ -335,7 +485,8 @@ const NewAccount = () => {
   };
 
   return (
-    <motion.div 
+    <>
+      <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
@@ -392,19 +543,156 @@ const NewAccount = () => {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Phone Number</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold">Phone Number</Label>
+                  {(userData?.role === 'super_admin' || userData?.role === 'admin') && (
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-5 px-2 text-[10px] bg-slate-100 uppercase tracking-widest text-slate-500 hover:text-primary"
+                      onClick={async () => {
+                        const ph = watch("phone");
+                        if (!ph || ph.length < 10) {
+                          toast.error("Enter a valid 10-digit phone number first");
+                          return;
+                        }
+                        try {
+                          const q = query(collection(db, "accounts"), where("phone", "==", ph), limit(1));
+                          const snap = await getDocs(q);
+                          if (!snap.empty) {
+                            const oldData = snap.docs[0].data();
+                            setValue("name", oldData.name || "");
+                            setValue("fatherHusbandName", oldData.fatherHusbandName || "");
+                            setValue("village", oldData.village || "");
+                            setValue("occupation", oldData.occupation || "");
+                            setValue("altPhone", oldData.altPhone || "");
+                            setValue("customerLocation", oldData.customerLocation || "");
+                            toast.success("Old customer details auto-filled!");
+                          } else {
+                            toast.error("No previous record found for this number");
+                          }
+                        } catch (err) {
+                          toast.error("Failed to search customer");
+                        }
+                      }}
+                    >
+                      Search Old
+                    </Button>
+                  )}
+                </div>
                 <Input {...register("phone")} className="finance-input" placeholder="10-digit mobile" />
                 {errors.phone && <p className="text-xs text-destructive mt-1">{errors.phone.message}</p>}
               </div>
 
               <div className="space-y-2">
+                <Label className="text-sm font-semibold">Alternative Phone Number</Label>
+                <Input {...register("altPhone")} className="finance-input" placeholder="Alt 10-digit mobile" />
+              </div>
+
+              <div className="space-y-2 flex flex-col">
                 <Label className="text-sm font-semibold">Village / Area</Label>
-                <Input {...register("village")} className="finance-input" placeholder="Location" />
+                <div className="relative">
+                  <Popover open={villageOpen} onOpenChange={setVillageOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={villageOpen}
+                        className={cn("w-full justify-between finance-input h-11 bg-white font-normal text-left", !watch("village") && "text-muted-foreground")}
+                      >
+                        {watch("village") || "Select village..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command>
+                        <CommandInput 
+                          placeholder="Search or type new..." 
+                          onValueChange={setVillageSearch}
+                          value={villageSearch}
+                        />
+                        <CommandList>
+                          <CommandEmpty className="p-0">
+                            {villageSearch ? (
+                              <div className="flex flex-col">
+                                <Button 
+                                  type="button" 
+                                  variant="ghost" 
+                                  className="w-full text-left justify-start rounded-none h-12 text-sm text-primary font-medium border-b border-slate-100"
+                                  onClick={() => {
+                                     setValue("village", villageSearch);
+                                     setVillageOpen(false);
+                                     setVillageSearch("");
+                                  }}
+                                >
+                                  Use "{villageSearch}"
+                                </Button>
+                                {(userData?.role === 'super_admin' || userData?.role === 'admin') && (
+                                  <Button 
+                                    type="button" 
+                                    variant="ghost" 
+                                    className="w-full text-left justify-start rounded-none h-12 text-sm text-emerald-600 font-bold bg-emerald-50 hover:bg-emerald-100"
+                                    onClick={() => {
+                                      setNewVillageData(prev => ({ ...prev, name: villageSearch }));
+                                      setShowVillageDialog(true);
+                                    }}
+                                  >
+                                    <Plus size={14} className="mr-2" />
+                                    Add Full Village Details
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="p-4 text-center text-sm text-muted-foreground">Type to search...</div>
+                            )}
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {villages.map((v) => (
+                              <CommandItem
+                                key={v.id}
+                                value={v.name}
+                                onSelect={(currentValue) => {
+                                  setValue("village", v.name); 
+                                  setVillageOpen(false);
+                                  setVillageSearch("");
+                                }}
+                                className="flex flex-col items-start py-3"
+                              >
+                                <div className="flex items-center w-full">
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4 shrink-0",
+                                      watch("village") === v.name ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <span className="font-bold uppercase">{v.name}</span>
+                                  {v.pincode && <Badge variant="outline" className="ml-auto text-[9px] font-black h-4 px-1">{v.pincode}</Badge>}
+                                </div>
+                                {(v.mondalam || v.district) && (
+                                  <span className="text-[10px] text-muted-foreground mt-1 ml-6 uppercase font-bold tracking-widest">
+                                    {v.mondalam}{v.mondalam && v.district && ", "}{v.district}
+                                  </span>
+                                )}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <input type="hidden" {...register("village")} />
+                </div>
               </div>
 
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">Occupation</Label>
                 <Input {...register("occupation")} className="finance-input" placeholder="Business or Job" />
+              </div>
+
+              <div className="space-y-2 lg:col-span-2">
+                <Label className="text-sm font-semibold">Documents Taken</Label>
+                <Input {...register("documentsTaken")} className="finance-input" placeholder="e.g. Aadhar Card, Promissory Note, Blank Cheque" />
               </div>
 
               <div className="space-y-2 sm:col-span-2 lg:col-span-3">
@@ -467,6 +755,20 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Document Charge (₹)</Label>
+                  <div className="relative">
+                    <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
+                    <Input 
+                      type="text"
+                      inputMode="decimal"
+                      {...register("documentCharge")} 
+                      className="pl-9 finance-input" 
+                      placeholder="e.g. 500"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <Label className="text-sm font-semibold text-[#0F172A]">Payment Frequency *</Label>
                   <Select onValueChange={(v: any) => setValue("paymentFrequency", v)} value={paymentFrequency}>
                     <SelectTrigger className="finance-input">
@@ -508,6 +810,21 @@ const NewAccount = () => {
                     />
                   </div>
                   <p className="text-[10px] text-muted-foreground px-1 italic">Auto-calculated (Principal + Interest)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-emerald-600">Already Paid Amount (₹)</Label>
+                  <div className="relative">
+                    <CheckCircle2 className="absolute left-3 top-3 h-4 w-4 text-emerald-600" />
+                    <Input 
+                      type="text"
+                      inputMode="decimal"
+                      {...register("initialPaid")} 
+                      className="pl-9 finance-input border-emerald-200 bg-emerald-50/50" 
+                      placeholder="e.g. 5000"
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground px-1 italic">Initial deduction from total</p>
                 </div>
 
                 <div className="space-y-2">
@@ -587,24 +904,25 @@ const NewAccount = () => {
                   </AnimatePresence>
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Assign Operational Line *</Label>
-                  <Select 
-                    onValueChange={(v) => setValue("lineId", v)} 
-                    value={watch("lineId") || undefined}
-                    disabled={!!selectedLineId} // Lock the selection if already inside a Line Dashboard
-                  >
-                    <SelectTrigger className="finance-input disabled:opacity-50">
-                      <SelectValue placeholder="Select Line" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {lines.map(line => (
-                        <SelectItem key={line.id} value={line.id}>{line.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.lineId && <p className="text-[10px] text-destructive">{errors.lineId.message}</p>}
-                </div>
+                {!selectedLineId && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-[#0F172A]">Assign Operational Line *</Label>
+                    <Select 
+                      onValueChange={(v) => setValue("lineId", v)} 
+                      value={watch("lineId") || undefined}
+                    >
+                      <SelectTrigger className="finance-input">
+                        <SelectValue placeholder="Select Line" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lines.map(line => (
+                          <SelectItem key={line.id} value={line.id}>{line.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {errors.lineId && <p className="text-[10px] text-destructive">{errors.lineId.message}</p>}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -623,6 +941,115 @@ const NewAccount = () => {
                   <Input {...register("guarantorPhone")} className="finance-input" placeholder="10-digit mobile" />
                 </div>
               </div>
+            </div>
+
+            <div className="border-t border-primary/10 pt-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <CreditCard className="h-5 w-5 text-accent" />
+                  Digital Credentials & Security
+                </h3>
+                <Badge className="bg-slate-900 text-white border-none font-black text-[8px] uppercase tracking-widest px-3 py-1">
+                  Cloudinary Secure Storage
+                </Badge>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-3 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Document Type</Label>
+                  <Select value={docType} onValueChange={setDocType}>
+                    <SelectTrigger className="finance-input bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Aadhar Card">Aadhar Card</SelectItem>
+                      <SelectItem value="PAN Card">PAN Card</SelectItem>
+                      <SelectItem value="Security Cheque">Security Cheque</SelectItem>
+                      <SelectItem value="Promissory Note">Promissory Note</SelectItem>
+                      <SelectItem value="Other Document">Other Document</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Description / Note</Label>
+                  <Input 
+                    value={docDescription} 
+                    onChange={e => setDocDescription(e.target.value)} 
+                    className="finance-input bg-white" 
+                    placeholder="e.g. Front side, Cheque No 123..." 
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Select File</Label>
+                  <div className="relative group">
+                    <input 
+                      type="file" 
+                      onChange={handleFileUpload}
+                      disabled={isUploading}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 disabled:cursor-not-allowed" 
+                    />
+                    <div className={cn(
+                      "h-11 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed transition-all",
+                      isUploading ? "bg-slate-100 border-slate-200" : "bg-white border-slate-200 group-hover:border-accent group-hover:bg-accent/5"
+                    )}>
+                      {isUploading ? (
+                        <>
+                          <div className="h-4 w-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                          <span className="text-xs font-black uppercase text-accent">Uploading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={16} className="text-slate-400 group-hover:text-accent" />
+                          <span className="text-xs font-black uppercase text-slate-500 group-hover:text-accent">Upload Document</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Document Preview Grid */}
+              {documents.length > 0 && (
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {documents.map((doc, idx) => (
+                    <motion.div 
+                      key={idx}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-4 relative group"
+                    >
+                      <button 
+                        type="button"
+                        onClick={() => removeDocument(idx)}
+                        className="absolute -top-2 -right-2 h-6 w-6 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                      >
+                        <X size={12} />
+                      </button>
+                      <div className="h-12 w-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+                         {doc.type.includes('Image') || doc.url.match(/\.(jpg|jpeg|png|webp)$/i) ? (
+                           <ImageIcon size={20} className="text-slate-400" />
+                         ) : (
+                           <File size={20} className="text-slate-400" />
+                         )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase text-accent tracking-widest">{doc.type}</p>
+                        <p className="text-xs font-bold text-slate-900 truncate mt-0.5">{doc.description || 'No description'}</p>
+                        <a 
+                          href={doc.url} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="text-[9px] font-black uppercase text-slate-400 hover:text-primary transition-colors flex items-center gap-1 mt-2"
+                        >
+                          <Download size={10} /> View Document
+                        </a>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="mt-8 p-6 bg-slate-900 rounded-3xl text-white shadow-2xl relative overflow-hidden">
@@ -681,6 +1108,75 @@ const NewAccount = () => {
         </CardContent>
       </Card>
     </motion.div>
+
+      <Dialog open={showVillageDialog} onOpenChange={setShowVillageDialog}>
+        <DialogContent className="sm:max-w-[425px] rounded-3xl border-none shadow-2xl overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 blur-3xl -mr-16 -mt-16" />
+          <DialogHeader className="relative z-10">
+            <DialogTitle className="text-2xl font-black text-primary">New Village Details</DialogTitle>
+            <DialogDescription className="font-medium text-slate-500">
+              Add comprehensive area details for the central registry.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4 relative z-10">
+            <div className="space-y-2">
+              <Label className="text-sm font-bold">Village Name *</Label>
+              <Input 
+                value={newVillageData.name} 
+                onChange={e => setNewVillageData(p => ({ ...p, name: e.target.value }))}
+                className="finance-input font-bold uppercase"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-bold">Mondalam</Label>
+                <Input 
+                  value={newVillageData.mondalam} 
+                  onChange={e => setNewVillageData(p => ({ ...p, mondalam: e.target.value }))}
+                  className="finance-input uppercase text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-bold">District</Label>
+                <Input 
+                  value={newVillageData.district} 
+                  onChange={e => setNewVillageData(p => ({ ...p, district: e.target.value }))}
+                  className="finance-input uppercase text-xs"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-bold">PIN Code</Label>
+                <Input 
+                  value={newVillageData.pincode} 
+                  onChange={e => setNewVillageData(p => ({ ...p, pincode: e.target.value }))}
+                  className="finance-input text-xs"
+                  placeholder="6-digit"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-bold">Post Office</Label>
+                <Input 
+                  value={newVillageData.postOffice} 
+                  onChange={e => setNewVillageData(p => ({ ...p, postOffice: e.target.value }))}
+                  className="finance-input text-xs"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="relative z-10">
+            <Button 
+              onClick={handleCreateVillage} 
+              className="w-full premium-gradient text-white font-bold h-12 rounded-xl shadow-lg border-none"
+              disabled={loading}
+            >
+              {loading ? "Saving..." : "Add to Database"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 

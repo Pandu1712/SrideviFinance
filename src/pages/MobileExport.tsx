@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Smartphone } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { formatCurrency, formatDate } from "@/lib/utils";
 
 const MobileExport = () => {
   const { userData } = useAuth();
@@ -31,17 +34,49 @@ const MobileExport = () => {
     fetch();
   }, [userData]);
 
-  const exportCSV = () => {
+  const exportPDF = () => {
     if (accounts.length === 0) { toast.error("No data to export"); return; }
-    const headers = "Account No,Name,Phone,Village,Total,Paid,Balance,Status\n";
-    const rows = accounts.map(a => `${a.accountNo},${a.name},${a.phone || ""},${a.village || ""},${a.totalAmount || 0},${a.paid || 0},${a.balance || 0},${a.status}`).join("\n");
-    const blob = new Blob([headers + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `mobile_export_${date}.csv`;
-    link.click();
-    toast.success("CSV exported!");
+    
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42);
+    doc.text("SRIDEVI FINANCE HUB", 14, 22);
+    
+    doc.setFontSize(14);
+    doc.text(`Mobile Account Audit - ${date}`, 14, 30);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 38);
+    doc.text(`Total Subscribers: ${accounts.length}`, 14, 43);
+
+    const tableColumn = ["Account No", "Name", "Phone", "Village", "Total", "Paid", "Balance"];
+    const tableRows = accounts.map(a => [
+      a.accountNo,
+      a.name,
+      a.phone || "N/A",
+      a.village || "N/A",
+      formatCurrency(a.totalAmount || 0),
+      formatCurrency(a.paid || 0),
+      formatCurrency(a.balance || 0)
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 50,
+      theme: 'grid',
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: {
+        4: { halign: 'right' },
+        5: { halign: 'right' },
+        6: { halign: 'right', fontStyle: 'bold' }
+      }
+    });
+
+    doc.save(`Mobile_Audit_${date}.pdf`);
+    toast.success("Mobile Audit exported as PDF");
   };
 
   const shareWhatsApp = () => {
@@ -59,7 +94,7 @@ const MobileExport = () => {
       <div className="mb-4 flex flex-wrap gap-4">
         <div className="space-y-1"><Label>Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-48" /></div>
         <div className="flex items-end gap-2">
-          <Button onClick={exportCSV} className="bg-accent text-accent-foreground hover:bg-accent/90">Export CSV</Button>
+          <Button onClick={exportPDF} className="bg-accent text-accent-foreground hover:bg-accent/90">Export PDF</Button>
           <Button onClick={shareWhatsApp} variant="outline"><Smartphone className="mr-2 h-4 w-4" />WhatsApp</Button>
         </div>
       </div>

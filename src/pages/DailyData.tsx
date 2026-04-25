@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { formatCurrency, formatDate } from "@/lib/utils";
 
 const DailyData = () => {
   const { userData } = useAuth();
@@ -76,15 +79,51 @@ const DailyData = () => {
 
   const totalAmount = postings.reduce((s, p) => s + (p.amount || 0), 0);
 
-  const exportCSV = () => {
+  const exportPDF = () => {
     if (postings.length === 0) { toast.error("No data"); return; }
-    const headers = "Acc No,Name,Amount,Status,Mode,Date\n";
-    const rows = postings.map(p => `${p.accountNo},${p.memberName},${p.amount},${p.status},${p.payMode},${p.date}`).join("\n");
-    const blob = new Blob([headers + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `daily_data_${date}.csv`; a.click();
-    toast.success("Exported!");
+    
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42);
+    doc.text("SRIDEVI FINANCE HUB", 14, 22);
+    
+    doc.setFontSize(14);
+    doc.text(`Daily Transaction Audit - ${date}`, 14, 30);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 38);
+    doc.text(`Total Entries: ${postings.length}`, 14, 43);
+
+    const tableColumn = ["Acc No", "Name", "Amount", "Status", "Mode", "Date"];
+    const tableRows = postings.map(p => [
+      p.accountNo,
+      p.memberName,
+      formatCurrency(p.amount),
+      p.status.toUpperCase(),
+      p.payMode.toUpperCase(),
+      formatDate(p.date)
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 50,
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: {
+        2: { halign: 'right', fontStyle: 'bold' }
+      }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Daily Total: ${formatCurrency(totalAmount)}`, 14, finalY);
+
+    doc.save(`Daily_Audit_${date}.pdf`);
+    toast.success("Daily Audit exported as PDF");
   };
 
   return (
@@ -92,7 +131,7 @@ const DailyData = () => {
       <h1 className="mb-4 text-2xl font-bold">Daily Data</h1>
       <div className="mb-4 flex flex-wrap items-center gap-4">
         <div className="space-y-1"><Label>Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-48" /></div>
-        <div className="flex items-end"><Button onClick={exportCSV} variant="outline"><Download className="mr-2 h-4 w-4" />Export</Button></div>
+        <div className="flex items-end"><Button onClick={exportPDF} variant="outline"><Download className="mr-2 h-4 w-4" />Export PDF</Button></div>
         <div className="pt-6 text-sm font-medium">Total: ₹{totalAmount.toLocaleString("en-IN")} ({postings.length} entries)</div>
       </div>
       <Card>

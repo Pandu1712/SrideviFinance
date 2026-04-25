@@ -6,21 +6,28 @@ import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Smartphone, Edit3, Navigation, PhoneCall, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2 } from "lucide-react";
+import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Smartphone, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Share2, Scale, ShieldCheck } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { generateRepaymentSchedule, getGoogleMapsUrl } from "@/lib/loanUtils";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { logActivity } from "@/lib/audit";
 
 const DailyCollection = () => {
   const navigate = useNavigate();
   const { userData } = useAuth();
-  const { lines } = useLine();
+  const { lines, selectedLineId } = useLine();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [records, setRecords] = useState<DocumentData[]>([]);
+  const [expense, setExpense] = useState("0");
+  const [disbursedToday, setDisbursedToday] = useState(0);
+  const [docChargesToday, setDocChargesToday] = useState(0);
+  const [isSavingExpense, setIsSavingExpense] = useState(false);
   const [customers, setCustomers] = useState<DocumentData[]>([]);
   const [postings, setPostings] = useState<Record<string, Record<string, any>>>({});
   const [loading, setLoading] = useState(false);
@@ -29,6 +36,7 @@ const DailyCollection = () => {
   const [activeCustomer, setActiveCustomer] = useState<any>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [villageFilter, setVillageFilter] = useState("all");
   
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{custId: string, date: string, custName: string, amount: number, accountNo: string} | null>(null);
@@ -52,17 +60,27 @@ const DailyCollection = () => {
   });
 
   const fetchDataForGrid = async () => {
-    if (!userData || userData.role !== "agent") return;
+    if (!selectedLineId) {
+      setCustomers([]);
+      setPostings({});
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     try {
-      const custQuery = query(collection(db, "accounts"), where("lineId", "==", userData.lineId || ""));
+      const targetLine = selectedLineId;
+      const custQuery = query(collection(db, "accounts"), where("lineId", "==", targetLine));
       const custSnap = await getDocs(custQuery);
-      const custData = custSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const custData = custSnap.docs.map(d => {
+        const data = d.data();
+        return { id: d.id, ...data };
+      });
       setCustomers(custData);
       
-      const postQuery = query(collection(db, "postings"), where("lineId", "==", userData.lineId || ""));
+      const postQuery = query(collection(db, "postings"), where("lineId", "==", targetLine));
       const postSnap = await getDocs(postQuery);
-      const postMap: Record<string, Record<string, any>> = {};
+      const postMap = {};
       
       const minDate = gridDates[0];
       postSnap.forEach(d => {
@@ -74,7 +92,7 @@ const DailyCollection = () => {
       });
       setPostings(postMap);
     } catch (err) {
-      console.error(err);
+      console.error("Grid Sync Error:", err);
       toast.error("Sync Error. Please Check Internet.");
     } finally {
       setLoading(false);
@@ -113,6 +131,18 @@ const DailyCollection = () => {
       });
 
       toast.success("Transaction deleted and balance reconciled.");
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "POSTING_DELETE",
+          `Deleted payment of ${formatCurrency(posting.amount)} for ${posting.memberName} (${posting.accountNo})`,
+          selectedLineId
+        );
+      }
+      
       handleSearch(); // Refresh admin records
     } catch (err: any) {
       console.error("Delete Posting Error:", err);
@@ -124,24 +154,184 @@ const DailyCollection = () => {
 
   const handleSearch = async () => {
     if (!userData) return;
-    if (userData.role === "agent") {
+    if (userData?.role === "agent") {
       fetchDataForGrid();
       return;
     }
     setLoading(true);
     try {
+      if (!selectedLineId) {
+        setRecords([]);
+        setLoading(false);
+        return;
+      }
+
       let q;
-      if (userData.role === "super_admin") q = query(collection(db, "postings"), where("date", "==", date));
-      else if (userData.role === "admin") q = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", "==", date));
+      if (userData.role === "super_admin") {
+         q = query(collection(db, "postings"), where("date", "==", date), where("lineId", "==", selectedLineId));
+      }
+      else if (userData.role === "admin") {
+         q = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", "==", date), where("lineId", "==", selectedLineId));
+      }
       
       const snap = await getDocs(q!);
       const list: DocumentData[] = [];
       snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
       setRecords(list);
-    } catch (err) { console.error(err); } finally { setLoading(false); }
+
+      // Fetch Disbursals and Doc Charges for the day
+      const accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
+      const accSnap = await getDocs(accQ);
+      let totalDisbursed = 0;
+      let totalDocCharges = 0;
+      accSnap.docs.forEach(d => {
+        const acc = d.data();
+        if (acc.createdAt && acc.createdAt.startsWith(date)) {
+          totalDisbursed += (acc.loanAmount || 0);
+          totalDocCharges += (acc.documentCharge || 0);
+        }
+      });
+      setDisbursedToday(totalDisbursed);
+      setDocChargesToday(totalDocCharges);
+
+      // Fetch Expenses for the day
+      const expQ = query(collection(db, "day_summaries"), where("date", "==", date), where("lineId", "==", selectedLineId));
+      const expSnap = await getDocs(expQ);
+      if (!expSnap.empty) {
+        setExpense(String(expSnap.docs[0].data().expenses || 0));
+      } else {
+        setExpense("0");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { handleSearch(); }, [date, userData]);
+  const handleSaveExpenses = async () => {
+    if (!selectedLineId) return;
+    setIsSavingExpense(true);
+    try {
+      const q = query(collection(db, "day_summaries"), where("date", "==", date), where("lineId", "==", selectedLineId));
+      const snap = await getDocs(q);
+      
+      const expenseValue = parseFloat(expense) || 0;
+      
+      if (!snap.empty) {
+        await updateDoc(doc(db, "day_summaries", snap.docs[0].id), {
+          expenses: expenseValue,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, "day_summaries"), {
+          date,
+          lineId: selectedLineId,
+          expenses: expenseValue,
+          createdAt: serverTimestamp()
+        });
+      }
+      toast.success("Financial summary updated");
+
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "EXPENSE_UPDATE",
+          `Updated operational expenses to ${formatCurrency(expenseValue)} for date ${date}`,
+          selectedLineId
+        );
+      }
+    } catch (err) {
+      toast.error("Failed to save expenses");
+    } finally {
+      setIsSavingExpense(false);
+    }
+  };
+
+  useEffect(() => {
+    if (userData) {
+       handleSearch();
+    }
+  }, [date, userData, selectedLineId]);
+
+  const handleExportPDF = () => {
+    if (records.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+    
+    const doc = new jsPDF();
+    const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Master Portfolio";
+    
+    // Title
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text("SRIDEVI FINANCE HUB", 14, 22);
+    
+    // Subtitle
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`Daily Recovery Ledger - ${activeLineName}`, 14, 30);
+    doc.text(`Operative Date: ${formatDate(date)}`, 14, 35);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 40);
+
+    const tableColumn = ["ID", "Member Name", "Account No", "Amount", "Mode", "Collected By"];
+    const tableRows = records.map((r, i) => [
+      `#${String(i+1).padStart(2, '0')}`,
+      r.memberName,
+      r.accountNo,
+      formatCurrency(r.amount),
+      r.payMode.toUpperCase(),
+      `${r.collectedByName} (${r.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'})`
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 50,
+      theme: 'grid',
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: {
+        3: { halign: 'right', fontStyle: 'bold' } // Amount column
+      }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    const total = records.reduce((acc, r) => acc + (r.amount || 0), 0);
+    
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Aggregated Recovery: ${formatCurrency(total)}`, 14, finalY);
+
+    doc.save(`Ledger_${activeLineName}_${date}.pdf`);
+    toast.success("Operational Ledger Exported");
+  };
+
+  const handleShareWhatsApp = () => {
+    if (records.length === 0) {
+      toast.error("No postings to share");
+      return;
+    }
+    
+    const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Master Portfolio";
+    let text = `📌 *SRIDEVI FINANCE - DAILY RECOVERY REPORT*\n`;
+    text += `📅 *Date:* ${formatDate(date)}\n`;
+    text += `📍 *Line:* ${activeLineName}\n\n`;
+    
+    text += `*COLLECTIONS:*\n`;
+    records.forEach((r, i) => {
+      text += `${i+1}. ${r.memberName} - *${formatCurrency(r.amount)}* (${r.payMode.toUpperCase()})\n`;
+    });
+    
+    const total = records.reduce((acc, r) => acc + (r.amount || 0), 0);
+    text += `\n💰 *TOTAL RECOVERY:* *${formatCurrency(total)}*\n`;
+    text += `\n_Generated via Official Portal_`;
+    
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
 
   const handleCellClick = (customer: any, dateStr: string) => {
     const existing = postings[customer.id]?.[dateStr];
@@ -151,9 +341,9 @@ const DailyCollection = () => {
       date: dateStr,
       custName: customer.memberName || customer.name || "Unknown",
       accountNo: customer.accountNo,
-      amount: existing?.amount || customer.installmentAmount || 0
+      amount: existing?.amount || Math.min(customer.installmentAmount, customer.balance) || 0
     });
-    setPayAmount(String(existing?.amount || customer.installmentAmount || ""));
+    setPayAmount(String(existing?.amount || Math.min(customer.installmentAmount, customer.balance) || ""));
     setPayMode(existing?.payMode || "cash");
     setDigiPayer(existing?.digiPayer || "");
     setLateFee(existing?.lateFee || "");
@@ -305,9 +495,12 @@ const DailyCollection = () => {
     } finally { setSubmitting(false); }
   };
 
+  const uniqueVillages = Array.from(new Set(customers.map(c => c.village).filter(Boolean)));
   const filteredCustomers = customers.filter(c => {
-    return (c.memberName || c.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
+    const matchesSearch = (c.memberName || c.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
            (c.accountNo || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesVillage = villageFilter === "all" || c.village === villageFilter;
+    return matchesSearch && matchesVillage;
   });
 
   const totalTarget = filteredCustomers.reduce((acc, c) => acc + (c.totalAmount || 0), 0);
@@ -334,17 +527,38 @@ const DailyCollection = () => {
                 </button>
              </div>
              
-             <div className="relative z-10">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#5f259f]">
-                  <Search size={18} />
+             <div className="relative z-10 space-y-3">
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#5f259f]">
+                    <Search size={18} />
+                  </div>
+                  <input 
+                     type="text" 
+                     placeholder="Search Member or Account ID..." 
+                     value={searchQuery}
+                     onChange={(e) => setSearchQuery(e.target.value)}
+                     className="w-full h-12 rounded-2xl bg-white pl-12 pr-4 text-sm font-bold text-slate-700 placeholder:text-slate-300 shadow-xl focus:outline-none"
+                  />
                 </div>
-                <input 
-                   type="text" 
-                   placeholder="Search Member or Account ID..." 
-                   value={searchQuery}
-                   onChange={(e) => setSearchQuery(e.target.value)}
-                   className="w-full h-12 rounded-2xl bg-white pl-12 pr-4 text-sm font-bold text-slate-700 placeholder:text-slate-300 shadow-xl focus:outline-none"
-                />
+                {uniqueVillages.length > 0 && (
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                    <button 
+                      onClick={() => setVillageFilter("all")} 
+                      className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${villageFilter === "all" ? 'bg-white text-[#5f259f] shadow-md' : 'bg-white/10 text-white border border-white/20'}`}
+                    >
+                      All Villages
+                    </button>
+                    {uniqueVillages.map((v: any) => (
+                      <button 
+                        key={v}
+                        onClick={() => setVillageFilter(v)}
+                        className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${villageFilter === v ? 'bg-white text-[#5f259f] shadow-md' : 'bg-white/10 text-white border border-white/20'}`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                )}
              </div>
            </div>
         </div>
@@ -407,120 +621,166 @@ const DailyCollection = () => {
            </div>
         </div>
 
-        {/* Member Profile Overlay */}
         <AnimatePresence>
           {detailModalOpen && activeCustomer && (
-            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-0 md:p-6 lg:p-12">
-               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDetailModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
-               <motion.div initial={{ y: "100%", opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: "100%", opacity: 0 }} transition={{ type: "spring", damping: 35, stiffness: 400 }} className="relative w-full max-w-2xl h-full md:h-auto md:max-h-[90vh] bg-white md:rounded-[3rem] overflow-y-auto pb-40 no-scrollbar shadow-2xl">
-                 <div className="bg-[#5f259f] px-6 pt-20 pb-8 text-white relative shrink-0">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 blur-[100px] rounded-full -mr-32 -mt-32" />
-                    <div className="flex items-center justify-between mb-6 relative z-10">
-                       <button onClick={() => setDetailModalOpen(false)} className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center active:bg-white/20 hover:bg-white/30 transition-all border border-white/20 shadow-lg">
-                          <ArrowLeft size={18} />
-                       </button>
-                       <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Portfolio Intelligence</p>
-                       <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center opacity-20"><Smartphone size={16} /></div>
-                    </div>
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-0 md:p-6 lg:p-12 overflow-hidden">
+               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDetailModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-xl" />
+               <motion.div 
+                 initial={{ y: "20%", opacity: 0, scale: 0.95 }} 
+                 animate={{ y: 0, opacity: 1, scale: 1 }} 
+                 exit={{ y: "20%", opacity: 0, scale: 0.95 }} 
+                 transition={{ type: "spring", damping: 30, stiffness: 300 }} 
+                 className="relative w-full max-w-5xl h-full md:h-[85vh] bg-slate-50 md:rounded-[2.5rem] overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] flex flex-col md:flex-row"
+               >
+                 {/* Close Button Desktop */}
+                 <button onClick={() => setDetailModalOpen(false)} className="absolute top-6 right-6 z-30 h-10 w-10 rounded-full bg-white/20 backdrop-blur-md border border-white/30 text-white md:text-slate-400 md:bg-slate-200/50 md:border-slate-300/50 flex items-center justify-center hover:scale-110 transition-transform">
+                    <X size={20} />
+                 </button>
+
+                 {/* LEFT PANEL: Account Insights */}
+                 <div className="w-full md:w-[40%] bg-[#5f259f] p-8 md:p-10 text-white flex flex-col relative overflow-hidden">
+                    {/* Decorative Background Elements */}
+                    <div className="absolute -top-24 -right-24 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
+                    <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-accent/20 rounded-full blur-3xl" />
                     
-                    <div className="flex flex-col items-center gap-1 text-center relative z-10">
-                       <div className="h-12 w-12 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-xl font-black italic shadow-xl mb-1">
-                          {activeCustomer.memberName?.charAt(0) || activeCustomer.name?.charAt(0)}
-                       </div>
-                       <div className="space-y-1">
-                          <h2 className="text-2xl font-black tracking-tight uppercase italic leading-none">{activeCustomer.memberName || activeCustomer.name}</h2>
-                          <div className="flex items-center justify-center gap-2 mt-2">
-                             <span className="text-[9px] font-black text-white/50">{activeCustomer.accountNo}</span>
-                             <div className="h-1 w-1 rounded-full bg-white/20" />
-                             <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">{activeCustomer.paymentFrequency} Plan</span>
+                    <div className="relative z-10 flex flex-col h-full">
+                       <div className="mb-8">
+                          <Badge className="bg-white/20 backdrop-blur-md border-white/30 text-white font-black text-[9px] uppercase tracking-[0.2em] px-3 py-1 mb-4">Account Portfolio</Badge>
+                          <h2 className="text-4xl font-black tracking-tighter leading-none mb-2">{activeCustomer.memberName || activeCustomer.name}</h2>
+                          <p className="text-white/60 font-bold uppercase text-[10px] tracking-widest">{activeCustomer.accountNo} • {activeCustomer.village}</p>
+                          
+                          <div className="flex gap-2 mt-6">
+                             <a href={`tel:${activeCustomer.phone}`} className="flex-1 h-10 bg-white/10 backdrop-blur-md rounded-xl border border-white/20 flex items-center justify-center gap-2 text-[10px] font-black uppercase hover:bg-white/20 transition-all">
+                                <Phone size={14} className="text-emerald-400" /> Call
+                             </a>
+                             <button onClick={() => activeCustomer.customerLocation && window.open(getGoogleMapsUrl(activeCustomer.customerLocation), '_blank')} className="flex-1 h-10 bg-white/10 backdrop-blur-md rounded-xl border border-white/20 flex items-center justify-center gap-2 text-[10px] font-black uppercase hover:bg-white/20 transition-all">
+                                <Navigation size={14} className="text-blue-400" /> Maps
+                             </button>
                           </div>
                        </div>
-                    </div>
-                 </div>
 
-                 <div className="px-5 -mt-6 grid grid-cols-2 gap-2 relative z-10">
-                    <a href={`tel:${activeCustomer.phone}`} className="h-12 bg-white rounded-xl shadow-lg flex items-center justify-center gap-2 text-[9px] font-black uppercase text-slate-800 border border-slate-50">
-                       <PhoneCall size={14} className="text-emerald-500" /> Call
-                    </a>
-                    <button onClick={() => activeCustomer.customerLocation && window.open(getGoogleMapsUrl(activeCustomer.customerLocation), '_blank')} className="h-12 bg-white rounded-xl shadow-lg flex items-center justify-center gap-2 text-[9px] font-black uppercase text-slate-800 border border-slate-50">
-                       <Navigation size={14} className="text-blue-500" /> Maps
-                    </button>
-                 </div>
-
-                 <div className="px-5 py-6 space-y-4">
-                    <div className="bg-[#5f259f] p-5 rounded-[2rem] text-white shadow-2xl relative overflow-hidden">
-                       <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                          <div className="col-span-2 pb-3 border-b border-white/10 flex justify-between items-center">
-                             <div>
-                                <p className="text-[7px] font-black uppercase tracking-[0.2em] opacity-40 mb-1">Portfolio Value</p>
-                                <p className="text-2xl font-black italic">₹{activeCustomer.totalAmount || 0}</p>
+                       <div className="space-y-6 mt-auto">
+                          <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-2xl">
+                             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mb-4">Principal Value</p>
+                             <div className="flex items-baseline gap-2">
+                                <span className="text-3xl font-black tracking-tighter">₹{activeCustomer.totalAmount}</span>
+                                <span className="text-[10px] font-bold text-white/40 italic">Total Debt</span>
                              </div>
-                             <Badge className="bg-white/10 text-white border-none text-[8px] font-black uppercase h-6">Balance</Badge>
+                             
+                             <div className="mt-8 pt-6 border-t border-white/5 grid grid-cols-2 gap-4">
+                                <div>
+                                   <p className="text-[8px] font-black uppercase text-white/30 mb-1">Recovered</p>
+                                   <p className="text-lg font-black text-emerald-400">₹{activeCustomer.paid}</p>
+                                </div>
+                                <div>
+                                   <p className="text-[8px] font-black uppercase text-white/30 mb-1">Outstanding</p>
+                                   <p className="text-lg font-black text-rose-400">₹{activeCustomer.balance}</p>
+                                </div>
+                             </div>
                           </div>
-                          <div>
-                             <p className="text-[7px] font-black uppercase tracking-[0.2em] opacity-40">Recovered</p>
-                             <p className="text-base font-black text-emerald-400 italic">₹{activeCustomer.paid || 0}</p>
-                          </div>
-                          <div className="text-right">
-                             <p className="text-[7px] font-black uppercase tracking-[0.2em] opacity-40">Due</p>
-                             <p className="text-base font-black text-amber-400 italic">₹{activeCustomer.balance || 0}</p>
-                          </div>
-                       </div>
-                    </div>
 
-                    <div className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-                       <div className="flex justify-between items-end mb-3">
-                          <div>
-                             <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">Velocity</p>
-                             <h4 className="text-sm font-black text-slate-800 uppercase">{Math.round(((activeCustomer.paid || 0) / (activeCustomer.totalAmount || 1)) * 100)}% Completed</h4>
+                          <div className="px-2">
+                             <div className="flex items-center justify-between mb-3">
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60">Payment Velocity</p>
+                                <span className="text-xs font-black italic">{Math.min(100, Math.round(((activeCustomer.paid || 0) / (activeCustomer.totalAmount || 1)) * 100))}%</span>
+                             </div>
+                             <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden border border-white/5 p-0.5 shadow-inner">
+                                <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, ((activeCustomer.paid || 0) / (activeCustomer.totalAmount || 1)) * 100)}%` }} className="h-full bg-gradient-to-r from-accent to-emerald-400 rounded-full shadow-[0_0_12px_rgba(245,158,11,0.5)]" />
+                             </div>
                           </div>
-                          <CheckCircle2 size={16} className={((activeCustomer.paid || 0) >= (activeCustomer.totalAmount || 0)) ? "text-emerald-500" : "text-slate-200"} />
-                       </div>
-                       <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                          <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, ((activeCustomer.paid || 0) / (activeCustomer.totalAmount || 1)) * 100)}%` }} className="h-full bg-gradient-to-r from-[#5f259f] to-[#7c3aed]" />
                        </div>
                     </div>
                  </div>
 
-                 <div className="px-5 pb-10">
-                    <div className="space-y-2 max-w-sm mx-auto">
-                       <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-4 px-2">Repayment Matrix</p>
-                       {generateRepaymentSchedule(activeCustomer.startDate, activeCustomer.paymentFrequency || 'daily', activeCustomer.totalAmount || 0, activeCustomer.installmentAmount || 0).map((d, i) => {
-                          const post = postings[activeCustomer.id]?.[d];
-                          const isToday = d === new Date().toISOString().split("T")[0];
-                          const isSettled = (activeCustomer.balance || 0) <= 0;
-
-                          return (
-                             <div key={d} onClick={() => !post && !isSettled && handleCellClick(activeCustomer, d)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${post?.collectedByRole === 'super_admin' ? 'bg-indigo-50 border-indigo-100' : post ? 'bg-emerald-50 border-emerald-100' : isToday && !isSettled ? 'bg-[#5f259f]/5 border-[#5f259f]/10' : 'bg-white border-slate-50'}`}>
-                                <div className={`h-8 w-8 shrink-0 rounded-lg flex items-center justify-center font-black text-[9px] ${post?.collectedByRole === 'super_admin' ? 'bg-indigo-500 text-white' : post ? 'bg-emerald-500 text-white' : isToday && !isSettled ? 'bg-[#5f259f] text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
-                                   {post?.collectedByRole === 'super_admin' ? <Zap size={12} /> : d.slice(8, 10)}
+                 {/* RIGHT PANEL: Repayment Matrix */}
+                 <div className="w-full md:w-[60%] flex flex-col h-full overflow-hidden">
+                    <div className="p-8 md:p-10 flex-1 overflow-y-auto no-scrollbar pb-32">
+                       <div className="flex items-center justify-between mb-8">
+                          <p className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">Repayment Matrix</p>
+                          <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase">
+                             <span className="w-2 h-2 rounded-full bg-[#5f259f]" /> Suggested Schedule
+                          </div>
+                       </div>
+                       
+                       <div className="space-y-3">
+                          {activeCustomer.initialPaid > 0 && (
+                             <div className="flex items-center gap-4 p-5 rounded-3xl border bg-white border-emerald-100 shadow-sm transition-all hover:shadow-md group">
+                                <div className="h-12 w-12 shrink-0 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-black text-[10px] shadow-lg shadow-emerald-100 group-hover:scale-105 transition-transform">
+                                   <CheckCircle2 size={18} />
                                 </div>
                                 <div className="flex-1">
-                                   <p className="text-[12px] font-black text-slate-900 leading-none">₹{post ? post.amount : activeCustomer.installmentAmount}</p>
-                                   <p className="text-[7px] font-bold text-slate-400 uppercase mt-0.5">{formatDate(d)} • Plan #{i+1}</p>
+                                   <p className="text-lg font-black text-slate-900 leading-none">₹{activeCustomer.initialPaid}</p>
+                                   <p className="text-[8px] font-bold text-slate-400 uppercase mt-1.5 tracking-widest">Opening Balance / Initial Paid</p>
                                 </div>
                                 <div className="text-right">
-                                   {post ? (
-                                      post.collectedByRole === 'super_admin' ? (
-                                         <div className="px-2 py-0.5 rounded-md text-[6px] font-black uppercase bg-indigo-50 text-indigo-500 border border-indigo-200 italic mt-1">ADMIN RECEIVED</div>
-                                      ) : (
-                                         <Check size={12} className="text-emerald-500 mt-1" />
-                                      )
-                                   ) : isSettled ? <div className="px-2 py-0.5 rounded-md text-[6px] font-black uppercase bg-emerald-50 text-emerald-500 border border-emerald-100 italic mt-1">SETTLED</div> : <div className={`px-2 py-0.5 rounded-md text-[6px] font-black uppercase mt-1 ${isToday ? 'bg-primary text-white' : 'bg-slate-50 text-slate-300'}`}>{isToday ? 'COLLECT' : 'PLAN'}</div>}
+                                   <Badge className="bg-emerald-50 text-emerald-600 border-emerald-200 font-black text-[8px] uppercase tracking-tighter">INITIALIZED</Badge>
                                 </div>
                              </div>
-                           );
-                       })}
-                    </div>
-                 </div>
+                          )}
 
-                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent shrink-0 z-20">
-                    <Button onClick={() => setPayDialogOpen(true)} className="w-full h-12 bg-[#5f259f] text-white font-black rounded-xl uppercase tracking-tighter text-sm italic shadow-lg active:scale-95 transition-all">Manual Entry Audit</Button>
+                          {generateRepaymentSchedule(activeCustomer.startDate, activeCustomer.paymentFrequency || 'daily', activeCustomer.totalAmount || 0, activeCustomer.installmentAmount || 0).map((d, i) => {
+                             const post = postings[activeCustomer.id]?.[d];
+                             const isToday = d === new Date().toISOString().split("T")[0];
+                             const isSettled = (activeCustomer.balance || 0) <= 0;
+
+                             return (
+                                <motion.div 
+                                  key={d} 
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ delay: i * 0.05 }}
+                                  onClick={() => !post && !isSettled && handleCellClick(activeCustomer, d)} 
+                                  className={`flex items-center gap-4 p-5 rounded-3xl border transition-all cursor-pointer ${post?.collectedByRole === 'super_admin' ? 'bg-indigo-50/50 border-indigo-100 shadow-sm' : post ? 'bg-white border-slate-100' : isToday && !isSettled ? 'bg-white border-[#5f259f] shadow-lg ring-1 ring-[#5f259f]/20' : 'bg-white border-slate-100 hover:border-slate-300 shadow-sm'}`}
+                                >
+                                   <div className={`h-12 w-12 shrink-0 rounded-2xl flex items-center justify-center font-black text-xs ${post?.collectedByRole === 'super_admin' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-100' : post ? 'bg-slate-100 text-slate-400' : isToday && !isSettled ? 'bg-[#5f259f] text-white shadow-lg shadow-[#5f259f]/20 animate-pulse' : 'bg-slate-50 text-slate-400'}`}>
+                                      {post?.collectedByRole === 'super_admin' ? <Zap size={18} /> : post ? <Check size={18} className="text-emerald-500" /> : d.slice(8, 10)}
+                                   </div>
+                                   <div className="flex-1">
+                                      <p className="text-lg font-black text-slate-900 leading-none">
+                                         ₹{post ? post.amount : Math.min(activeCustomer.installmentAmount, activeCustomer.balance)}
+                                      </p>
+                                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1.5 tracking-widest">{formatDate(d)} • Plan #{i+1}</p>
+                                   </div>
+                                   <div className="text-right">
+                                      {post ? (
+                                         post.collectedByRole === 'super_admin' ? (
+                                            <Badge className="bg-indigo-50 text-indigo-500 border-indigo-100 font-black text-[8px] uppercase tracking-tighter">ADMIN RECEIVED</Badge>
+                                         ) : (
+                                            <div className="flex flex-col items-end">
+                                              <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100 font-black text-[8px] uppercase tracking-tighter">SETTLED</Badge>
+                                              <p className="text-[7px] font-bold text-slate-300 mt-1 uppercase">By {post.collectedByName}</p>
+                                            </div>
+                                         )
+                                      ) : isSettled ? (
+                                         <Badge className="bg-slate-50 text-slate-400 border-slate-100 font-black text-[8px] uppercase">CLOSED</Badge>
+                                      ) : (
+                                         <div className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest ${isToday ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-100 text-slate-400'}`}>
+                                            {isToday ? 'COLLECT NOW' : 'SCHEDULED'}
+                                         </div>
+                                      )}
+                                   </div>
+                                </motion.div>
+                             );
+                          })}
+                       </div>
+                    </div>
+
+                    {/* Action Bar */}
+                    <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent shrink-0 z-20">
+                       <Button 
+                         disabled={(activeCustomer.balance || 0) <= 0}
+                         onClick={() => { setPayAmount(String(Math.min(activeCustomer.installmentAmount, activeCustomer.balance))); setPayDialogOpen(true); }} 
+                         className="w-full h-16 bg-[#5f259f] disabled:bg-slate-300 disabled:shadow-none text-white font-black rounded-3xl uppercase tracking-widest text-sm shadow-[0_20px_40px_-12px_rgba(95,37,159,0.5)] active:scale-95 transition-all hover:bg-[#4a1d7d]"
+                       >
+                         {(activeCustomer.balance || 0) <= 0 ? 'Account Fully Settled' : 'Open Collection Terminal'}
+                       </Button>
+                    </div>
                  </div>
                </motion.div>
             </div>
           )}
         </AnimatePresence>
+
 
         <AnimatePresence>
           {payDialogOpen && (
@@ -638,6 +898,7 @@ const DailyCollection = () => {
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Total Credit</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Late Fee</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Mode</th>
+                <th className="p-5 text-[10px] uppercase font-black text-slate-500">Collected By</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Verify ID</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-center">Audit</th>
                 {userData?.role === "super_admin" && (
@@ -647,13 +908,21 @@ const DailyCollection = () => {
             </thead>
             <tbody>
               {records.map((r, i) => (
-                <tr key={r.id} className="border-b border-slate-50 hover/bg-slate-50/50">
+                <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                   <td className="p-5 text-xs font-black text-slate-400">#{String(i+1).padStart(2,'0')}</td>
                   <td className="p-5"><div className="flex flex-col"><span className="text-sm font-black text-slate-900 uppercase italic">{r.memberName}</span><span className="text-[10px] font-bold text-primary uppercase">{r.accountNo}</span></div></td>
                   <td className="p-5 text-right font-black text-emerald-600 italic text-lg">{formatCurrency(r.amount)}</td>
                   <td className="p-5 text-right font-black text-orange-500 italic text-sm">{formatCurrency(r.lateFee || 0)}</td>
                   <td className="p-5"><Badge className="bg-slate-100 text-slate-600 border-none font-black text-[9px] uppercase tracking-widest">{r.payMode}</Badge></td>
-                  <td className="p-5"><span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">{r.digiPayer || '—'}</span></td>
+                   <td className="p-5">
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-black text-slate-800 uppercase leading-none">{r.collectedByName || 'System'}</span>
+                        <span className={`text-[8px] font-bold uppercase mt-1 ${r.collectedByRole === 'super_admin' ? 'text-indigo-500' : 'text-emerald-500'}`}>
+                          {r.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'}
+                        </span>
+                      </div>
+                   </td>
+                   <td className="p-5"><span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">{r.digiPayer || '—'}</span></td>
                   <td className="p-5 text-center"><Badge variant="outline" className="text-slate-400 text-[9px] font-black uppercase">{r.status}</Badge></td>
                   {userData?.role === "super_admin" && (
                     <td className="p-5 text-right">
@@ -673,6 +942,97 @@ const DailyCollection = () => {
           </table>
         </CardContent>
       </Card>
+      
+      {/* Day-End Account Summary (Point 7.2) */}
+      {(userData?.role === "super_admin" || userData?.role === "admin") && (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+           <Card className="glass-card border-none shadow-2xl bg-[#0F172A] text-white rounded-3xl overflow-hidden">
+              <CardHeader className="border-b border-white/5 bg-white/5">
+                <CardTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+                   <Scale className="text-amber-500" /> End of Day Settlement
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-8 space-y-6">
+                 <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Agent Collection</p>
+                       <p className="text-2xl font-black text-emerald-400">{formatCurrency(records.filter(r => r.collectedByRole !== 'super_admin').reduce((acc, r) => acc + (r.amount || 0), 0))}</p>
+                    </div>
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Admin Collection</p>
+                       <p className="text-2xl font-black text-indigo-400">{formatCurrency(records.filter(r => r.collectedByRole === 'super_admin').reduce((acc, r) => acc + (r.amount || 0), 0))}</p>
+                    </div>
+                 </div>
+
+                 <div className="h-[1px] bg-white/5 w-full" />
+
+                 <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Payments Given (Disbursed)</p>
+                       <p className="text-2xl font-black text-rose-400">-{formatCurrency(disbursedToday)}</p>
+                    </div>
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Document Charges</p>
+                       <p className="text-2xl font-black text-amber-400">+{formatCurrency(docChargesToday)}</p>
+                    </div>
+                 </div>
+
+                 <div className="h-[1px] bg-white/5 w-full" />
+
+                 <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Operational Expenses</p>
+                       <Button 
+                         variant="ghost" 
+                         size="sm" 
+                         onClick={handleSaveExpenses} 
+                         disabled={isSavingExpense}
+                         className="h-7 text-[9px] font-black uppercase tracking-tighter text-amber-500 hover:bg-amber-500/10"
+                       >
+                          {isSavingExpense ? "Saving..." : "Update Summary"}
+                       </Button>
+                    </div>
+                    <div className="relative group">
+                       <Banknote size={16} className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
+                       <Input 
+                         type="number"
+                         value={expense}
+                         onChange={(e) => setExpense(e.target.value)}
+                         className="bg-white/5 border-white/10 h-12 pl-12 rounded-2xl font-black text-lg text-white focus:ring-amber-500/20"
+                         placeholder="Enter other expenses..."
+                       />
+                    </div>
+                 </div>
+
+                 <div className="pt-4 mt-4 border-t border-white/10">
+                    <div className="flex items-center justify-between">
+                       <h3 className="text-lg font-black uppercase italic text-slate-300">Final Net Balance</h3>
+                       <div className="text-right">
+                          <p className={`text-4xl font-black italic ${((records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0))) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                             {formatCurrency((records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)))}
+                          </p>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mt-1">Settlement Figure for {formatDate(date)}</p>
+                       </div>
+                    </div>
+                 </div>
+              </CardContent>
+           </Card>
+
+           <Card className="glass-card border-none shadow-2xl bg-white rounded-3xl overflow-hidden flex flex-col items-center justify-center p-12 text-center space-y-6">
+              <div className="h-20 w-20 rounded-[2.5rem] bg-slate-900 flex items-center justify-center text-white shadow-2xl mb-2">
+                 <ShieldCheck size={40} className="text-emerald-400" />
+              </div>
+              <h2 className="text-3xl font-black italic uppercase tracking-tighter text-slate-900">Audit Complete?</h2>
+              <p className="text-slate-500 font-medium max-w-sm">Once all postings are verified and expenses are logged, this day's operative cycle is considered closed. Ensure all manual overrides match physical records.</p>
+              <div className="flex gap-4 w-full pt-4">
+                 <Button onClick={handleExportPDF} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-slate-200">Export PDF Ledger</Button>
+                 <Button onClick={handleShareWhatsApp} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10">
+                    <Share2 size={14} className="mr-2" /> Share WhatsApp
+                 </Button>
+              </div>
+           </Card>
+        </motion.div>
+      )}
         
         {/* Administrator Manual Override Modal */}
         <AnimatePresence>
