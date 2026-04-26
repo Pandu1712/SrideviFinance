@@ -475,7 +475,47 @@ const NewAccount = () => {
         }
 
         setDocuments([]);
-        reset();
+        
+        // Preserve operational context for rapid consecutive entry
+        const savedLineId = data.lineId;
+        const savedVillage = data.village;
+        const savedFreq = data.paymentFrequency;
+        const savedType = data.paymentType;
+        const savedDate = data.startDate;
+        const savedComm = data.commission;
+        const savedDocChg = data.documentCharge;
+        const nextAccNo = String(parseInt(data.accountNo || "0") + 1);
+
+        reset({
+          lineId: savedLineId,
+          village: savedVillage,
+          paymentFrequency: savedFreq,
+          paymentType: savedType,
+          startDate: savedDate,
+          commission: savedComm,
+          documentCharge: savedDocChg,
+          accountNo: nextAccNo,
+          loanAmount: "",
+          interestAmount: "",
+          installmentAmount: "",
+          totalAmount: "",
+          initialPaid: "0",
+          name: "",
+          phone: "",
+          fatherHusbandName: "",
+          occupation: "",
+          altPhone: "",
+          documentsTaken: "",
+          customerLocation: "",
+          guarantorName: "",
+          guarantorPhone: "",
+          upiId: "",
+          bankAccountNumber: "",
+          bankIfsc: "",
+        });
+        
+        // Scroll to top for next entry
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err: any) {
       toast.error(err.message || "Operation failed");
@@ -516,14 +556,61 @@ const NewAccount = () => {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Account Number *</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold">Account Number *</Label>
+                  {!isEdit && (userData?.role === 'super_admin' || userData?.role === 'admin') && (
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-5 px-2 text-[10px] bg-slate-100 uppercase tracking-widest text-slate-500 hover:text-primary"
+                      onClick={async () => {
+                        const accNo = watch("accountNo");
+                        const lineId = watch("lineId");
+                        if (!lineId) {
+                          toast.error("Please select an Operational Line first");
+                          return;
+                        }
+                        if (!accNo) {
+                          toast.error("Enter an account number to search");
+                          return;
+                        }
+                        try {
+                          const q = query(
+                            collection(db, "accounts"), 
+                            where("accountNo", "==", accNo), 
+                            where("lineId", "==", lineId),
+                            limit(1)
+                          );
+                          const snap = await getDocs(q);
+                          if (!snap.empty) {
+                            const oldData = snap.docs[0].data();
+                            setValue("name", oldData.name || "");
+                            setValue("fatherHusbandName", oldData.fatherHusbandName || "");
+                            setValue("phone", oldData.phone || "");
+                            setValue("village", oldData.village || "");
+                            setValue("occupation", oldData.occupation || "");
+                            setValue("altPhone", oldData.altPhone || "");
+                            setValue("customerLocation", oldData.customerLocation || "");
+                            toast.success("Old customer details auto-filled!");
+                          } else {
+                            toast.error("No record found in this line");
+                          }
+                        } catch (err) {
+                          toast.error("Search failed in this line");
+                        }
+                      }}
+                    >
+                      Search Old
+                    </Button>
+                  )}
+                </div>
                 <Input 
                   {...register("accountNo")} 
                   className={`finance-input ${errors.accountNo ? "border-destructive" : ""} ${!isEdit ? "bg-slate-50 font-bold text-primary" : ""}`}
                   placeholder="ACC-001"
-                  readOnly={!isEdit}
                 />
-                {!isEdit && <p className="text-[10px] text-muted-foreground px-1 italic">Auto-generated unique ID</p>}
+                {!isEdit && <p className="text-[10px] text-muted-foreground px-1 italic">Auto-generated or Manual Search</p>}
                 {errors.accountNo && <p className="text-xs text-destructive mt-1">{errors.accountNo.message}</p>}
               </div>
 
@@ -553,12 +640,22 @@ const NewAccount = () => {
                       className="h-5 px-2 text-[10px] bg-slate-100 uppercase tracking-widest text-slate-500 hover:text-primary"
                       onClick={async () => {
                         const ph = watch("phone");
+                        const lineId = watch("lineId");
+                        if (!lineId) {
+                          toast.error("Please select an Operational Line first");
+                          return;
+                        }
                         if (!ph || ph.length < 10) {
                           toast.error("Enter a valid 10-digit phone number first");
                           return;
                         }
                         try {
-                          const q = query(collection(db, "accounts"), where("phone", "==", ph), limit(1));
+                          const q = query(
+                            collection(db, "accounts"), 
+                            where("phone", "==", ph), 
+                            where("lineId", "==", lineId),
+                            limit(1)
+                          );
                           const snap = await getDocs(q);
                           if (!snap.empty) {
                             const oldData = snap.docs[0].data();
@@ -570,10 +667,10 @@ const NewAccount = () => {
                             setValue("customerLocation", oldData.customerLocation || "");
                             toast.success("Old customer details auto-filled!");
                           } else {
-                            toast.error("No previous record found for this number");
+                            toast.error("No record found in this line");
                           }
                         } catch (err) {
-                          toast.error("Failed to search customer");
+                          toast.error("Search failed in this line");
                         }
                       }}
                     >

@@ -554,19 +554,32 @@ const Dashboard = () => {
           {/* Recovery Intelligence Stream */}
           <Card className="flex-1 flex flex-col glass-card border-slate-200/60 overflow-hidden min-h-[450px]">
             <CardHeader className="border-b border-slate-100 pb-4 bg-slate-50/30">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <div className="h-6 w-6 rounded-lg bg-slate-900 text-white flex items-center justify-center shadow-lg">
                     <TrendingUp className="h-3.5 w-3.5" />
                   </div>
                   <CardTitle className="text-[11px] font-black uppercase tracking-widest text-slate-900 italic">Live Postings</CardTitle>
                 </div>
-                <button 
-                  onClick={() => setShowAllStream(!showAllStream)}
-                  className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${showAllStream ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
-                 >
-                   {showAllStream ? 'Global Stream' : 'By Date'}
-                 </button>
+                <div className="flex items-center gap-2">
+                  {!showAllStream && (
+                    <div className="relative flex items-center">
+                      <Calendar className="absolute left-2 h-3 w-3 text-slate-400 pointer-events-none" />
+                      <input 
+                        type="date" 
+                        value={streamDateFilter}
+                        onChange={(e) => setStreamDateFilter(e.target.value)}
+                        className="h-8 pl-7 pr-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-accent w-[125px]"
+                      />
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => setShowAllStream(!showAllStream)}
+                    className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${showAllStream ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                  >
+                    {showAllStream ? 'Global Stream' : 'By Date'}
+                  </button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-hidden p-0">
