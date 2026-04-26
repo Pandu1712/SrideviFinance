@@ -384,7 +384,7 @@ const NewAccount = () => {
       head: [["Field", "Details"]],
       body: basicInfo,
       theme: "striped",
-      headStyles: { fillStyle: "F", fillColor: [15, 23, 42], textColor: 255 },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255 },
     });
 
     doc.setFontSize(14);
