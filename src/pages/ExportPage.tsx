@@ -28,14 +28,7 @@ const ExportPage = () => {
             <Button variant="outline">Export PDF</Button>
           </CardContent>
         </Card>
-        <Card className="cursor-pointer hover:border-accent transition-colors" onClick={() => handleExport("WhatsApp")}>
-          <CardContent className="flex flex-col items-center gap-3 p-6">
-            <Download className="h-10 w-10 text-accent" />
-            <h3 className="font-semibold">WhatsApp Share</h3>
-            <p className="text-sm text-muted-foreground text-center">Share reports via WhatsApp</p>
-            <Button variant="outline">Share</Button>
-          </CardContent>
-        </Card>
+
       </div>
     </div>
   );

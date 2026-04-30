@@ -300,11 +300,19 @@ const NewAccount = () => {
         if (snap.empty) {
           setValue("accountNo", "1");
         } else {
-          const maxNo = snap.docs.reduce((max, d) => {
-             const accNo = parseInt(d.data().accountNo, 10);
-             return !isNaN(accNo) && accNo > max ? accNo : max;
-          }, 0);
-          setValue("accountNo", String(maxNo + 1));
+          const existingNumbers = new Set(
+            snap.docs
+              .map(d => parseInt(d.data().accountNo, 10))
+              .filter(n => !isNaN(n) && n > 0)
+          );
+          let nextAccNo = 1;
+          while (existingNumbers.has(nextAccNo) && nextAccNo <= 999) {
+            nextAccNo++;
+          }
+          if (nextAccNo > 999) {
+            toast.warning("Warning: Reached Account #999 limit for this line.");
+          }
+          setValue("accountNo", String(nextAccNo));
         }
       } catch (err) {
         console.error("Error generating account number:", err);
@@ -421,6 +429,21 @@ const NewAccount = () => {
   const onSubmit = async (data: AccountForm) => {
     setLoading(true);
     try {
+      if (!isEdit) {
+        // Double check for duplicate account number in the same line
+        const qDup = query(
+          collection(db, "accounts"), 
+          where("lineId", "==", data.lineId),
+          where("accountNo", "==", data.accountNo)
+        );
+        const snapDup = await getDocs(qDup);
+        if (!snapDup.empty) {
+          toast.error(`Account Number ${data.accountNo} already exists in this line! Please use a unique number.`);
+          setLoading(false);
+          return;
+        }
+      }
+
       const total = parseFloat(data.totalAmount);
       const payload = {
         ...data,
@@ -451,6 +474,19 @@ const NewAccount = () => {
 
         navigate("/members");
       } else {
+        // Prevent duplicate account numbers within the same line
+        const accQuery = query(
+          collection(db, "accounts"),
+          where("lineId", "==", data.lineId),
+          where("accountNo", "==", data.accountNo)
+        );
+        const accSnap = await getDocs(accQuery);
+        if (!accSnap.empty) {
+          toast.error(`Account number ${data.accountNo} already exists in this line! Please use a different number.`);
+          setLoading(false);
+          return;
+        }
+
         const initialPaidValue = parseFloat(data.initialPaid || "0");
         const newPayload = {
           ...payload,
@@ -484,7 +520,19 @@ const NewAccount = () => {
         const savedDate = data.startDate;
         const savedComm = data.commission;
         const savedDocChg = data.documentCharge;
-        const nextAccNo = String(parseInt(data.accountNo || "0") + 1);
+        // Find next available account number to fill gaps
+        const qLine = query(collection(db, "accounts"), where("lineId", "==", savedLineId));
+        const snapLine = await getDocs(qLine);
+        const existingNumbers = new Set(
+          snapLine.docs
+            .map(d => parseInt(d.data().accountNo, 10))
+            .filter(n => !isNaN(n) && n > 0)
+        );
+        let nextAccNoInt = 1;
+        while (existingNumbers.has(nextAccNoInt)) {
+          nextAccNoInt++;
+        }
+        const nextAccNo = String(nextAccNoInt);
 
         reset({
           lineId: savedLineId,
@@ -558,6 +606,19 @@ const NewAccount = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-semibold">Account Number *</Label>
+                </div>
+                <Input 
+                  {...register("accountNo")} 
+                  className={`finance-input ${errors.accountNo ? "border-destructive" : ""} ${!isEdit ? "bg-slate-50 font-bold text-primary" : ""}`}
+                  placeholder="ACC-001"
+                />
+                {!isEdit && <p className="text-[10px] text-muted-foreground px-1 italic">Auto-generated</p>}
+                {errors.accountNo && <p className="text-xs text-destructive mt-1">{errors.accountNo.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold">Customer Name *</Label>
                   {!isEdit && (userData?.role === 'super_admin' || userData?.role === 'admin') && (
                     <Button 
                       type="button" 
@@ -565,27 +626,26 @@ const NewAccount = () => {
                       size="sm" 
                       className="h-5 px-2 text-[10px] bg-slate-100 uppercase tracking-widest text-slate-500 hover:text-primary"
                       onClick={async () => {
-                        const accNo = watch("accountNo");
+                        const custName = watch("name");
                         const lineId = watch("lineId");
                         if (!lineId) {
                           toast.error("Please select an Operational Line first");
                           return;
                         }
-                        if (!accNo) {
-                          toast.error("Enter an account number to search");
+                        if (!custName) {
+                          toast.error("Enter a customer name to search");
                           return;
                         }
                         try {
                           const q = query(
                             collection(db, "accounts"), 
-                            where("accountNo", "==", accNo), 
+                            where("name", "==", custName), 
                             where("lineId", "==", lineId),
                             limit(1)
                           );
                           const snap = await getDocs(q);
                           if (!snap.empty) {
                             const oldData = snap.docs[0].data();
-                            setValue("name", oldData.name || "");
                             setValue("fatherHusbandName", oldData.fatherHusbandName || "");
                             setValue("phone", oldData.phone || "");
                             setValue("village", oldData.village || "");
@@ -605,17 +665,6 @@ const NewAccount = () => {
                     </Button>
                   )}
                 </div>
-                <Input 
-                  {...register("accountNo")} 
-                  className={`finance-input ${errors.accountNo ? "border-destructive" : ""} ${!isEdit ? "bg-slate-50 font-bold text-primary" : ""}`}
-                  placeholder="ACC-001"
-                />
-                {!isEdit && <p className="text-[10px] text-muted-foreground px-1 italic">Auto-generated or Manual Search</p>}
-                {errors.accountNo && <p className="text-xs text-destructive mt-1">{errors.accountNo.message}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold">Customer Name *</Label>
                 <Input 
                   {...register("name")} 
                   className={`finance-input ${errors.name ? "border-destructive" : ""}`}

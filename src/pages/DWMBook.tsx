@@ -15,7 +15,7 @@ import { useLine } from "@/contexts/LineContext";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
-import { Share2 } from "lucide-react";
+
 
 const DWMBook = () => {
   const { userData } = useAuth();
@@ -196,35 +196,7 @@ const DWMBook = () => {
     toast.success(`${activeTab.toUpperCase()} Book Exported`);
   };
 
-  const handleShareWhatsApp = () => {
-    const dataToShare = activeTab === "defaulters" ? filteredDefaulters : filteredPostings;
-    if (dataToShare.length === 0) {
-      toast.error("No data to share");
-      return;
-    }
-    
-    const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Master Portfolio";
-    let text = `⚠️ *SRIDEVI FINANCE - ${activeTab.toUpperCase()} REPORT*\n`;
-    text += `📍 *Line:* ${activeLineName}\n`;
-    text += `📅 *Period:* ${dateFilter} to ${endDateFilter}\n\n`;
-    
-    text += `*LIST:*\n`;
-    dataToShare.slice(0, 30).forEach((p, i) => {
-      const name = p.memberName || p.name;
-      const amt = activeTab === "defaulters" ? p.balance : p.amount;
-      text += `${i+1}. ${name} (${p.accountNo}) - *${formatCurrency(amt)}*\n`;
-    });
-    
-    if (dataToShare.length > 30) {
-      text += `\n_...and ${dataToShare.length - 30} more entries_`;
-    }
-    
-    const total = activeTab === "defaulters" ? totalDefaulterAmount : totalAmount;
-    text += `\n\n📊 *TOTAL VALUE:* *${formatCurrency(total)}*\n`;
-    text += `\n_Generated via Official Portal_`;
-    
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-  };
+
 
   return (
     <motion.div 
@@ -289,13 +261,7 @@ const DWMBook = () => {
             >
               <Download className="mr-2 h-4 w-4" /> Download PDF
             </Button>
-            <Button 
-              onClick={handleShareWhatsApp}
-              variant="outline"
-              className="h-12 px-6 border-[#25D366] text-[#25D366] rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-[#25D366]/10 shadow-sm transition-all"
-            >
-              <Share2 size={16} className="mr-2" /> Share WhatsApp
-            </Button>
+
             <Button 
               onClick={() => window.print()}
               variant="outline"

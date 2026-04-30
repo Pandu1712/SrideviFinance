@@ -45,23 +45,11 @@ const menuSections: MenuSection[] = [
     items: [
       { label: "Collection Portal", path: "/daily-collection", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Search Archives", path: "/posting-search", icon: <Search size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Growth Tracking", path: "/monthly-chart", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin"] },
-    ]
-  },
-  {
-    title: "Advanced Printing",
-    items: [
-      { label: "Matrix A4 Print", path: "/weekly-line-a4", icon: <Printer size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Book Production", path: "/book-print", icon: <FileText size={18} />, roles: ["super_admin", "admin"] },
-      { label: "D/W/M Audit", path: "/dwm-book", icon: <Calendar size={18} />, roles: ["super_admin", "admin"] },
     ]
   },
   {
     title: "Security & Ops",
     items: [
-      { label: "System Data", path: "/daily-data", icon: <Database size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Maintenance", path: "/update-accounts", icon: <Edit size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Shift Logistics", path: "/shift-accounts", icon: <ArrowRightLeft size={18} />, roles: ["super_admin"] },
       { label: "Manage Agents", path: "/manage-agents", icon: <UserCog size={18} />, roles: ["super_admin", "admin"] },
       { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin"] },
       { label: "Admin Control", path: "/manage-admins", icon: <ShieldCheck size={18} />, roles: ["super_admin"] },

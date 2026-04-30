@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Smartphone, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Share2, Scale, ShieldCheck } from "lucide-react";
+import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Scale, ShieldCheck } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -25,9 +25,10 @@ const DailyCollection = () => {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [records, setRecords] = useState<DocumentData[]>([]);
   const [expense, setExpense] = useState("0");
+  const [openingBalance, setOpeningBalance] = useState("0");
   const [disbursedToday, setDisbursedToday] = useState(0);
   const [docChargesToday, setDocChargesToday] = useState(0);
-  const [isSavingExpense, setIsSavingExpense] = useState(false);
+  const [isSavingSummary, setIsSavingSummary] = useState(false);
   const [customers, setCustomers] = useState<DocumentData[]>([]);
   const [postings, setPostings] = useState<Record<string, Record<string, any>>>({});
   const [loading, setLoading] = useState(false);
@@ -194,13 +195,16 @@ const DailyCollection = () => {
       setDisbursedToday(totalDisbursed);
       setDocChargesToday(totalDocCharges);
 
-      // Fetch Expenses for the day
+      // Fetch Expenses and Opening Balance for the day
       const expQ = query(collection(db, "day_summaries"), where("date", "==", date), where("lineId", "==", selectedLineId));
       const expSnap = await getDocs(expQ);
       if (!expSnap.empty) {
-        setExpense(String(expSnap.docs[0].data().expenses || 0));
+        const summ = expSnap.docs[0].data();
+        setExpense(String(summ.expenses || 0));
+        setOpeningBalance(String(summ.openingBalance || 0));
       } else {
         setExpense("0");
+        setOpeningBalance("0");
       }
     } catch (err) {
       console.error(err);
@@ -209,18 +213,20 @@ const DailyCollection = () => {
     }
   };
 
-  const handleSaveExpenses = async () => {
+  const handleSaveSummary = async () => {
     if (!selectedLineId) return;
-    setIsSavingExpense(true);
+    setIsSavingSummary(true);
     try {
       const q = query(collection(db, "day_summaries"), where("date", "==", date), where("lineId", "==", selectedLineId));
       const snap = await getDocs(q);
       
       const expenseValue = parseFloat(expense) || 0;
+      const openingValue = parseFloat(openingBalance) || 0;
       
       if (!snap.empty) {
         await updateDoc(doc(db, "day_summaries", snap.docs[0].id), {
           expenses: expenseValue,
+          openingBalance: openingValue,
           updatedAt: serverTimestamp()
         });
       } else {
@@ -228,6 +234,7 @@ const DailyCollection = () => {
           date,
           lineId: selectedLineId,
           expenses: expenseValue,
+          openingBalance: openingValue,
           createdAt: serverTimestamp()
         });
       }
@@ -244,9 +251,9 @@ const DailyCollection = () => {
         );
       }
     } catch (err) {
-      toast.error("Failed to save expenses");
+      toast.error("Failed to save summary");
     } finally {
-      setIsSavingExpense(false);
+      setIsSavingSummary(false);
     }
   };
 
@@ -310,28 +317,7 @@ const DailyCollection = () => {
     toast.success("Operational Ledger Exported");
   };
 
-  const handleShareWhatsApp = () => {
-    if (records.length === 0) {
-      toast.error("No postings to share");
-      return;
-    }
-    
-    const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Master Portfolio";
-    let text = `📌 *SRIDEVI FINANCE - DAILY RECOVERY REPORT*\n`;
-    text += `📅 *Date:* ${formatDate(date)}\n`;
-    text += `📍 *Line:* ${activeLineName}\n\n`;
-    
-    text += `*COLLECTIONS:*\n`;
-    records.forEach((r, i) => {
-      text += `${i+1}. ${r.memberName} - *${formatCurrency(r.amount)}* (${r.payMode.toUpperCase()})\n`;
-    });
-    
-    const total = records.reduce((acc, r) => acc + (r.amount || 0), 0);
-    text += `\n💰 *TOTAL RECOVERY:* *${formatCurrency(total)}*\n`;
-    text += `\n_Generated via Official Portal_`;
-    
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-  };
+
 
   const handleCellClick = (customer: any, dateStr: string) => {
     const existing = postings[customer.id]?.[dateStr];
@@ -581,8 +567,8 @@ const DailyCollection = () => {
                >
                   <div className="flex items-center justify-between mb-3">
                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="h-10 w-10 rounded-2xl bg-slate-50 flex items-center justify-center text-[#5f259f] font-black border border-slate-100 shrink-0 uppercase">
-                           {c.memberName?.charAt(0) || c.name?.charAt(0)}
+                        <div className="h-10 w-10 rounded-2xl bg-slate-50 flex items-center justify-center text-[#5f259f] text-[10px] font-black border border-slate-100 shrink-0 uppercase">
+                           {c.accountNo}
                         </div>
                         <div className="min-w-0">
                            <h3 className="text-[13px] font-black text-slate-900 tracking-tighter leading-none uppercase truncate">{c.memberName || c.name}</h3>
@@ -985,11 +971,11 @@ const DailyCollection = () => {
                        <Button 
                          variant="ghost" 
                          size="sm" 
-                         onClick={handleSaveExpenses} 
-                         disabled={isSavingExpense}
+                         onClick={handleSaveSummary} 
+                         disabled={isSavingSummary}
                          className="h-7 text-[9px] font-black uppercase tracking-tighter text-amber-500 hover:bg-amber-500/10"
                        >
-                          {isSavingExpense ? "Saving..." : "Update Summary"}
+                          {isSavingSummary ? "Saving..." : "Update Summary"}
                        </Button>
                     </div>
                     <div className="relative group">
@@ -999,7 +985,7 @@ const DailyCollection = () => {
                          value={expense}
                          onChange={(e) => setExpense(e.target.value)}
                          className="bg-white/5 border-white/10 h-12 pl-12 rounded-2xl font-black text-lg text-white focus:ring-amber-500/20"
-                         placeholder="Enter other expenses..."
+                         placeholder="0"
                        />
                     </div>
                  </div>
@@ -1008,8 +994,8 @@ const DailyCollection = () => {
                     <div className="flex items-center justify-between">
                        <h3 className="text-lg font-black uppercase italic text-slate-300">Final Net Balance</h3>
                        <div className="text-right">
-                          <p className={`text-4xl font-black italic ${((records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0))) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                             {formatCurrency((records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)))}
+                          <p className={`text-4xl font-black italic ${((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                             {formatCurrency(((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)))}
                           </p>
                           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mt-1">Settlement Figure for {formatDate(date)}</p>
                        </div>
@@ -1026,9 +1012,7 @@ const DailyCollection = () => {
               <p className="text-slate-500 font-medium max-w-sm">Once all postings are verified and expenses are logged, this day's operative cycle is considered closed. Ensure all manual overrides match physical records.</p>
               <div className="flex gap-4 w-full pt-4">
                  <Button onClick={handleExportPDF} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-slate-200">Export PDF Ledger</Button>
-                 <Button onClick={handleShareWhatsApp} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10">
-                    <Share2 size={14} className="mr-2" /> Share WhatsApp
-                 </Button>
+
               </div>
            </Card>
         </motion.div>

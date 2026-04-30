@@ -199,12 +199,14 @@ const ManageAdmins = () => {
                   
                   <div className="grid grid-cols-2 gap-4 pt-2">
                     <div className="space-y-0.5">
-                      <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Phone</p>
-                      <p className="text-xs font-bold text-slate-600 flex items-center gap-1"><Phone size={10} /> {admin.phone || '-'}</p>
+                      <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Joined</p>
+                      <p className="text-xs font-bold text-slate-600 truncate">{formatDate(admin.createdAt)}</p>
                     </div>
                     <div className="space-y-0.5">
-                      <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Joining</p>
-                      <p className="text-xs font-bold text-slate-600">{formatDate(admin.createdAt)}</p>
+                      <p className="text-[10px] uppercase font-bold text-slate-400 tracking-tighter">Last Login</p>
+                      <p className="text-xs font-bold text-emerald-600 truncate">
+                        {admin.lastLogin ? formatDate(admin.lastLogin) : 'Never'}
+                      </p>
                     </div>
                   </div>
 

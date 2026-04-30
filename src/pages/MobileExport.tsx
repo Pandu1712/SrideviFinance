@@ -6,7 +6,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -79,14 +78,7 @@ const MobileExport = () => {
     toast.success("Mobile Audit exported as PDF");
   };
 
-  const shareWhatsApp = () => {
-    let text = `📱 SriDevi Finance - Account Summary (${date})\n\n`;
-    accounts.slice(0, 20).forEach((a, i) => {
-      text += `${i + 1}. ${a.name} (${a.accountNo})\n   Total: ₹${a.totalAmount || 0} | Paid: ₹${a.paid || 0} | Balance: ₹${a.balance || 0}\n\n`;
-    });
-    if (accounts.length > 20) text += `... and ${accounts.length - 20} more accounts`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
-  };
+
 
   return (
     <div>
@@ -95,7 +87,6 @@ const MobileExport = () => {
         <div className="space-y-1"><Label>Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-48" /></div>
         <div className="flex items-end gap-2">
           <Button onClick={exportPDF} className="bg-accent text-accent-foreground hover:bg-accent/90">Export PDF</Button>
-          <Button onClick={shareWhatsApp} variant="outline"><Smartphone className="mr-2 h-4 w-4" />WhatsApp</Button>
         </div>
       </div>
       <Card>

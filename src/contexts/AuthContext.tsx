@@ -7,7 +7,7 @@ import {
   sendPasswordResetEmail,
   User,
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
 export type UserRole = "super_admin" | "admin" | "agent";
 
@@ -66,7 +66,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    try {
+      await updateDoc(doc(db, "users", cred.user.uid), {
+        lastLogin: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error("Failed to update last login:", err);
+    }
   };
 
   const logout = async () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
@@ -28,6 +28,7 @@ const DailyPosting = () => {
   const [availableVillages, setAvailableVillages] = useState<string[]>([]);
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastPostedAmount, setLastPostedAmount] = useState(0);
+  const [todayPostings, setTodayPostings] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({ 
     accountNo: "", 
     date: new Date().toISOString().split("T")[0], 
@@ -36,6 +37,7 @@ const DailyPosting = () => {
     payMode: "cash" 
   });
 
+  // Fetch accounts in line
   useEffect(() => {
     const loadAssignedMembers = async () => {
       if (!userData) return;
@@ -45,19 +47,14 @@ const DailyPosting = () => {
         if (selectedLineId) {
           q = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
         } else {
-          // If no line selected, don't show any data to prevent mixing
           setAssignedMembers([]);
           setFetchingMembers(false);
           return;
         }
         const snap = await getDocs(q);
         const membersList = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-        
-        // Extract unique villages for filter
         const vils = Array.from(new Set(membersList.map(m => m.village).filter(Boolean))) as string[];
         setAvailableVillages(vils.sort());
-        
-        // Client-side sort to avoid Firestore index requirement
         membersList.sort((a: any, b: any) => (a.accountNo || "").localeCompare(b.accountNo || ""));
         setAssignedMembers(membersList);
       } catch (err) {
@@ -69,13 +66,44 @@ const DailyPosting = () => {
     loadAssignedMembers();
   }, [userData, selectedLineId]);
 
+  // Fetch today's postings to highlight paid accounts
+  // Fetch today's postings to highlight paid accounts
+  useEffect(() => {
+    const loadTodayPostings = async () => {
+      if (!selectedLineId || !form.date) return;
+      try {
+        const q = query(
+          collection(db, "postings"), 
+          where("lineId", "==", selectedLineId),
+          where("date", "==", form.date)
+        );
+        const snap = await getDocs(q);
+        const postedIds = new Set(snap.docs.map(d => d.data().accountId));
+        setTodayPostings(postedIds);
+      } catch (err) {
+        console.error("Load today postings error:", err);
+      }
+    };
+    loadTodayPostings();
+  }, [selectedLineId, form.date]);
+
   const selectMember = (member: DocumentData) => {
     setAccountInfo(member);
     setForm(prev => ({ ...prev, accountNo: member.accountNo }));
     toast.info(`Selected: ${member.name}`);
+    
+    // Auto-scroll to profile on mobile
+    if (window.innerWidth < 1024) {
+      setTimeout(() => {
+        profileRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
   };
 
+
   const handleChange = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const profileRef = useRef<HTMLDivElement>(null);
 
   const fetchAccount = async () => {
     if (!form.accountNo) {
@@ -101,8 +129,16 @@ const DailyPosting = () => {
         return;
       }
       const d = snap.docs[0];
-      setAccountInfo({ id: d.id, ...(d.data() as any) });
+      const accountData = { id: d.id, ...(d.data() as any) };
+      setAccountInfo(accountData);
       toast.success("Account loaded successfully");
+      
+      // Auto-scroll to profile on mobile
+      if (window.innerWidth < 1024) {
+        setTimeout(() => {
+          profileRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
     } catch (err) {
       console.error(err);
       toast.error("Error fetching account database");
@@ -114,29 +150,32 @@ const DailyPosting = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accountInfo || !form.amount) {
-      toast.error("Please search account and enter a valid amount");
+      toast.error("Please select an account and enter an amount");
       return;
     }
     
     setLoading(true);
     try {
+      if (accountInfo.balance <= 0) {
+        const proceed = window.confirm(`This account (${accountInfo.accountNo}) is fully paid. Do you still want to enter this posting?`);
+        if (!proceed) {
+          setLoading(false);
+          return;
+        }
+      }
+
       const postingAmount = parseFloat(form.amount);
       const accountRef = doc(db, "accounts", accountInfo.id);
 
-      // Use a Firestore transaction for atomic updates to avoid race conditions
       await runTransaction(db, async (transaction) => {
         const accDoc = await transaction.get(accountRef);
-        if (!accDoc.exists()) throw new Error("Account document does not exist!");
+        if (!accDoc.exists()) throw new Error("Account does not exist!");
 
         const accData = accDoc.data();
-        const currentPaid = accData.paid || 0;
-        const totalPrincipal = accData.totalAmount || 0;
-        
-        const newPaid = currentPaid + postingAmount;
-        const newBalance = totalPrincipal - newPaid;
+        const newPaid = (accData.paid || 0) + postingAmount;
+        const newBalance = (accData.totalAmount || 0) - newPaid;
         const newStatus = newBalance <= 0 ? "completed" : "active";
 
-        // Create the posting record
         const postingRef = doc(collection(db, "postings"));
         transaction.set(postingRef, {
           accountId: accountInfo.id,
@@ -145,17 +184,11 @@ const DailyPosting = () => {
           amount: postingAmount,
           status: form.status,
           payMode: form.payMode,
-          agentId: accountInfo.agentId || userData?.uid,
-          adminId: accountInfo.adminId || userData?.adminId || "",
-          collectedById: userData?.uid,
-          collectedByName: userData?.name,
-          collectedByRole: userData?.role,
-          lineId: accountInfo.lineId || "default", // Inherit lineId from account
+          lineId: accountInfo.lineId,
           memberName: accountInfo.name,
           createdAt: new Date().toISOString(),
         });
 
-        // Update the account balance
         transaction.update(accountRef, {
           paid: newPaid,
           balance: Math.max(0, newBalance),
@@ -164,35 +197,31 @@ const DailyPosting = () => {
           lastCollectedByName: userData?.name,
           lastCollectedByRole: userData?.role
         });
-
-        // Update local state for immediate feedback
-        setAccountInfo(prev => prev ? { 
-          ...(prev as any), 
-          paid: newPaid, 
-          balance: Math.max(0, newBalance), 
-          status: newStatus,
-          lastPostingDate: form.date 
-        } : null);
       });
 
-      toast.success(`₹${postingAmount} posted successfully to ${accountInfo.name}`);
-      
       if (userData) {
         logActivity(
           userData.uid,
           userData.name,
           userData.role,
-          "POSTING_CREATE",
-          `Posted ${formatCurrency(postingAmount)} for ${accountInfo.name} (${form.accountNo})`,
-          selectedLineId
+          "COLLECTION_POST",
+          `Collected ${formatCurrency(postingAmount)} from ${accountInfo.name} (#${accountInfo.accountNo})`
         );
       }
 
-      setLastPostedAmount(postingAmount);
+      toast.success("Posted successfully");
       setIsSuccess(true);
-      setForm(prev => ({ ...prev, amount: "" }));
+      setLastPostedAmount(postingAmount);
+      
+      // Update local state for balance
+      setAccountInfo(prev => prev ? { 
+        ...prev, 
+        paid: (prev.paid || 0) + postingAmount, 
+        balance: Math.max(0, (prev.balance || 0) - postingAmount) 
+      } : null);
+
     } catch (err: any) {
-      toast.error(err.message || "Failed to save posting");
+      toast.error(err.message || "Failed");
     } finally {
       setLoading(false);
     }
@@ -200,35 +229,126 @@ const DailyPosting = () => {
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
+      className="space-y-6 pb-20 lg:pb-0"
     >
-      <div className="flex items-center gap-3">
-        <div className="h-12 w-12 rounded-xl bg-accent-gradient flex items-center justify-center shadow-lg">
-          <CreditCard className="text-white h-6 w-6" />
-        </div>
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-primary">Daily Posting</h1>
-          <p className="text-muted-foreground">Log daily collections and update member balances instantly.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-xl bg-premium-gradient flex items-center justify-center shadow-lg transform rotate-3">
+            <Zap className="text-white h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-primary">Operative Terminal</h1>
+            <p className="text-muted-foreground font-medium uppercase text-[10px] tracking-widest flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Live Collection Gateway
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-7">
+      <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
         <AnimatePresence mode="wait">
           {!isSuccess ? (
-            <motion.div 
-              key="posting-controls"
+            <motion.div
+              key="posting-form"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -50 }}
-              className="lg:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-6"
+              exit={{ opacity: 0, x: 20 }}
+              className="lg:col-span-4 space-y-6"
             >
-              {/* Shortcut Side Bar - Focused for mobile */}
-              <Card className={cn(
-                "glass-card h-[calc(100vh-250px)] overflow-hidden flex flex-col border-none shadow-2xl transition-all",
-                accountInfo ? "hidden md:flex" : "flex"
-              )}>
+              {/* Entry Portal - NOW FIRST */}
+              <Card className="glass-card border-none shadow-2xl overflow-hidden">
+                <CardHeader className="bg-slate-900 text-white py-4">
+                  <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-[0.2em]">
+                    <CreditCard className="h-4 w-4 text-accent" />
+                    Entry Portal
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <form onSubmit={handleSubmit} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Account Number</Label>
+                        <div className="relative">
+                          <Input 
+                            value={form.accountNo} 
+                            onChange={e => handleChange("accountNo", e.target.value)} 
+                            onBlur={() => fetchAccount()}
+                            placeholder="ACC-000" 
+                            className="h-11 pl-4 pr-12 text-lg font-black finance-input" 
+                          />
+                          <Button 
+                            type="button"
+                            size="icon" 
+                            onClick={() => fetchAccount()}
+                            className="absolute right-1 top-1 h-9 w-9 bg-primary text-white rounded-lg"
+                          >
+                            <Search size={16} />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Posting Date</Label>
+                        <Input 
+                          type="date" 
+                          value={form.date} 
+                          onChange={e => handleChange("date", e.target.value)} 
+                          className="h-11 finance-input font-bold" 
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount (₹)</Label>
+                        <Input 
+                          type="text" 
+                          inputMode="decimal"
+                          value={form.amount} 
+                          onChange={e => handleChange("amount", e.target.value)} 
+                          placeholder="0.00" 
+                          className="h-11 text-lg font-black finance-input border-accent/20 focus:border-accent" 
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Category</Label>
+                        <Select value={form.status} onValueChange={v => handleChange("status", v)}>
+                          <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="collection">Collection</SelectItem>
+                            <SelectItem value="penalty">Penalty</SelectItem>
+                            <SelectItem value="other">Other Fees</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Mode</Label>
+                      <Select value={form.payMode} onValueChange={v => handleChange("payMode", v)}>
+                        <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="bank">Bank</SelectItem>
+                          <SelectItem value="upi">UPI</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <Button 
+                      type="submit" 
+                      className="w-full h-16 md:h-14 bg-primary text-white font-black uppercase tracking-widest shadow-2xl hover:bg-slate-900 transition-all active:scale-95" 
+                      disabled={loading || !accountInfo}
+                    >
+                      {loading ? "Authorizing..." : "Submit Collection"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card h-[calc(100vh-250px)] overflow-hidden flex flex-col border-none shadow-2xl transition-all">
                 <CardHeader className="border-b border-primary/5 bg-slate-50/50 py-4">
                   <div className="flex items-center justify-between gap-4">
                     <CardTitle className="text-sm font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
@@ -256,28 +376,31 @@ const DailyPosting = () => {
                       ) : assignedMembers
                           .filter(m => villageFilter === 'all' || m.village === villageFilter)
                           .map((m) => (
-                        <button
+                        <button 
                           key={m.id}
                           onClick={() => selectMember(m)}
                           className={cn(
                             "w-full text-left p-3 rounded-2xl border border-transparent transition-all group",
                             accountInfo?.id === m.id 
                               ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
-                              : "hover:bg-slate-50 hover:border-slate-100"
+                              : todayPostings.has(m.id)
+                                ? "bg-emerald-50 border-emerald-100" 
+                                : "hover:bg-slate-50 hover:border-slate-100"
                           )}
                         >
                           <div className="flex items-center gap-3">
                             <div className={cn(
-                              "h-10 w-10 rounded-xl flex items-center justify-center text-xs font-black transition-all",
-                              accountInfo?.id === m.id ? "bg-white text-accent" : "bg-slate-100 text-slate-400 group-hover:bg-white"
+                              "h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-black transition-all",
+                              accountInfo?.id === m.id ? "bg-white text-accent" : 
+                              todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
                             )}>
-                              {m.name?.substring(0, 2).toUpperCase()}
+                              {m.accountNo}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className={cn("text-xs font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : "text-primary")}>{m.name}</p>
+                              <p className={cn("text-[13px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>{m.name}</p>
                               <div className="flex items-center gap-2">
                                 <span className={cn("text-[9px] font-bold opacity-60", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                  {m.accountNo}
+                                  # {m.accountNo}
                                 </span>
                                 {m.village && (
                                   <span className={cn("text-[8px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
@@ -286,96 +409,19 @@ const DailyPosting = () => {
                                 )}
                               </div>
                             </div>
-                            <ArrowRight size={14} className={cn("opacity-0 group-hover:opacity-100 transition-all", accountInfo?.id === m.id ? "text-white opacity-100" : "text-slate-300")} />
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                               {m.phone && (
+                                 <a href={`tel:${m.phone}`} onClick={e => e.stopPropagation()} className="p-2 bg-slate-100 rounded-lg hover:bg-emerald-100 text-emerald-600">
+                                   <Zap size={12} />
+                                 </a>
+                               )}
+                               <ArrowRight size={14} className={cn("ml-1", accountInfo?.id === m.id ? "text-white" : "text-slate-300")} />
+                            </div>
                           </div>
                         </button>
                       ))}
                     </div>
                   </ScrollArea>
-                </CardContent>
-              </Card>
-
-              <Card className="glass-card border-none shadow-2xl overflow-hidden h-fit">
-                <CardHeader className="border-b border-primary/10 bg-primary text-white">
-                  <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-widest">
-                    <Search className="h-4 w-4 text-accent" />
-                    Entry Terminal
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <form onSubmit={handleSubmit} className="space-y-6">
-                    <div className="hidden lg:block space-y-2">
-                       <Label className="font-black text-[10px] uppercase tracking-widest text-slate-400">Target Account</Label>
-                       <Input 
-                        value={form.accountNo} 
-                        onChange={e => handleChange("accountNo", e.target.value)} 
-                        placeholder="Manual Account Search" 
-                        className="finance-input h-11"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Post Date</Label>
-                        <Input type="date" value={form.date} onChange={e => handleChange("date", e.target.value)} className="h-11 finance-input" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount (₹)</Label>
-                        <Input 
-                          type="text" 
-                          inputMode="decimal"
-                          value={form.amount} 
-                          onChange={e => handleChange("amount", e.target.value)} 
-                          placeholder="0.00" 
-                          className="h-11 text-lg font-black finance-input border-accent/20 focus:border-accent" 
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Category</Label>
-                        <Select value={form.status} onValueChange={v => handleChange("status", v)}>
-                          <SelectTrigger className="h-11 finance-input"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="collection">Collection</SelectItem>
-                            <SelectItem value="penalty">Penalty</SelectItem>
-                            <SelectItem value="other">Other Fees</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment</Label>
-                        <Select value={form.payMode} onValueChange={v => handleChange("payMode", v)}>
-                          <SelectTrigger className="h-11 finance-input"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="cash">Cash</SelectItem>
-                            <SelectItem value="bank">Bank</SelectItem>
-                            <SelectItem value="upi">UPI</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    <Button 
-                      type="submit" 
-                      className="w-full h-16 md:h-14 bg-primary text-white font-black uppercase tracking-widest shadow-2xl hover:bg-slate-900 transition-all active:scale-95" 
-                      disabled={loading || !accountInfo}
-                    >
-                      {loading ? "Authorizing..." : "Submit Collection"}
-                    </Button>
-                    
-                    {accountInfo && (
-                      <Button 
-                        type="button"
-                        variant="ghost"
-                        onClick={() => { setAccountInfo(null); setForm(p => ({...p, accountNo: ""})); }}
-                        className="w-full h-10 text-[10px] font-black uppercase text-slate-400 md:hidden"
-                      >
-                        Change Member
-                      </Button>
-                    )}
-                  </form>
                 </CardContent>
               </Card>
             </motion.div>
@@ -430,7 +476,7 @@ const DailyPosting = () => {
           )}
         </AnimatePresence>
 
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3" ref={profileRef}>
           <AnimatePresence mode="wait">
             {accountInfo ? (
               <motion.div

@@ -30,7 +30,6 @@ import WeeklyDailyChart from "@/pages/WeeklyDailyChart";
 import MobileExport from "@/pages/MobileExport";
 import DailyData from "@/pages/DailyData";
 import PaymentsExportImport from "@/pages/PaymentsExportImport";
-import WhatsAppPosting from "@/pages/WhatsAppPosting";
 import OldAccounts from "@/pages/OldAccounts";
 import ShiftAccounts from "@/pages/ShiftAccounts";
 import UpdateAccounts from "@/pages/UpdateAccounts";
@@ -78,7 +77,6 @@ const App = () => (
               <Route path="/mobile-export" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><MobileExport /></ProtectedRoute>} />
               <Route path="/daily-data" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><DailyData /></ProtectedRoute>} />
               <Route path="/payments-export" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><PaymentsExportImport /></ProtectedRoute>} />
-              <Route path="/whatsapp-posting" element={<WhatsAppPosting />} />
               <Route path="/old-accounts" element={<ProtectedRoute allowedRoles={["super_admin"]}><OldAccounts /></ProtectedRoute>} />
               <Route path="/shift-accounts" element={<ProtectedRoute allowedRoles={["super_admin"]}><ShiftAccounts /></ProtectedRoute>} />
               <Route path="/update-accounts" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><UpdateAccounts /></ProtectedRoute>} />

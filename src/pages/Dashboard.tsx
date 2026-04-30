@@ -50,7 +50,7 @@ const Dashboard = () => {
   const { selectedLineId, setSelectedLineId, lines } = useLine();
   const [logs, setLogs] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [closureStats, setClosureStats] = useState({ agentCol: 0, adminCol: 0, disburse: 0, docCharges: 0, expenses: 0 });
+  const [closureStats, setClosureStats] = useState({ openingBalance: 0, agentCol: 0, adminCol: 0, agentDisburse: 0, adminDisburse: 0, docCharges: 0, expenses: 0 });
   const [stats, setStats] = useState({
     totalAdmins: 0,
     totalAgents: 0,
@@ -71,6 +71,22 @@ const Dashboard = () => {
   const [recentPostings, setRecentPostings] = useState<any[]>([]);
   const [streamDateFilter, setStreamDateFilter] = useState(new Date().toISOString().split("T")[0]);
   const [showAllStream, setShowAllStream] = useState(false);
+  const [currentDate, setCurrentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [isSettingOpening, setIsSettingOpening] = useState(false);
+  const [openingInput, setOpeningInput] = useState("");
+
+  // Date Auto-Refresh logic
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date().toISOString().split("T")[0];
+      if (now !== currentDate) {
+        setCurrentDate(now);
+        setStreamDateFilter(now);
+        // Refreshing current date will trigger the main useEffect to re-run
+      }
+    }, 60000); // Check every minute
+    return () => clearInterval(timer);
+  }, [currentDate]);
 
   useEffect(() => {
     let unsubscribeAccounts: (() => void) | null = null;
@@ -78,9 +94,9 @@ const Dashboard = () => {
     let unsubscribeLogs: (() => void) | null = null;
 
     const today = new Date();
-    const todayStr = today.toISOString().split("T")[0];
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0];
-    const startOfYear = new Date(today.getFullYear(), 0, 1).toISOString().split("T")[0];
+    const todayStr = currentDate;
+    const startOfMonth = new Date(new Date(currentDate).getFullYear(), new Date(currentDate).getMonth(), 1).toISOString().split("T")[0];
+    const startOfYear = new Date(new Date(currentDate).getFullYear(), 0, 1).toISOString().split("T")[0];
 
     const setupListeners = async () => {
       if (!userData) return;
@@ -98,14 +114,25 @@ const Dashboard = () => {
            setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
         });
 
+        // Pre-fetch admin IDs for attribution
+        const adminUsersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["super_admin", "admin"])));
+        const adminIdsSet = new Set(adminUsersSnap.docs.map(d => d.id));
+
         let accountsRef: any = collection(db, "accounts");
         if (activeLineId) accountsRef = query(accountsRef, where("lineId", "==", activeLineId));
 
         unsubscribeAccounts = onSnapshot(accountsRef, (snapshot) => {
-          let spent = 0; let balance = 0; let expected = 0;
-          let dtDisburse = 0; let dtDocCharge = 0;
+          let spent = 0; 
+          let balance = 0; 
+          let expected = 0;
+          let totalAcc = 0;
+          let dtAgDisburse = 0; 
+          let dtAdDisburse = 0; 
+          let dtDocCharge = 0;
+          
           snapshot.forEach(d => {
             const acc = d.data();
+            totalAcc++;
             const isMatch = timeFilter === "all" || (timeFilter === "month" && acc.startDate >= startOfMonth) || (timeFilter === "year" && acc.startDate >= startOfYear);
             if (isMatch) {
               spent += (acc.loanAmount || 0);
@@ -113,35 +140,28 @@ const Dashboard = () => {
               expected += (acc.totalAmount || 0);
             }
             if (acc.createdAt && acc.createdAt.startsWith(todayStr)) {
-               dtDisburse += (acc.loanAmount || 0);
-               dtDocCharge += (acc.documentCharge || 0);
+              if (adminIdsSet.has(acc.adminId)) dtAdDisburse += (acc.loanAmount || 0);
+              else dtAgDisburse += (acc.loanAmount || 0);
+              dtDocCharge += parseFloat(acc.documentCharge || "0");
             }
           });
-          setClosureStats(p => ({ ...p, disburse: dtDisburse, docCharges: dtDocCharge }));
           
-          getDocs(query(collection(db, "users"), where("role", "==", "admin"))).then(ads => {
-            getDocs(query(collection(db, "users"), where("role", "==", "agent"))).then(ags => {
-              setStats(prev => ({
-                ...prev,
-                totalAdmins: ads.size,
-                totalAgents: ags.size,
-                totalAccounts: snapshot.size,
-                totalSpent: spent,
-                totalBalance: balance,
-                projectedProfit: expected - spent,
-              }));
-            });
-          });
-        }, (err) => {
-          console.error("Dashboard accounts fail:", err);
-          setLoading(false);
+          setClosureStats(p => ({ ...p, agentDisburse: dtAgDisburse, adminDisburse: dtAdDisburse, docCharges: dtDocCharge }));
+          setStats(prev => ({
+            ...prev,
+            totalAccounts: totalAcc,
+            totalSpent: spent,
+            totalBalance: balance,
+            projectedProfit: expected - spent,
+          }));
         });
 
         let postingsRef: any = collection(db, "postings");
         if (activeLineId) postingsRef = query(postingsRef, where("lineId", "==", activeLineId));
 
         unsubscribePostings = onSnapshot(postingsRef, (snapshot) => {
-          let totalCol = 0; let agCol = 0; let adCol = 0;
+          let totalCol = 0; let agCol = 0; let adCol = 0; 
+          let agDis = 0; let adDis = 0;
           const chartCol: Record<string, number> = {};
           snapshot.forEach(d => {
             const data = d.data();
@@ -149,14 +169,20 @@ const Dashboard = () => {
             if (isMatch) totalCol += (data.amount || 0);
             
             if (data.date === todayStr) {
-               if (data.collectedByRole === 'super_admin') adCol += (data.amount || 0);
-               else agCol += (data.amount || 0);
+               const amt = data.amount || 0;
+               if (data.status === 'payment') {
+                 if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adDis += amt;
+                 else agDis += amt;
+               } else {
+                 if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adCol += amt;
+                 else agCol += amt;
+               }
             }
             
             const monthKey = data.date?.substring(0, 7) || "Unknown";
             chartCol[monthKey] = (chartCol[monthKey] || 0) + (data.amount || 0);
           });
-          setClosureStats(p => ({ ...p, agentCol: agCol, adminCol: adCol }));
+          setClosureStats(p => ({ ...p, agentCol: agCol, adminCol: adCol, agentDisburse: agDis, adminDisburse: adDis }));
           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
           setRecentPostings(recent);
           const allKeys = Array.from(new Set([...Object.keys(chartCol)]));
@@ -168,6 +194,53 @@ const Dashboard = () => {
           console.error("Dashboard postings fail:", err);
           setLoading(false);
         });
+
+        // Fetch Expenses from day_summaries
+        let expRef: any = collection(db, "day_summaries");
+        expRef = query(expRef, where("date", "==", todayStr));
+        if (activeLineId) expRef = query(expRef, where("lineId", "==", activeLineId));
+
+        const unsubscribeExpenses = onSnapshot(expRef, (snapshot) => {
+          let totalExp = 0;
+          let totalOpening = 0;
+          snapshot.forEach(d => {
+            const summ = d.data();
+            totalExp += (summ.expenses || 0);
+            totalOpening += (summ.openingBalance || 0);
+          });
+          setClosureStats(p => ({ ...p, expenses: totalExp, openingBalance: totalOpening }));
+        });
+
+        const handleSetOpening = async () => {
+          if (!openingInput || isNaN(parseFloat(openingInput))) return;
+          try {
+            const docId = `${todayStr}_${selectedLineId || 'global'}`;
+            await updateDoc(doc(db, "day_summaries", docId), {
+              openingBalance: parseFloat(openingInput),
+              date: todayStr,
+              lineId: selectedLineId || 'global'
+            }).catch(async () => {
+              const { setDoc } = await import("firebase/firestore");
+              await setDoc(doc(db, "day_summaries", docId), {
+                openingBalance: parseFloat(openingInput),
+                date: todayStr,
+                lineId: selectedLineId || 'global',
+                expenses: 0
+              });
+            });
+            toast.success("Opening Balance Updated");
+            setIsSettingOpening(false);
+            setOpeningInput("");
+          } catch (err) {
+            console.error("Set opening error:", err);
+          }
+        };
+
+        return () => {
+          if (unsubscribeAccounts) unsubscribeAccounts();
+          if (unsubscribePostings) unsubscribePostings();
+          if (unsubscribeExpenses) unsubscribeExpenses();
+        };
 
       } else if (userData.role === "admin") {
         let accountsRef: any = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
@@ -243,12 +316,13 @@ const Dashboard = () => {
     };
 
     setupListeners();
+    // Cleanup is handled inside setupListeners for super_admin or here for others
     return () => {
       if (unsubscribeAccounts) unsubscribeAccounts();
       if (unsubscribePostings) unsubscribePostings();
       if (unsubscribeLogs) unsubscribeLogs();
     };
-  }, [userData, timeFilter, selectedLineId]);
+  }, [userData, timeFilter, selectedLineId, currentDate]);
 
   const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Full Portfolio";
 
@@ -297,27 +371,39 @@ const Dashboard = () => {
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-center">
+                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-6 text-center">
                    <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Agent Collection</p>
-                      <h4 className="text-2xl font-black text-emerald-600 mt-1">+{formatCurrency(closureStats.agentCol)}</h4>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Opening Bal</p>
+                      <h4 className="text-xl font-black text-slate-600 mt-1">{formatCurrency(closureStats.openingBalance)}</h4>
                    </div>
                    <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Admin Collection</p>
-                      <h4 className="text-2xl font-black text-indigo-600 mt-1">+{formatCurrency(closureStats.adminCol)}</h4>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Agent Col</p>
+                      <h4 className="text-xl font-black text-emerald-600 mt-1">+{formatCurrency(closureStats.agentCol)}</h4>
                    </div>
                    <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Disbursements (Paid)</p>
-                      <h4 className="text-2xl font-black text-rose-500 mt-1">-{formatCurrency(closureStats.disburse)}</h4>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Admin Col</p>
+                      <h4 className="text-xl font-black text-indigo-600 mt-1">+{formatCurrency(closureStats.adminCol)}</h4>
                    </div>
                    <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Doc Charges (Income)</p>
-                      <h4 className="text-2xl font-black text-emerald-500 mt-1">+{formatCurrency(closureStats.docCharges)}</h4>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Agent Pay</p>
+                      <h4 className="text-xl font-black text-rose-500 mt-1">-{formatCurrency(closureStats.agentDisburse)}</h4>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Admin Pay</p>
+                      <h4 className="text-xl font-black text-rose-600 mt-1">-{formatCurrency(closureStats.adminDisburse)}</h4>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Doc Charges</p>
+                      <h4 className="text-xl font-black text-emerald-500 mt-1">+{formatCurrency(closureStats.docCharges)}</h4>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Expenses</p>
+                      <h4 className="text-xl font-black text-rose-400 mt-1">-{formatCurrency(closureStats.expenses)}</h4>
                    </div>
                    <div className="border-l border-slate-200 pl-6">
                       <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">Net Closing Cash</p>
-                      <h4 className={`text-3xl font-black mt-1 ${closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                        {formatCurrency((closureStats.agentCol + closureStats.adminCol + closureStats.docCharges) - closureStats.disburse)}
+                      <h4 className={`text-2xl font-black mt-1 ${closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                        {formatCurrency(closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
                       </h4>
                    </div>
                 </div>
@@ -434,9 +520,28 @@ const Dashboard = () => {
               <Calculator className="h-5 w-5 text-accent" />
               Daily Shift Reconciliation
             </h3>
-            <Badge className="bg-slate-900 text-white border-none text-[8px] font-black uppercase tracking-widest px-3 py-1">
-              Live Balance Audit
-            </Badge>
+            <div className="flex items-center gap-3">
+              {isSettingOpening ? (
+                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
+                  <Input 
+                    type="number" 
+                    placeholder="Opening Balance" 
+                    value={openingInput}
+                    onChange={e => setOpeningInput(e.target.value)}
+                    className="h-8 w-32 text-xs font-bold rounded-lg border-slate-200"
+                  />
+                  <Button onClick={handleSetOpening} className="h-8 px-3 bg-emerald-500 text-white font-black text-[9px] uppercase">Save</Button>
+                  <Button onClick={() => setIsSettingOpening(false)} variant="ghost" className="h-8 px-2 text-slate-400">Cancel</Button>
+                </div>
+              ) : (
+                <Button onClick={() => setIsSettingOpening(true)} variant="outline" className="h-8 border-slate-200 font-black text-[9px] uppercase tracking-widest bg-white">
+                  Set Opening Balance
+                </Button>
+              )}
+              <Badge className="bg-slate-900 text-white border-none text-[8px] font-black uppercase tracking-widest px-3 py-1">
+                Live Balance Audit
+              </Badge>
+            </div>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -444,61 +549,71 @@ const Dashboard = () => {
                <div className="absolute -right-4 -top-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
                   <IndianRupee size={80} />
                </div>
-               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Collection Breakdown</p>
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inflow Breakdown</p>
                <div className="mt-4 space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Agent Collection</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase italic tracking-tighter">Opening Balance</span>
+                    <span className="text-sm font-black text-slate-900">{formatCurrency(closureStats.openingBalance)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Agent Collection</span>
                     <span className="text-sm font-black text-emerald-600">+{formatCurrency(closureStats.agentCol)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Admin Collection</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Admin Collection</span>
                     <span className="text-sm font-black text-indigo-600">+{formatCurrency(closureStats.adminCol)}</span>
                   </div>
-                  <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
-                    <span className="text-[10px] font-black text-slate-900 uppercase">Total Recovered</span>
-                    <span className="text-md font-black text-slate-900">{formatCurrency(closureStats.agentCol + closureStats.adminCol)}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Doc Charges</span>
+                    <span className="text-sm font-black text-emerald-500">+{formatCurrency(closureStats.docCharges)}</span>
                   </div>
                </div>
             </Card>
 
-            <Card className="glass-card border-none shadow-xl p-6 relative overflow-hidden group">
-               <div className="absolute -right-4 -top-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
-                  <Banknote size={80} />
-               </div>
-               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Outflow & Logistics</p>
-               <div className="mt-4 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Disbursements</span>
-                    <span className="text-sm font-black text-rose-500">-{formatCurrency(closureStats.disburse)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Daily Expenses</span>
-                    <span className="text-sm font-black text-rose-500">-{formatCurrency(closureStats.expenses)}</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
-                    <span className="text-[10px] font-black text-slate-900 uppercase">Document Charges</span>
-                    <span className="text-md font-black text-emerald-600">+{formatCurrency(closureStats.docCharges)}</span>
-                  </div>
-               </div>
-            </Card>
+             <Card className="glass-card border-none shadow-xl p-6 relative overflow-hidden group">
+                <div className="absolute -right-4 -top-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+                   <Banknote size={80} />
+                </div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Outflow & Logistics</p>
+                <div className="mt-4 space-y-3">
+                   <div className="flex justify-between items-center">
+                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Agent Payments</span>
+                     <span className="text-sm font-black text-rose-500">-{formatCurrency(closureStats.agentDisburse)}</span>
+                   </div>
+                   <div className="flex justify-between items-center">
+                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Admin Payments</span>
+                     <span className="text-sm font-black text-rose-500">-{formatCurrency(closureStats.adminDisburse)}</span>
+                   </div>
+                   <div className="flex justify-between items-center">
+                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Daily Expenses</span>
+                     <span className="text-sm font-black text-rose-400">-{formatCurrency(closureStats.expenses)}</span>
+                   </div>
+                   <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
+                     <span className="text-[10px] font-black text-slate-900 uppercase">Net Flow</span>
+                     <span className={`text-md font-black ${ (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {formatCurrency(closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
+                     </span>
+                   </div>
+                </div>
+             </Card>
 
             <Card className="md:col-span-2 glass-card border-none shadow-2xl bg-slate-900 text-white p-8 relative overflow-hidden flex flex-col justify-center">
                <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
                <div className="flex items-center justify-between relative z-10">
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Final Shift Balance</p>
-                    <h2 className={`text-5xl font-black tracking-tighter ${ (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                       {formatCurrency(closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse - closureStats.expenses)}
-                    </h2>
+                  <div className="flex-1">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Net Closing Cash</p>
+                     <h2 className={`text-5xl font-black tracking-tighter ${ (closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {formatCurrency(closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
+                     </h2>
                     <div className="flex items-center gap-3 mt-4">
                        <Badge className="bg-white/10 text-white border-none font-black text-[9px] uppercase tracking-widest px-3">
-                          Reconciled Status
+                          Verified Audit
                        </Badge>
-                       <span className="text-[10px] font-bold text-slate-500 italic uppercase">Validated by System Audit</span>
+                       <span className="text-[10px] font-bold text-slate-500 italic uppercase">Refreshed: {new Date().toLocaleTimeString()}</span>
                     </div>
                   </div>
                   <div className="h-20 w-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
-                     <Scale className={`h-10 w-10 ${ (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.disburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                     <Scale className={`h-10 w-10 ${ (closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
                </div>
             </Card>

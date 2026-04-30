@@ -28,7 +28,7 @@ import {
  * Re-implementing core logic with maximum safety checks.
  */
 const LineSelection = () => {
-  const { userData } = useAuth();
+  const { userData, logout } = useAuth();
   const { lines, setSelectedLineId, loadingLines } = useLine();
   const navigate = useNavigate();
   const [newLineName, setNewLineName] = useState("");
@@ -37,9 +37,12 @@ const LineSelection = () => {
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
 
   // Filter lines based on role
-  const availableLines = userData?.role === "super_admin" 
+  const availableLines = (userData?.role === "super_admin" || userData?.role === "admin")
     ? lines 
-    : lines.filter(line => userData?.lineIds?.includes(line.id));
+    : lines.filter(line => 
+        (userData?.lineIds && userData.lineIds.includes(line.id)) || 
+        userData?.lineId === line.id
+      );
 
   const handleSelection = (id: string | null) => {
     setIsSyncing(true);
@@ -156,7 +159,7 @@ const LineSelection = () => {
       >
         
         {/* Header */}
-        <div className="p-12 md:p-16 border-b border-white/5 bg-gradient-to-br from-slate-800/50 to-slate-900/50 relative overflow-hidden">
+        <div className="p-12 md:p-16 border-b border-white/5 bg-gradient-to-br from-slate-800/50 to-slate-900/50 relative overflow-hidden flex justify-between items-start">
           <div className="absolute top-0 right-0 p-8 opacity-10">
              <Database size={120} className="text-white" />
           </div>
@@ -179,6 +182,17 @@ const LineSelection = () => {
               <p className="text-slate-400 text-xs font-black uppercase tracking-[0.4em] mt-2 opacity-60">Sridevi Finance Command Suite v2.0</p>
             </div>
           </div>
+          
+          <Button 
+            variant="ghost" 
+            onClick={async () => {
+              await logout();
+              navigate("/login");
+            }}
+            className="relative z-10 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 font-bold tracking-widest uppercase text-[10px]"
+          >
+            Logout
+          </Button>
         </div>
 
         {/* Selection Grid */}

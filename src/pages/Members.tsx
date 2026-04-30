@@ -7,7 +7,7 @@ import { collection, getDocs, query, where, DocumentData } from "firebase/firest
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2, Download } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { deleteDoc, doc, updateDoc, writeBatch } from "firebase/firestore";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const Members = () => {
   const { userData } = useAuth();
@@ -23,6 +25,8 @@ const Members = () => {
   const navigate = useNavigate();
   const [members, setMembers] = useState<DocumentData[]>([]);
   const [search, setSearch] = useState("");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -58,22 +62,21 @@ const Members = () => {
   }, [userData, selectedLineId]);
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Are you absolutely sure you want to delete ${name}'s account? This will also purge ALL transaction history for this member. This cannot be undone.`)) return;
+    const member = members.find(m => m.id === id);
+    if (member && (member.balance > 0 || member.status !== 'completed')) {
+      toast.error(`Cannot delete! ${name} has not fully paid their balance. Remaining: ${formatCurrency(member.balance || 0)}`);
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${name}'s account? The account will be removed, but all financial postings will be securely preserved to maintain total collection accuracy.`)) return;
     
     try {
-      // 1. Fetch all postings for this account
-      const postingsQuery = query(collection(db, "postings"), where("accountId", "==", id));
-      const postingsSnapshot = await getDocs(postingsQuery);
-      
-      // 2. Batch delete postings and account
-      const batch = writeBatch(db);
-      postingsSnapshot.forEach(d => batch.delete(d.ref));
-      batch.delete(doc(db, "accounts", id));
-      
-      await batch.commit();
+      // Delete ONLY the account. We intentionally PRESERVE the postings 
+      // so that total collections, profits, and investments are not affected.
+      await deleteDoc(doc(db, "accounts", id));
       
       setMembers(prev => prev.filter(m => m.id !== id));
-      toast.success("Account and transaction history purged.");
+      toast.success("Account successfully deleted. Transaction history preserved for analytics.");
     } catch (err: any) {
       toast.error("Failed to delete account: " + err.message);
     }
@@ -83,11 +86,69 @@ const Members = () => {
     navigate(`/accounts/edit/${member.id}`);
   };
 
-  const filtered = members.filter(m =>
-    m.name?.toLowerCase().includes(search.toLowerCase()) ||
-    m.accountNo?.toLowerCase().includes(search.toLowerCase()) ||
-    m.village?.toLowerCase().includes(search.toLowerCase())
-  );
+  const uniqueVillages = Array.from(new Set(members.map(m => m.village).filter(Boolean))).sort();
+  const today = new Date().toISOString().split("T")[0];
+
+  const filtered = members.filter(m => {
+    const matchSearch = m.name?.toLowerCase().includes(search.toLowerCase()) ||
+                        m.accountNo?.toLowerCase().includes(search.toLowerCase()) ||
+                        m.village?.toLowerCase().includes(search.toLowerCase());
+    
+    const matchVillage = villageFilter === "all" || m.village === villageFilter;
+    
+    let matchStatus = true;
+    if (statusFilter === "active") matchStatus = m.status === "active";
+    if (statusFilter === "completed") matchStatus = m.status === "completed";
+    if (statusFilter === "expired") matchStatus = m.status === "active" && m.endDate && m.endDate < today;
+
+    return matchSearch && matchVillage && matchStatus;
+  }).sort((a, b) => {
+    const accA = parseInt(a.accountNo || "0", 10);
+    const accB = parseInt(b.accountNo || "0", 10);
+    return accA - accB;
+  });
+
+  const exportToPDF = () => {
+    if (filtered.length === 0) {
+      toast.error("No members to export");
+      return;
+    }
+    
+    const doc = new jsPDF();
+    
+    doc.setFontSize(20);
+    doc.setTextColor(15, 23, 42);
+    doc.text("Members Registry Report", 14, 22);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+    doc.text(`Total Records: ${filtered.length}`, 14, 35);
+    
+    const tableColumn = ["Acc No", "Name", "Village", "Phone", "Principal", "Balance", "Status"];
+    const tableRows = filtered.map(m => [
+      m.accountNo || "N/A",
+      m.name || "N/A",
+      m.village || "N/A",
+      m.phone || "N/A",
+      formatCurrency(m.totalAmount || 0),
+      formatCurrency(m.balance || 0),
+      m.status.toUpperCase()
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 45,
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      styles: { fontSize: 8, cellPadding: 3 }
+    });
+
+    doc.save(`Members_Registry_${new Date().getTime()}.pdf`);
+    toast.success("PDF Exported Successfully");
+  };
 
   return (
     <motion.div 
@@ -106,36 +167,67 @@ const Members = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative group">
+        <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
+          <div className="relative group flex-1 md:flex-none">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground group-focus-within:text-accent transition-colors" />
             <Input 
               placeholder="Search members..." 
               value={search} 
               onChange={e => setSearch(e.target.value)} 
-              className="pl-9 h-10 w-full md:w-72 glass-card border-none shadow-sm" 
+              className="pl-9 h-10 w-full md:w-64 glass-card border-none shadow-sm" 
             />
           </div>
-          <button className="h-10 w-10 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
-            <Filter size={18} />
-          </button>
+          
+          <Select value={villageFilter} onValueChange={setVillageFilter}>
+            <SelectTrigger className="h-10 w-[140px] glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+              <SelectValue placeholder="Village" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Villages</SelectItem>
+              {uniqueVillages.map(v => (
+                <SelectItem key={v as string} value={v as string}>{v as string}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-10 w-[140px] glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="expired">Expired</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          <Button 
+            variant="outline" 
+            className="h-10 px-4 glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest gap-2 flex-1 md:flex-none hover:bg-slate-50 hover:text-accent transition-all"
+            onClick={exportToPDF}
+          >
+            <Download size={14} /> Export PDF
+          </Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="glass-card bg-primary text-white border-none">
+        <Card className="glass-card border-none">
           <CardContent className="p-6">
-            <p className="text-xs font-bold uppercase tracking-widest opacity-70">Total Subscribers</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Total Customers</p>
             <div className="flex items-end justify-between mt-2">
-              <h2 className="text-4xl font-black">{members.length}</h2>
-              <Badge className="bg-white/20 text-white border-none">Active Database</Badge>
+              <h2 className="text-4xl font-black text-primary">{members.length}</h2>
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary transition-transform hover:scale-110">
+                <Users size={18} />
+              </div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="glass-card border-none">
           <CardContent className="p-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Collections</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Customers</p>
             <div className="flex items-end justify-between mt-2">
               <h2 className="text-4xl font-black text-emerald-600">
                 {members.filter(m => m.status === 'active').length}
@@ -149,7 +241,7 @@ const Members = () => {
 
         <Card className="glass-card border-none">
           <CardContent className="p-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Completed Portfolios</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Complete Customers</p>
             <div className="flex items-end justify-between mt-2">
               <h2 className="text-4xl font-black text-accent">
                 {members.filter(m => m.status === 'completed').length}
@@ -209,11 +301,11 @@ const Members = () => {
                     >
                       <td className="p-5">
                         <div className="flex items-center gap-4">
-                          <div className="h-11 w-11 rounded-full bg-slate-100 flex items-center justify-center font-bold text-primary group-hover:bg-accent group-hover:text-accent-foreground transition-all duration-300">
-                            {m.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || "M"}
+                          <div className="h-12 w-12 rounded-xl bg-slate-900 flex items-center justify-center text-lg font-black text-white shadow-xl group-hover:bg-accent transition-all duration-300">
+                            {m.accountNo}
                           </div>
                           <div>
-                            <p className="text-[10px] font-black text-accent uppercase tracking-tighter mb-0.5">{m.accountNo}</p>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Account # {m.accountNo}</p>
                             <button 
                               onClick={() => navigate(`/ledger?acc=${m.accountNo}`)}
                               className="text-sm font-black text-primary hover:text-accent transition-colors text-left"

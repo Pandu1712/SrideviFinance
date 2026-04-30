@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, DocumentData } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
@@ -17,30 +18,17 @@ import autoTable from "jspdf-autotable";
 
 const PostingSearch = () => {
   const { userData } = useAuth();
+  const { selectedLineId } = useLine();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedAgentId, setSelectedAgentId] = useState("all");
-  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [results, setResults] = useState<DocumentData[]>([]);
   const [memberSummary, setMemberSummary] = useState<DocumentData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch agents for filtering
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        const q = query(collection(db, "users"), where("role", "==", "agent"));
-        const snap = await getDocs(q);
-        setAgents(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
-      } catch (err) { console.error(err); }
-    };
-    fetchAgents();
-  }, []);
-
   // Auto-load daily activities on mount
   useEffect(() => {
-    if (userData) handleSearch();
-  }, [userData]);
+    if (userData && selectedLineId) handleSearch();
+  }, [userData, selectedLineId]);
 
   const handleSearch = async () => {
     if (!userData) return;
@@ -52,8 +40,8 @@ const PostingSearch = () => {
       
       // Build filters
       const constraints: any[] = [];
+      if (selectedLineId) constraints.push(where("lineId", "==", selectedLineId));
       if (date) constraints.push(where("date", "==", date));
-      if (selectedAgentId !== "all") constraints.push(where("agentId", "==", selectedAgentId));
       
       // If searchTerm (Name/AccNo) is provided, we might need a different approach 
       // since Firestore doesn't support easy case-insensitive substring search without indexing.
@@ -114,11 +102,11 @@ const PostingSearch = () => {
           </div>
           <div>
             <h1 className="text-3xl font-black tracking-tight text-primary">Master Audit Portal</h1>
-            <p className="text-muted-foreground font-medium text-xs uppercase tracking-widest opacity-70">Track collections by agent, customer, or timeline.</p>
+            <p className="text-muted-foreground font-medium text-xs uppercase tracking-widest opacity-70">Track collections by customer or timeline.</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div className="space-y-1.5">
             <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Member Name / Acc No</Label>
             <div className="relative group">
@@ -130,19 +118,6 @@ const PostingSearch = () => {
                 className="pl-9 h-11 finance-input" 
               />
             </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Specific Agent</Label>
-            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-              <SelectTrigger className="h-11 finance-input">
-                <SelectValue placeholder="All Agents" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Global (All Agents)</SelectItem>
-                {agents.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="space-y-1.5">
@@ -338,10 +313,10 @@ const PostingSearch = () => {
                       <td className="p-4 text-left">
                         <div className="flex items-center gap-2">
                            <div className="h-6 w-6 rounded-full bg-slate-100 flex items-center justify-center text-[8px] font-black text-slate-500">
-                             {agents.find(a => a.id === r.agentId)?.name?.substring(0,2).toUpperCase() || "SY"}
+                             {r.agentId === userData?.uid ? "YO" : "PE"}
                            </div>
                            <span className="text-xs font-bold text-slate-600">
-                             {agents.find(a => a.id === r.agentId)?.name || (r.agentId === userData?.uid ? "You" : "System")}
+                             {r.agentId === userData?.uid ? "You" : "Personnel"}
                            </span>
                         </div>
                       </td>
