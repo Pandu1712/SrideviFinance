@@ -18,7 +18,7 @@ const ManageVillages = () => {
   const [villages, setVillages] = useState<DocumentData[]>([]);
   const [villageData, setVillageData] = useState({
     name: "",
-    mondalam: "",
+    mandalam: "",
     district: "",
     pincode: "",
     postOffice: ""
@@ -63,7 +63,7 @@ const ManageVillages = () => {
       const payload = {
         ...villageData,
         name: villageData.name.trim(),
-        mondalam: villageData.mondalam.trim(),
+        mandalam: villageData.mandalam.trim(),
         district: villageData.district.trim(),
         pincode: villageData.pincode.trim(),
         postOffice: villageData.postOffice.trim(),
@@ -78,10 +78,10 @@ const ManageVillages = () => {
         // Check for duplicates only on creation
         const exists = villages.some(v => 
           v.name.toLowerCase() === villageData.name.trim().toLowerCase() && 
-          v.mondalam?.toLowerCase() === villageData.mondalam.trim().toLowerCase()
+          v.mandalam?.toLowerCase() === villageData.mandalam.trim().toLowerCase()
         );
         if (exists) {
-          toast.error("Village already exists in this mondalam");
+          toast.error("Village already exists in this mandalam");
           setLoading(false);
           return;
         }
@@ -94,7 +94,7 @@ const ManageVillages = () => {
 
       setVillageData({
         name: "",
-        mondalam: "",
+        mandalam: "",
         district: "",
         pincode: "",
         postOffice: ""
@@ -112,7 +112,7 @@ const ManageVillages = () => {
     setEditingId(village.id);
     setVillageData({
       name: village.name || "",
-      mondalam: village.mondalam || "",
+      mandalam: village.mandalam || "",
       district: village.district || "",
       pincode: village.pincode || "",
       postOffice: village.postOffice || ""
@@ -124,7 +124,7 @@ const ManageVillages = () => {
     setEditingId(null);
     setVillageData({
       name: "",
-      mondalam: "",
+      mandalam: "",
       district: "",
       pincode: "",
       postOffice: ""
@@ -184,7 +184,7 @@ const ManageVillages = () => {
         {selectedLineId && (userData?.role === "super_admin" || userData?.role === "admin") && (
           <Card className="glass-card border-none shadow-lg p-4 flex items-center gap-4 bg-white/50 backdrop-blur-sm">
              <div className="flex-1">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-none mb-1">Active Line</p>
+                <p className="text-[10px] font-black text-slate-400 leading-none mb-1">Active Line</p>
                 <h3 className="text-lg font-black text-slate-900 leading-none">
                   {lines.find(l => l.id === selectedLineId)?.name || "Unknown Line"}
                 </h3>
@@ -198,7 +198,7 @@ const ManageVillages = () => {
                      placeholder="New Line Name"
                      className="h-9 w-48 finance-input text-xs font-bold"
                    />
-                   <Button onClick={handleLineRename} className="h-9 px-4 bg-emerald-500 text-white font-black text-[10px] uppercase">Save</Button>
+                   <Button onClick={handleLineRename} className="h-9 px-4 bg-emerald-500 text-white font-black text-[10px]">Save</Button>
                    <Button variant="ghost" onClick={() => setIsRenamingLine(false)} className="h-9 text-slate-400">Cancel</Button>
                 </div>
              ) : (
@@ -208,7 +208,7 @@ const ManageVillages = () => {
                     setNewLineName(lines.find(l => l.id === selectedLineId)?.name || "");
                     setIsRenamingLine(true);
                   }}
-                  className="h-10 border-slate-200 font-black text-[10px] uppercase tracking-widest px-4 group"
+                  className="h-10 border-slate-200 font-black text-[10px] px-4 group"
                 >
                   <Edit size={14} className="mr-2 text-slate-400 group-hover:text-accent" />
                   Rename Line
@@ -240,18 +240,18 @@ const ManageVillages = () => {
                 <Input 
                   value={villageData.name} 
                   onChange={e => setVillageData(prev => ({ ...prev, name: e.target.value }))} 
-                  className="h-11 finance-input text-sm font-bold uppercase" 
+                  className="h-11 finance-input text-sm font-bold" 
                   placeholder="Enter village name..." 
                 />
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Mondalam</Label>
+                <Label className="text-sm font-semibold">Mandalam</Label>
                 <Input 
-                  value={villageData.mondalam} 
-                  onChange={e => setVillageData(prev => ({ ...prev, mondalam: e.target.value }))} 
-                  className="h-11 finance-input text-sm uppercase" 
-                  placeholder="Enter mondalam..." 
+                  value={villageData.mandalam} 
+                  onChange={e => setVillageData(prev => ({ ...prev, mandalam: e.target.value }))} 
+                  className="h-11 finance-input text-sm" 
+                  placeholder="Enter mandalam..." 
                 />
               </div>
 
@@ -260,7 +260,7 @@ const ManageVillages = () => {
                 <Input 
                   value={villageData.district} 
                   onChange={e => setVillageData(prev => ({ ...prev, district: e.target.value }))} 
-                  className="h-11 finance-input text-sm uppercase" 
+                  className="h-11 finance-input text-sm" 
                   placeholder="Enter district..." 
                 />
               </div>
@@ -280,7 +280,7 @@ const ManageVillages = () => {
                   <Input 
                     value={villageData.postOffice} 
                     onChange={e => setVillageData(prev => ({ ...prev, postOffice: e.target.value }))} 
-                    className="h-11 finance-input text-sm uppercase" 
+                    className="h-11 finance-input text-sm" 
                     placeholder="Post branch" 
                   />
                 </div>
@@ -312,7 +312,7 @@ const ManageVillages = () => {
           <Card className="glass-card shadow-xl border-none">
             <CardHeader className="bg-slate-50/50 rounded-t-xl border-b border-primary/10 flex flex-row items-center justify-between py-4">
               <CardTitle className="text-lg font-black text-primary">Registered Villages Grid</CardTitle>
-              <div className="bg-primary/10 text-primary uppercase text-[10px] font-black tracking-widest px-3 py-1 rounded-full">
+              <div className="bg-primary/10 text-primary text-[10px] font-black px-3 py-1 rounded-full">
                 {villages.length} Total
               </div>
             </CardHeader>
@@ -339,13 +339,13 @@ const ManageVillages = () => {
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="font-bold text-slate-900 text-sm uppercase tracking-wide">{village.name}</p>
+                              <p className="font-bold text-slate-900 text-sm tracking-wide">{village.name}</p>
                               {village.pincode && (
                                 <Badge variant="outline" className="text-[9px] font-black h-4 px-1">{village.pincode}</Badge>
                               )}
                             </div>
-                            <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1">
-                              {village.mondalam && `${village.mondalam}, `}{village.district && `${village.district} | `} 
+                            <p className="text-[10px] font-bold text-slate-400 mt-1">
+                              {village.mandalam && `${village.mandalam}, `}{village.district && `${village.district} | `} 
                               Added: {formatDate(village.createdAt)}
                             </p>
                           </div>

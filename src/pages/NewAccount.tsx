@@ -78,7 +78,7 @@ const NewAccount = () => {
   const [showVillageDialog, setShowVillageDialog] = useState(false);
   const [newVillageData, setNewVillageData] = useState({
     name: "",
-    mondalam: "",
+    mandalam: "",
     district: "",
     pincode: "",
     postOffice: ""
@@ -140,7 +140,7 @@ const NewAccount = () => {
       setShowVillageDialog(false);
       setVillageOpen(false);
       setVillageSearch("");
-      setNewVillageData({ name: "", mondalam: "", district: "", pincode: "", postOffice: "" });
+      setNewVillageData({ name: "", mandalam: "", district: "", pincode: "", postOffice: "" });
     } catch (err) {
       console.error("Error creating village:", err);
       toast.error("Failed to save village to database");
@@ -691,7 +691,7 @@ const NewAccount = () => {
                       type="button" 
                       variant="ghost" 
                       size="sm" 
-                      className="h-5 px-2 text-[10px] bg-slate-100 uppercase tracking-widest text-slate-500 hover:text-primary"
+                      className="h-5 px-2 text-[10px] bg-slate-100 tracking-widest text-slate-500 hover:text-primary"
                       onClick={async () => {
                         const custName = watch("name");
                         const lineId = watch("lineId");
@@ -753,7 +753,7 @@ const NewAccount = () => {
                       type="button" 
                       variant="ghost" 
                       size="sm" 
-                      className="h-5 px-2 text-[10px] bg-slate-100 uppercase tracking-widest text-slate-500 hover:text-primary"
+                      className="h-5 px-2 text-[10px] bg-slate-100 tracking-widest text-slate-500 hover:text-primary"
                       onClick={async () => {
                         const ph = watch("phone");
                         const lineId = watch("lineId");
@@ -882,9 +882,9 @@ const NewAccount = () => {
                                   <span className="font-bold uppercase">{v.name}</span>
                                   {v.pincode && <Badge variant="outline" className="ml-auto text-[9px] font-black h-4 px-1">{v.pincode}</Badge>}
                                 </div>
-                                {(v.mondalam || v.district) && (
+                                {(v.mandalam || v.district) && (
                                   <span className="text-[10px] text-muted-foreground mt-1 ml-6 uppercase font-bold tracking-widest">
-                                    {v.mondalam}{v.mondalam && v.district && ", "}{v.district}
+                                    {v.mandalam}{v.mandalam && v.district && ", "}{v.district}
                                   </span>
                                 )}
                               </CommandItem>
@@ -1337,16 +1337,16 @@ const NewAccount = () => {
               <Input 
                 value={newVillageData.name} 
                 onChange={e => setNewVillageData(p => ({ ...p, name: e.target.value }))}
-                className="finance-input font-bold uppercase"
+                className="finance-input font-bold"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-sm font-bold">Mondalam</Label>
+                <Label className="text-sm font-bold">Mandalam</Label>
                 <Input 
-                  value={newVillageData.mondalam} 
-                  onChange={e => setNewVillageData(p => ({ ...p, mondalam: e.target.value }))}
-                  className="finance-input uppercase text-xs"
+                  value={newVillageData.mandalam} 
+                  onChange={e => setNewVillageData(p => ({ ...p, mandalam: e.target.value }))}
+                  className="finance-input text-xs"
                 />
               </div>
               <div className="space-y-2">
@@ -1354,7 +1354,7 @@ const NewAccount = () => {
                 <Input 
                   value={newVillageData.district} 
                   onChange={e => setNewVillageData(p => ({ ...p, district: e.target.value }))}
-                  className="finance-input uppercase text-xs"
+                  className="finance-input text-xs"
                 />
               </div>
             </div>

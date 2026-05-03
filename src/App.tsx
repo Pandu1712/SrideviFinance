@@ -41,6 +41,8 @@ import SeedData from "@/pages/SeedData";
 import LineSelection from "@/pages/LineSelection";
 import ManageVillages from "@/pages/ManageVillages";
 import PostingVerification from "@/pages/PostingVerification";
+import ExtraAmount from "@/pages/ExtraAmount";
+import DatabaseManager from "@/pages/DatabaseManager";
 
 const queryClient = new QueryClient();
 
@@ -62,6 +64,7 @@ const App = () => (
               <Route path="/accounts/new" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "agent"]}><NewAccount /></ProtectedRoute>} />
               <Route path="/accounts/edit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><NewAccount /></ProtectedRoute>} />
               <Route path="/daily-posting" element={<DailyPosting />} />
+              <Route path="/extra-amount" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ExtraAmount /></ProtectedRoute>} />
               <Route path="/members" element={<Members />} />
               <Route path="/posting-search" element={<PostingSearch />} />
               <Route path="/collection-excess" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><CollectionExcess /></ProtectedRoute>} />
@@ -89,6 +92,7 @@ const App = () => (
               <Route path="/manage-agents" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ManageAgents /></ProtectedRoute>} />
               <Route path="/verify-postings" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><PostingVerification /></ProtectedRoute>} />
               <Route path="/agent-audit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><AgentAudit /></ProtectedRoute>} />
+              <Route path="/admin/database" element={<ProtectedRoute allowedRoles={["super_admin"]}><DatabaseManager /></ProtectedRoute>} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

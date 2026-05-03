@@ -145,7 +145,7 @@ const Members = () => {
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
     doc.text(`Total Records: ${filtered.length}`, 14, 35);
     
-    const tableColumn = ["Acc No", "Name", "Village", "Phone", "Principal", "Balance", "Status"];
+    const tableColumn = ["Acc No", "Name", "Village", "Phone", "Principal", "Balance", "Extra Paid", "Status"];
     const tableRows = filtered.map(m => [
       m.accountNo || "N/A",
       m.name || "N/A",
@@ -153,6 +153,7 @@ const Members = () => {
       m.phone || "N/A",
       formatCurrency(m.totalAmount || 0),
       formatCurrency(m.balance || 0),
+      formatCurrency((m.totalExtraPaid || 0) + Math.max(0, (m.paid || 0) - (m.totalAmount || 0))),
       m.status.toUpperCase()
     ]);
 
@@ -183,6 +184,7 @@ const Members = () => {
       "Phone": m.phone || "N/A",
       "Total Amount": m.totalAmount || 0,
       "Paid": m.paid || 0,
+      "Extra Paid": (m.totalExtraPaid || 0) + Math.max(0, (m.paid || 0) - (m.totalAmount || 0)),
       "Balance": m.balance || 0,
       "Installment": m.installmentAmount || 0,
       "Frequency": m.paymentFrequency?.toUpperCase(),
@@ -320,6 +322,7 @@ const Members = () => {
                 <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-500">Member details</th>
                 <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-500">Loan Status</th>
                 <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-500 text-right">Repayment Progress</th>
+                <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-500 text-right">Extra Collected</th>
                 <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-500 text-center">Status</th>
                 <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-500 text-right">Actions</th>
               </tr>
@@ -412,6 +415,12 @@ const Members = () => {
                             {Math.round((m.paid / (m.totalAmount || 1)) * 100)}% Complete
                           </p>
                         </div>
+                      </td>
+                      <td className="p-5 text-right">
+                         <span className="text-sm font-black text-indigo-600">
+                           {formatCurrency((m.totalExtraPaid || 0) + Math.max(0, (m.paid || 0) - (m.totalAmount || 0)))}
+                         </span>
+                         <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Misc Total</p>
                       </td>
                       <td className="p-5 text-center">
                         <Badge className={`${

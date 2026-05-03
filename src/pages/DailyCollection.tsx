@@ -62,6 +62,12 @@ const DailyCollection = () => {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [selectedAdminCustomer, setSelectedAdminCustomer] = useState<any>(null);
 
+  // Bulk Date Change States
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [batchNewDate, setBatchNewDate] = useState(new Date().toISOString().split("T")[0]);
+  const [isBulkMoving, setIsBulkMoving] = useState(false);
+
+
   const gridDates = Array.from({ length: 5 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (4 - i));
@@ -175,17 +181,26 @@ const DailyCollection = () => {
         return;
       }
 
-      let q;
-      if (userData.role === "super_admin") {
-         q = query(collection(db, "postings"), where("date", "==", date), where("lineId", "==", selectedLineId));
-      }
-      else if (userData.role === "admin") {
-         q = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", "==", date), where("lineId", "==", selectedLineId));
-      }
-      
-      const snap = await getDocs(q!);
+      // Fetch ALL postings for this date and filter in-memory to avoid composite index requirements
+      const q = query(collection(db, "postings"), where("date", "==", date));
+      const snap = await getDocs(q);
       const list: DocumentData[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
+      
+      snap.forEach(d => {
+        const data = d.data();
+        const matchesLine = data.lineId === selectedLineId;
+        const matchesAdmin = userData.role === "admin" 
+          ? (data.adminId === userData.uid || data.collectedById === userData.uid) 
+          : true;
+        const isCollection = data.status?.toLowerCase() === 'collection' || 
+                           data.status?.toLowerCase() === 'penalty' ||
+                           data.status?.toLowerCase() === 'extra_collection' ||
+                           data.status?.toLowerCase() === 'extra_transfer_out';
+        
+        if (matchesLine && matchesAdmin && isCollection) {
+          list.push({ id: d.id, ...data });
+        }
+      });
       setRecords(list);
 
       // Fetch Disbursals and Doc Charges for the day
@@ -216,6 +231,7 @@ const DailyCollection = () => {
       }
     } catch (err) {
       console.error(err);
+      toast.error("Search failed");
     } finally {
       setLoading(false);
     }
@@ -403,7 +419,8 @@ const DailyCollection = () => {
           adminId: activeCustomer?.adminId || "",
           lineId: activeCustomer?.lineId || "default",
           timestamp: serverTimestamp(),
-          status: 'COLLECTION',
+          status: 'collection',
+          collectedByName: userData?.name || 'Unknown Agent',
           collectedByRole: userData?.role || 'agent'
         };
 
@@ -487,7 +504,8 @@ const DailyCollection = () => {
         adminId: userData?.uid || "",
         lineId: selectedAdminCustomer.lineId || "default",
         timestamp: serverTimestamp(),
-        status: 'COLLECTION',
+        status: 'collection',
+        collectedByName: userData?.name || 'Admin',
         collectedByRole: 'super_admin'
       };
 
@@ -540,22 +558,22 @@ const DailyCollection = () => {
                    </div>
                 </div>
                 <button onClick={fetchDataForGrid} className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white active:bg-white/20 transition-all">
-                  <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                   <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
                 </button>
              </div>
              
              <div className="relative z-10 space-y-3">
                 <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#5f259f]">
-                    <Search size={18} />
-                  </div>
-                  <input 
-                     type="text" 
-                     placeholder="Search Member or Account ID..." 
-                     value={searchQuery}
-                     onChange={(e) => setSearchQuery(e.target.value)}
-                     className="w-full h-12 rounded-2xl bg-white pl-12 pr-4 text-sm font-bold text-slate-700 placeholder:text-slate-300 shadow-xl focus:outline-none"
-                  />
+                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#5f259f]">
+                     <Search size={18} />
+                   </div>
+                   <input 
+                      type="text" 
+                      placeholder="Search Member or Account ID..." 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full h-12 rounded-2xl bg-white pl-12 pr-4 text-sm font-bold text-slate-700 placeholder:text-slate-300 shadow-xl focus:outline-none"
+                   />
                 </div>
                 {uniqueVillages.length > 0 && (
                   <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -880,10 +898,10 @@ const DailyCollection = () => {
     );
   }
 
-  // Admin View
-  const total = records.reduce((acc, r) => acc + (r.amount || 0), 0);
-  const cashTotal = records.filter(r => r.payMode === 'cash').reduce((acc, r) => acc + (r.amount || 0), 0);
-  const onlineTotal = records.filter(r => r.payMode !== 'cash').reduce((acc, r) => acc + (r.amount || 0), 0);
+  // Admin View - Using Number() for precision
+  const total = records.reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0);
+  const cashTotal = records.filter(r => r.payMode === 'cash').reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0);
+  const onlineTotal = records.filter(r => r.payMode !== 'cash').reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0);
 
   const handleEditPosting = (posting: any) => {
     setSelectedEditPosting(posting);
@@ -909,6 +927,48 @@ const DailyCollection = () => {
     }
   };
 
+  const handleBulkMove = async () => {
+    if (!records.length) {
+      toast.error("No records found to move");
+      return;
+    }
+    setIsBulkMoving(true);
+    const toastId = toast.loading(`Moving ${records.length} transactions...`);
+    try {
+      const batchPromises = records.map(async (r) => {
+        const postingRef = doc(db, "postings", r.id);
+        return updateDoc(postingRef, { date: batchNewDate });
+      });
+
+      await Promise.all(batchPromises);
+      
+      toast.success(`Successfully moved ${records.length} transactions to ${batchNewDate}`, { id: toastId });
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "BATCH_DATE_CHANGE",
+          `Moved ${records.length} transactions from ${date} to ${batchNewDate}`,
+          selectedLineId
+        );
+      }
+
+      setBulkMoveOpen(false);
+      // Important: Delay refresh slightly to allow Firestore propagation
+      setTimeout(() => {
+        handleSearch();
+      }, 500);
+    } catch (err: any) {
+      console.error("Bulk Move Error:", err);
+      toast.error(`Failed to move: ${err.message || "Unknown error"}`, { id: toastId });
+    } finally {
+      setIsBulkMoving(false);
+    }
+  };
+
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -918,7 +978,17 @@ const DailyCollection = () => {
         </div>
         <div className="flex items-center gap-3">
           {(userData?.role === "super_admin" || userData?.role === "admin") && (
-             <Button onClick={openOverrideModal} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg h-11 px-6 font-bold uppercase tracking-widest text-[10px]"><Zap size={14} className="mr-2" /> Manual Override</Button>
+             <>
+               <Button 
+                 onClick={() => setBulkMoveOpen(true)} 
+                 disabled={records.length === 0}
+                 className="bg-amber-500 hover:bg-amber-600 text-white shadow-lg h-11 px-6 font-bold uppercase tracking-widest text-[10px]"
+               >
+                 <Calendar className="mr-2 h-4 w-4" /> Bulk Move
+               </Button>
+               <Button onClick={openOverrideModal} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg h-11 px-6 font-bold uppercase tracking-widest text-[10px]"><Zap size={14} className="mr-2" /> Manual Override</Button>
+             </>
+
           )}
           <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-11 w-44 glass-card border-none shadow-sm font-bold text-[#5f259f]" />
           <Button onClick={handleSearch} className="bg-[#5f259f] hover:bg-[#4a1c7c] text-white h-11 px-6 shadow-lg font-bold" disabled={loading}>{loading ? "Syncing..." : "Sync Matrix"}</Button>
@@ -943,10 +1013,10 @@ const DailyCollection = () => {
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Verify ID</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-center">Audit</th>
                 {userData?.role === "super_admin" && (
-                  <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Edit</th>
-                )}
-                {userData?.role === "super_admin" && (
-                  <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Delete</th>
+                  <>
+                    <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Edit</th>
+                    <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Delete</th>
+                  </>
                 )}
               </tr>
             </thead>
@@ -968,27 +1038,29 @@ const DailyCollection = () => {
                    </td>
                    <td className="p-5"><span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">{r.digiPayer || '—'}</span></td>
                   <td className="p-5 text-center"><Badge variant="outline" className="text-slate-400 text-[9px] font-black uppercase">{r.status}</Badge></td>
-                  {userData?.role === "super_admin" && (
-                    <td className="p-5 text-right">
-                      <div className="flex justify-end gap-2">
+                  {(userData?.role === "super_admin" || userData?.role === "admin") && (
+                    <>
+                      <td className="p-5 text-right">
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-slate-300 hover:text-blue-500 hover:bg-blue-50/50"
+                          className="h-8 w-8 text-slate-400 hover:text-blue-500 hover:bg-blue-50/50"
                           onClick={() => handleEditPosting(r)}
                         >
                           <Edit3 size={14} />
                         </Button>
+                      </td>
+                      <td className="p-5 text-right">
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-slate-300 hover:text-destructive hover:bg-destructive/5"
+                          className="h-8 w-8 text-slate-400 hover:text-destructive hover:bg-destructive/5"
                           onClick={() => handleDeletePosting(r)}
                         >
                           <Trash2 size={14} />
                         </Button>
-                      </div>
-                    </td>
+                      </td>
+                    </>
                   )}
                 </tr>
               ))}
@@ -1010,11 +1082,11 @@ const DailyCollection = () => {
                  <div className="grid grid-cols-2 gap-8">
                     <div className="space-y-1">
                        <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Agent Collection</p>
-                       <p className="text-2xl font-black text-emerald-400">{formatCurrency(records.filter(r => r.collectedByRole !== 'super_admin').reduce((acc, r) => acc + (r.amount || 0), 0))}</p>
+                       <p className="text-2xl font-black text-emerald-400">{formatCurrency(records.filter(r => r.collectedByRole !== 'super_admin' && r.collectedByRole !== 'admin').reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0))}</p>
                     </div>
                     <div className="space-y-1">
                        <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Admin Collection</p>
-                       <p className="text-2xl font-black text-indigo-400">{formatCurrency(records.filter(r => r.collectedByRole === 'super_admin').reduce((acc, r) => acc + (r.amount || 0), 0))}</p>
+                       <p className="text-2xl font-black text-indigo-400">{formatCurrency(records.filter(r => r.collectedByRole === 'super_admin' || r.collectedByRole === 'admin').reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0))}</p>
                     </div>
                  </div>
 
@@ -1062,9 +1134,9 @@ const DailyCollection = () => {
                     <div className="flex items-center justify-between">
                        <h3 className="text-lg font-black uppercase italic text-slate-300">Final Net Balance</h3>
                        <div className="text-right">
-                          <p className={`text-4xl font-black italic ${((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                             {formatCurrency(((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)))}
-                          </p>
+                           <p className={`text-4xl font-black italic ${((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0) + (r.penaltyAmount || 0) + (r.extraAmount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {formatCurrency(((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0) + (r.penaltyAmount || 0) + (r.extraAmount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)))}
+                           </p>
                           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mt-1">Settlement Figure for {formatDate(date)}</p>
                        </div>
                     </div>
@@ -1250,6 +1322,54 @@ const DailyCollection = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={bulkMoveOpen} onOpenChange={setBulkMoveOpen}>
+        <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden text-slate-900">
+          <div className="bg-amber-500 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2 text-white">
+              <Calendar size={20} className="text-white" />
+              Batch Date Change
+            </DialogTitle>
+            <DialogDescription className="text-white/80 text-xs mt-1">
+              Moving {records.length} transactions from {formatDate(date)}
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-6">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Destination Date</Label>
+              <div className="relative text-slate-900">
+                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="date" 
+                  value={batchNewDate} 
+                  onChange={e => setBatchNewDate(e.target.value)} 
+                  className="pl-9 h-12 finance-input font-bold text-slate-900" 
+                />
+              </div>
+            </div>
+            
+            <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
+              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
+                Warning: This action will move all recovery entries listed on the current page to the new selected date. This affects daily reports and ledger history.
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={() => setBulkMoveOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleBulkMove} 
+                disabled={isBulkMoving}
+                className="flex-1 h-12 rounded-xl bg-amber-600 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-amber-700"
+              >
+                {isBulkMoving ? "Moving..." : "Confirm Move"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </motion.div>
   );
 };

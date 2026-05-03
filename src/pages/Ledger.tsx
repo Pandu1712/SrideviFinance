@@ -27,6 +27,8 @@ const Ledger = () => {
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [accountInfo, setAccountInfo] = useState<DocumentData | null>(null);
   const [postings, setPostings] = useState<DocumentData[]>([]);
+  const [totalPenalty, setTotalPenalty] = useState(0);
+  const [totalExtra, setTotalExtra] = useState(0);
   const [loading, setLoading] = useState(false);
 
   // Edit Posting States
@@ -80,59 +82,73 @@ const Ledger = () => {
 
     setLoading(true);
     try {
-      const destQuery = query(collection(db, "accounts"), where("accountNo", "==", destAccountNo));
+      const destQuery = query(collection(db, "accounts"), where("accountNo", "==", destAccountNo), where("lineId", "==", selectedLineId));
       const destSnap = await getDocs(destQuery);
       if (destSnap.empty) {
-        toast.error("Destination account not found");
+        toast.error("Destination account not found in this line");
         setLoading(false);
         return;
       }
-      const destDoc = destSnap.docs[0];
-      const destData = destDoc.data();
-      const destId = destDoc.id;
+      const destId = destSnap.docs[0].id;
 
       await runTransaction(db, async (transaction) => {
         const sourceAccRef = doc(db, "accounts", accountInfo.id);
         const destAccRef = doc(db, "accounts", destId);
         const postingRef = doc(db, "postings", selectedPostingForTransfer.id);
 
-        const amount = selectedPostingForTransfer.amount;
+        const sourceSnap = await transaction.get(sourceAccRef);
+        const destSnapShot = await transaction.get(destAccRef);
 
+        if (!sourceSnap.exists() || !destSnapShot.exists()) {
+          throw new Error("One or more accounts no longer exist");
+        }
+
+        const sourceData = sourceSnap.data();
+        const destData = destSnapShot.data();
+        const amount = Number(selectedPostingForTransfer.amount) || 0;
+
+        // Update Source Account (Revert balance)
         transaction.update(sourceAccRef, {
-          paid: (accountInfo.paid || 0) - amount,
-          balance: (accountInfo.balance || 0) + amount
+          paid: (sourceData.paid || 0) - amount,
+          balance: (sourceData.balance || 0) + amount
         });
 
+        // Update Destination Account (Apply payment)
         transaction.update(destAccRef, {
           paid: (destData.paid || 0) + amount,
           balance: (destData.balance || 0) - amount
         });
 
+        // Update Posting Record
         transaction.update(postingRef, {
           accountId: destId,
           accountNo: destAccountNo,
           memberName: destData.name,
-          lineId: destData.lineId
+          lineId: destData.lineId,
+          adminId: destData.adminId || "",
+          transferredFrom: accountInfo.accountNo,
+          transferredAt: new Date().toISOString()
         });
 
         const logRef = doc(collection(db, "activity_logs"));
         transaction.set(logRef, {
-          type: "posting_transfer",
+          type: "POSTING_TRANSFER",
           postingId: selectedPostingForTransfer.id,
           fromAccount: accountInfo.accountNo,
           toAccount: destAccountNo,
           amount: amount,
           performedBy: userData?.name || "System",
-          timestamp: new Date()
+          performedByRole: userData?.role,
+          timestamp: new Date().toISOString()
         });
       });
 
-      toast.success(`Transferred ${formatCurrency(selectedPostingForTransfer.amount)} to ${destAccountNo}`);
+      toast.success(`Successfully shifted ${formatCurrency(selectedPostingForTransfer.amount)} to ${destAccountNo}`);
       setTransferPostingOpen(false);
       handleSearch();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Transfer error:", err);
-      toast.error("Transfer failed");
+      toast.error(`Transfer failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -248,10 +264,21 @@ const Ledger = () => {
       );
       
       const pSnap = await getDocs(pq);
-      const posts: DocumentData[] = pSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      const posts: DocumentData[] = pSnap.docs
+        .map(d => ({ id: d.id, ...(d.data() as any) }))
+        .filter(p => p.status === 'collection' || p.status === 'penalty' || p.status === 'extra_collection' || p.status === 'extra_transfer_out');
+        
       // Sort locally to avoid index requirement
       posts.sort((a, b) => (a.date > b.date ? 1 : -1));
       setPostings(posts);
+      
+      const penaltySum = posts.reduce((sum, p) => sum + (p.penaltyAmount || 0), 0);
+      setTotalPenalty(penaltySum);
+      
+      const extraSum = posts.reduce((sum, p) => sum + (p.extraAmount || 0), 0);
+      const surplus = Math.max(0, acc.paid - acc.totalAmount);
+      setTotalExtra(extraSum + surplus);
+      
       toast.success("Ledger generated successfully");
     } catch (err) {
       console.error("Ledger Search Error:", err);
@@ -426,6 +453,20 @@ const Ledger = () => {
                   <p className="text-[10px] font-bold text-destructive/60">Status: {accountInfo.status.toUpperCase()}</p>
                 </CardContent>
               </Card>
+              <Card className="bg-indigo-50 border-indigo-100">
+                <CardContent className="p-4">
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 mb-1">Penalty Paid</p>
+                  <p className="text-lg font-black text-indigo-700 leading-tight">{formatCurrency(totalPenalty)}</p>
+                  <p className="text-[10px] font-bold text-indigo-400">Extra Fines</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-purple-50 border-purple-100">
+                <CardContent className="p-4">
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-purple-600 mb-1">Extra Collection</p>
+                  <p className="text-lg font-black text-purple-700 leading-tight">{formatCurrency(totalExtra)}</p>
+                  <p className="text-[10px] font-bold text-purple-400">Misc Income</p>
+                </CardContent>
+              </Card>
             </div>
 
             {/* Advanced Metadata */}
@@ -540,7 +581,7 @@ const Ledger = () => {
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Running Total</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Payment Mode</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Collected By</th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-center">Status</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-center">Status/Purpose</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -564,9 +605,32 @@ const Ledger = () => {
                             className="hover:bg-primary/5 transition-colors group"
                           >
                             <td className="p-4 text-xs font-mono text-muted-foreground">{i + 1}</td>
-                            <td className="p-4 text-sm font-medium">{formatDate(p.date)}</td>
-                            <td className="p-4 text-sm font-bold text-right text-emerald-600">{formatCurrency(p.amount)}</td>
-                            <td className="p-4 text-sm font-bold text-right text-primary group-hover:text-accent transition-colors">{formatCurrency(runningTotal)}</td>
+                            <td className="p-4">
+                               <div className="flex flex-col">
+                                  <span className="text-sm font-medium">{formatDate(p.date)}</span>
+                                  {p.transferredFrom && (
+                                    <Badge variant="outline" className="w-fit text-[7px] bg-blue-50 text-blue-600 border-blue-100 font-black uppercase tracking-tighter mt-1">
+                                      Shifted from {p.transferredFrom}
+                                    </Badge>
+                                  )}
+                               </div>
+                            </td>
+                            <td className="p-4 text-sm font-bold text-right text-emerald-600">
+                              <div className="flex flex-col">
+                                 <span>{formatCurrency(p.amount)}</span>
+                                 {p.penaltyAmount > 0 && (
+                                   <span className="text-[9px] text-rose-500 font-black">+ {formatCurrency(p.penaltyAmount)} Fine</span>
+                                 )}
+                                 {p.extraAmount !== 0 && (
+                                   <span className={`text-[9px] font-black ${p.extraAmount > 0 ? 'text-indigo-500' : 'text-rose-500'}`}>
+                                     {p.extraAmount > 0 ? '+' : '-'} {formatCurrency(Math.abs(p.extraAmount))} Extra
+                                   </span>
+                                 )}
+                              </div>
+                            </td>
+                            <td className="p-4 text-sm font-bold text-right text-primary group-hover:text-accent transition-colors">
+                              {formatCurrency(runningTotal + postings.slice(0, i + 1).reduce((s, x) => s + (x.penaltyAmount || 0), 0))}
+                            </td>
                               <td className="p-4">
                                 <span className="text-[10px] font-bold uppercase py-1 px-2 rounded-md bg-slate-100 text-slate-600">
                                   {p.payMode}
@@ -583,9 +647,17 @@ const Ledger = () => {
                                 </div>
                               </td>
                             <td className="p-4 text-center">
-                              <span className={`text-[10px] font-bold uppercase py-1 px-2 rounded-md ${p.status === 'penalty' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
-                                {p.status}
-                              </span>
+                               <div className="flex flex-col items-center">
+                                 <span className={`text-[10px] font-bold uppercase py-1 px-2 rounded-md ${
+                                   p.status === 'penalty' ? 'bg-amber-100 text-amber-700' : 
+                                   p.status === 'extra_collection' ? 'bg-purple-100 text-purple-700' : 
+                                   p.status === 'extra_transfer_out' ? 'bg-rose-100 text-rose-700' : 
+                                   'bg-blue-100 text-blue-700'
+                                 }`}>
+                                   {p.status?.replace('_', ' ')}
+                                 </span>
+                                 {p.purpose && <span className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{p.purpose}</span>}
+                               </div>
                             </td>
                             <td className="p-4 text-right">
                                 {userData?.role === "super_admin" && (
@@ -639,6 +711,47 @@ const Ledger = () => {
                   )}
                 </table>
               </CardContent>
+            </Card>
+
+            {/* Payment Progress Visualization */}
+            <Card className="glass-card border-none shadow-xl bg-[#0F172A] text-white p-8 overflow-hidden relative rounded-3xl">
+               <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                     <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Recovery Maturity Lifecycle</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-black text-emerald-400 italic">
+                      {Math.round(((accountInfo.paid || 0) / (accountInfo.totalAmount || 1)) * 100)}%
+                    </p>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Recovered</p>
+                  </div>
+               </div>
+               
+               <div className="h-4 w-full bg-white/5 rounded-full overflow-hidden mb-8 border border-white/5">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, ((accountInfo.paid || 0) / (accountInfo.totalAmount || 1)) * 100)}%` }}
+                    className="h-full bg-premium-gradient shadow-[0_0_30px_rgba(245,158,11,0.4)] relative"
+                  >
+                    <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent)] animate-[shimmer_2s_infinite]" />
+                  </motion.div>
+               </div>
+
+               <div className="grid grid-cols-3 gap-8">
+                  <div className="space-y-1">
+                     <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Total Collected</p>
+                     <p className="text-2xl font-black text-emerald-400 italic">{formatCurrency(accountInfo.paid)}</p>
+                  </div>
+                  <div className="space-y-1">
+                     <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Principal Owed</p>
+                     <p className="text-2xl font-black text-rose-400 italic">{formatCurrency(accountInfo.balance)}</p>
+                  </div>
+                  <div className="space-y-1">
+                     <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Agreement Value</p>
+                     <p className="text-2xl font-black text-white italic">{formatCurrency(accountInfo.totalAmount)}</p>
+                  </div>
+               </div>
             </Card>
           </motion.div>
         )}

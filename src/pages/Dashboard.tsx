@@ -6,8 +6,9 @@ import {
   Users, IndianRupee, FileText, TrendingUp, UserCog, Wallet, 
   ArrowUpRight, BarChart3, Target, Search, Plus, ArrowRightLeft, 
   LayoutDashboard, MapPin, ArrowRight, AlertCircle, Calendar,
-  ArrowDownRight, Receipt, Banknote, Calculator, Scale, Database
+  ArrowDownRight, Receipt, Banknote, Calculator, Scale, Database, Info
 } from "lucide-react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, orderBy, limit, DocumentData, Timestamp, onSnapshot, updateDoc, doc, addDoc, runTransaction, setDoc, getDoc } from "firebase/firestore";
@@ -24,20 +25,23 @@ const StatCard = ({ title, value, icon, color, trend, index }: { title: string; 
   <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
-    transition={{ delay: index * 0.1 }}
+    transition={{ delay: index * 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
   >
-    <Card className="glass-card hover:shadow-2xl transition-all duration-300 group">
-      <CardContent className="flex items-center gap-4 p-6">
-        <div className={`flex h-14 w-14 items-center justify-center rounded-xl shadow-lg transition-transform group-hover:scale-110 ${color}`}>
+    <Card className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-[0_10px_40px_-15px_rgba(0,0,0,0.05)] hover:shadow-[0_20px_60px_-10px_rgba(0,0,0,0.1)] hover:-translate-y-1.5 transition-all duration-500 group overflow-hidden relative">
+      {/* Decorative gradient blob */}
+      <div className={`absolute -right-4 -top-4 w-24 h-24 blur-3xl rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-700 ${color.includes('bg-') ? color : 'bg-primary'}`} />
+      
+      <CardContent className="flex items-center gap-5 p-7 relative z-10">
+        <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl shadow-xl shadow-slate-200 transition-all duration-500 group-hover:scale-110 group-hover:shadow-2xl ${color} border border-white/20`}>
           {icon}
         </div>
-        <div className="flex-1">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-2xl font-bold tracking-tight">{value}</h3>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-slate-500 transition-colors">{title}</p>
+          <div className="flex items-baseline gap-2 mt-1">
+            <h3 className="text-xl font-black tracking-tight text-slate-900 leading-none">{value}</h3>
             {trend && (
-              <span className="text-xs font-medium text-emerald-500 flex items-center gap-0.5">
-                <ArrowUpRight className="h-3 w-3" /> {trend}
+              <span className="text-[9px] font-black text-emerald-500 flex items-center gap-0.5 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100/50 whitespace-nowrap">
+                <ArrowUpRight className="h-2 w-2" /> {trend}
               </span>
             )}
           </div>
@@ -52,7 +56,9 @@ const Dashboard = () => {
   const { selectedLineId, setSelectedLineId, lines } = useLine();
   const [logs, setLogs] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [closureStats, setClosureStats] = useState({ openingBalance: 0, agentCol: 0, adminCol: 0, agentDisburse: 0, adminDisburse: 0, docCharges: 0, expenses: 0 });
+  const [closureStats, setClosureStats] = useState({ openingBalance: 0, agentCol: 0, adminCol: 0, agentDisburse: 0, adminDisburse: 0, docCharges: 0, expenses: 0, penalties: 0, extraCol: 0 });
+  const [dailyExpenseLogs, setDailyExpenseLogs] = useState<any[]>([]);
+  const [showExpenseDetails, setShowExpenseDetails] = useState(false);
   const [stats, setStats] = useState({
     totalAdmins: 0,
     totalAgents: 0,
@@ -97,7 +103,7 @@ const Dashboard = () => {
     const startOfMonth = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1).toISOString().split("T")[0];
     const startOfYear = new Date(dateObj.getFullYear(), 0, 1).toISOString().split("T")[0];
     
-    setClosureStats({ openingBalance: 0, agentCol: 0, adminCol: 0, agentDisburse: 0, adminDisburse: 0, docCharges: 0, expenses: 0 });
+    setClosureStats({ openingBalance: 0, agentCol: 0, adminCol: 0, agentDisburse: 0, adminDisburse: 0, docCharges: 0, expenses: 0, penalties: 0, extraCol: 0 });
 
     const setupListeners = async () => {
       if (!userData) return;
@@ -157,6 +163,7 @@ const Dashboard = () => {
         unsubscribePostings = onSnapshot(postingsRef, (snapshot) => {
           let totalCol = 0; let agCol = 0; let adCol = 0; 
           let agDis = 0; let adDis = 0; let dtDocCharge = 0;
+          let dtPenalties = 0; let dtExtra = 0;
           const chartCol: Record<string, number> = {};
           snapshot.forEach(d => {
             const data = d.data();
@@ -179,6 +186,9 @@ const Dashboard = () => {
                     else agCol += amt;
                   }
                 }
+                
+                dtPenalties += (data.penaltyAmount || 0);
+                dtExtra += (data.extraAmount || 0);
             }
             
             const monthKey = data.date?.substring(0, 7) || "Unknown";
@@ -190,9 +200,11 @@ const Dashboard = () => {
             adminCol: adCol,
             agentDisburse: agDis,
             adminDisburse: adDis,
-            docCharges: dtDocCharge
+            docCharges: dtDocCharge,
+            penalties: dtPenalties,
+            extraCol: dtExtra
           }));
-          const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
+          const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any as any })).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 200);
           setRecentPostings(recent);
           const allKeys = Array.from(new Set([...Object.keys(chartCol)]));
           const formatted = allKeys.sort().slice(-12).map(k => ({ date: k, collected: chartCol[k] || 0, invested: 0 }));
@@ -220,6 +232,22 @@ const Dashboard = () => {
           setClosureStats(p => ({ ...p, expenses: totalExp, openingBalance: totalOpening }));
         });
 
+        // Fetch Individual Expenses for Reasons
+        let expLogRef: any = collection(db, "expenses_log");
+        expLogRef = query(expLogRef, where("date", "==", todayStr));
+        if (activeLineId) expLogRef = query(expLogRef, where("lineId", "==", activeLineId));
+        
+        const unsubscribeExpLog = onSnapshot(expLogRef, (snapshot) => {
+          const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          setDailyExpenseLogs(logs);
+        });
+
+        return () => {
+          unsubscribePostings();
+          unsubscribeExpenses();
+          unsubscribeExpLog();
+        };
+
       } else if (userData.role === "admin") {
         let accountsRef: any = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
         if (activeLineId) accountsRef = query(accountsRef, where("lineId", "==", activeLineId));
@@ -242,7 +270,7 @@ const Dashboard = () => {
         unsubscribePostings = onSnapshot(postingsRef, (snapshot) => {
            let daily = 0;
            snapshot.forEach(d => { if (d.data().date === todayStr) daily += d.data().amount || 0; });
-           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
+           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any })).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 200);
            setRecentPostings(recent);
            setStats(prev => ({ ...prev, dailyCollection: daily }));
            setLoading(false);
@@ -282,7 +310,7 @@ const Dashboard = () => {
         unsubscribePostings = onSnapshot(postQuery, (snapshot) => {
            let todayCol = 0;
            snapshot.forEach(d => { if (d.data().date === todayStr) todayCol += d.data().amount || 0; });
-           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
+           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any })).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 200);
            setRecentPostings(recent);
            setStats(prev => ({ ...prev, todayCollection: todayCol }));
            setLoading(false);
@@ -388,18 +416,27 @@ const Dashboard = () => {
     }
   };
 
-  const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Full Portfolio";
+  const activeLine = lines.find(l => l.id === selectedLineId);
+  const activeLineName = activeLine?.name || "Sridevi Finance";
+  const activeLineNumber = activeLine?.number;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-slide-up pb-10">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-primary uppercase italic">
-            Sridevi <span className="text-accent not-italic">Finance</span>
+    <div className="max-w-7xl mx-auto space-y-10 animate-slide-up pb-10">
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between px-2">
+        <div className="relative">
+          <div className="absolute -left-4 top-0 bottom-0 w-1 bg-amber-500 rounded-full opacity-50" />
+          <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">
+            {activeLineName}
           </h1>
-          <p className="text-muted-foreground font-medium flex items-center gap-2">
-            <MapPin size={14} className="text-accent" /> {activeLineName} Overview
-          </p>
+          <div className="flex items-center gap-3 mt-3">
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-200">
+               <MapPin size={12} className="text-amber-500" />
+               {activeLineNumber || "MASTER"}
+            </div>
+            <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">
+              {activeLineNumber ? "Operative Intelligence" : "Enterprise Matrix"}
+            </p>
+          </div>
         </div>
         
         <div className="flex items-center gap-3">
@@ -453,46 +490,75 @@ const Dashboard = () => {
 
       {userData?.role === "super_admin" && (
         <div className="space-y-8">
-          <Card className="glass-card border-none shadow-xl bg-gradient-to-br from-indigo-50 to-white relative overflow-hidden">
-             <CardHeader className="pb-4">
-                <CardTitle className="text-xl font-black uppercase text-indigo-900 tracking-widest italic flex items-center gap-2">
-                  <Wallet size={20}/> Daily Closure Account
-                </CardTitle>
+          <Card className="bg-white/40 backdrop-blur-2xl border border-white/20 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] relative overflow-hidden rounded-[2.5rem]">
+             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-indigo-500 to-emerald-500 opacity-20" />
+             <CardHeader className="pb-6 pt-10 px-10">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600">
+                      <Wallet size={24}/>
+                    </div>
+                    Financial Reconciliation
+                  </CardTitle>
+                  <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
+                    Live Audit Active
+                  </Badge>
+                </div>
              </CardHeader>
-             <CardContent>
-                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-6 text-center">
-                   <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Opening Bal</p>
-                      <h4 className="text-xl font-black text-slate-600 mt-1">{formatCurrency(closureStats.openingBalance)}</h4>
+             <CardContent className="px-10 pb-12">
+                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-8 text-center md:text-left">
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-slate-400">Opening Bal</p>
+                      <h4 className="text-xl font-black text-slate-600">{formatCurrency(closureStats.openingBalance)}</h4>
                    </div>
-                   <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Agent Col</p>
-                      <h4 className="text-xl font-black text-emerald-600 mt-1">+{formatCurrency(closureStats.agentCol)}</h4>
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-emerald-500/60">Agent Col</p>
+                      <h4 className="text-xl font-black text-emerald-600">+{formatCurrency(closureStats.agentCol)}</h4>
                    </div>
-                   <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Admin Col</p>
-                      <h4 className="text-xl font-black text-indigo-600 mt-1">+{formatCurrency(closureStats.adminCol)}</h4>
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-indigo-500/60">Admin Col</p>
+                      <h4 className="text-xl font-black text-indigo-600">+{formatCurrency(closureStats.adminCol)}</h4>
                    </div>
-                   <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Agent Pay</p>
-                      <h4 className="text-xl font-black text-rose-500 mt-1">-{formatCurrency(closureStats.agentDisburse)}</h4>
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-rose-500/60">Agent Pay</p>
+                      <h4 className="text-xl font-black text-rose-500">-{formatCurrency(closureStats.agentDisburse)}</h4>
                    </div>
-                   <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Admin Pay</p>
-                      <h4 className="text-xl font-black text-rose-600 mt-1">-{formatCurrency(closureStats.adminDisburse)}</h4>
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-rose-600/60">Admin Pay</p>
+                      <h4 className="text-xl font-black text-rose-600">-{formatCurrency(closureStats.adminDisburse)}</h4>
                    </div>
-                   <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Doc Charges</p>
-                      <h4 className="text-xl font-black text-emerald-500 mt-1">+{formatCurrency(closureStats.docCharges)}</h4>
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-emerald-500/60">Doc Fees</p>
+                      <h4 className="text-xl font-black text-emerald-500">+{formatCurrency(closureStats.docCharges)}</h4>
                    </div>
-                   <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Expenses</p>
-                      <h4 className="text-xl font-black text-rose-400 mt-1">-{formatCurrency(closureStats.expenses)}</h4>
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-rose-500/60">Penalties</p>
+                      <h4 className="text-xl font-black text-rose-500">+{formatCurrency(closureStats.penalties)}</h4>
                    </div>
-                   <div className="border-l border-slate-200 pl-6">
-                      <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">Net Closing Cash</p>
-                      <h4 className={`text-2xl font-black mt-1 ${closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                        {formatCurrency(closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
+                   <div 
+                     className="space-y-1 cursor-pointer hover:bg-slate-50 p-2 rounded-xl transition-colors group/exp"
+                     onClick={() => setShowExpenseDetails(true)}
+                   >
+                      <p className="text-[9px] font-black text-rose-400 flex items-center gap-1">
+                        Expenses
+                        <Info className="h-2.5 w-2.5 opacity-0 group-hover/exp:opacity-100 transition-opacity" />
+                      </p>
+                      <h4 className="text-xl font-black text-rose-400">-{formatCurrency(closureStats.expenses)}</h4>
+                      {dailyExpenseLogs.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {dailyExpenseLogs.slice(0, 2).map((log, i) => (
+                            <Badge key={i} variant="outline" className="text-[7px] py-0 px-1 border-rose-100 text-rose-500 font-bold uppercase tracking-widest bg-rose-50/30 truncate max-w-[60px]">
+                              {log.note || 'Expense'}
+                            </Badge>
+                          ))}
+                          {dailyExpenseLogs.length > 2 && <span className="text-[7px] text-slate-400 font-black">+ {dailyExpenseLogs.length - 2}</span>}
+                        </div>
+                      )}
+                   </div>
+                   <div className="space-y-1 border-l border-slate-200/50 pl-8 md:col-span-1 flex flex-col justify-center">
+                      <p className="text-[9px] font-black text-indigo-600">Net Closing</p>
+                      <h4 className={`text-2xl font-black ${closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                        {formatCurrency(closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
                       </h4>
                    </div>
                 </div>
@@ -681,6 +747,14 @@ const Dashboard = () => {
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Doc Charges</span>
                     <span className="text-sm font-black text-emerald-500">+{formatCurrency(closureStats.docCharges)}</span>
                   </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Penalty Fees</span>
+                    <span className="text-sm font-black text-rose-500">+{formatCurrency(closureStats.penalties)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Extra Collections</span>
+                    <span className="text-sm font-black text-indigo-500">+{formatCurrency(closureStats.extraCol)}</span>
+                  </div>
                </div>
             </Card>
 
@@ -704,8 +778,8 @@ const Dashboard = () => {
                    </div>
                    <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
                      <span className="text-[10px] font-black text-slate-900 uppercase">Net Flow</span>
-                     <span className={`text-md font-black ${ (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {formatCurrency(closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
+                     <span className={`text-md font-black ${ (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {formatCurrency(closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
                      </span>
                    </div>
                 </div>
@@ -716,8 +790,8 @@ const Dashboard = () => {
                <div className="flex items-center justify-between relative z-10">
                   <div className="flex-1">
                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Net Closing Cash</p>
-                     <h2 className={`text-5xl font-black tracking-tighter ${ (closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {formatCurrency(closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
+                     <h2 className={`text-5xl font-black tracking-tighter ${ (closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {formatCurrency(closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses)}
                      </h2>
                     <div className="flex items-center gap-3 mt-4">
                        <Badge className="bg-white/10 text-white border-none font-black text-[9px] uppercase tracking-widest px-3">
@@ -727,7 +801,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <div className="h-20 w-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
-                     <Scale className={`h-10 w-10 ${ (closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                     <Scale className={`h-10 w-10 ${ (closureStats.openingBalance + closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
                </div>
             </Card>
@@ -834,19 +908,25 @@ const Dashboard = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-black text-slate-800 truncate leading-none">{p.memberName}</p>
+                            <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-none bg-slate-100 text-slate-400 font-bold uppercase tracking-tighter">{p.payMode}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{p.accountNo}</p>
                             {p.collectedByRole && (
-                              <div className="flex items-center gap-1.5">
-                                <Badge variant="outline" className={`text-[8px] px-1 py-0 h-4 border-none ${p.collectedByRole === 'super_admin' ? 'bg-indigo-50 text-indigo-500' : 'bg-emerald-50 text-emerald-500'} italic font-black uppercase tracking-widest`}>
-                                  {p.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'}
-                                </Badge>
-                              </div>
+                              <Badge variant="outline" className={`text-[7px] px-1 py-0 h-3 border-none ${p.collectedByRole === 'super_admin' ? 'bg-indigo-50 text-indigo-500' : 'bg-emerald-50 text-emerald-500'} italic font-black uppercase tracking-widest`}>
+                                {p.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'}
+                              </Badge>
                             )}
                           </div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{p.accountNo}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-black text-accent leading-none">+{formatCurrency(p.amount)}</p>
-                          <p className="text-[8px] font-black text-slate-400 uppercase mt-1">{formatDate(p.date)}</p>
+                          <div className="flex flex-col items-end">
+                            <p className="text-sm font-black text-accent leading-none">+{formatCurrency(p.amount)}</p>
+                            {p.penaltyAmount > 0 && (
+                              <p className="text-[8px] font-black text-indigo-500 mt-0.5">+ {formatCurrency(p.penaltyAmount)} Pen</p>
+                            )}
+                          </div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase mt-1">{p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : formatDate(p.date)}</p>
                         </div>
                       </motion.div>
                     ))
@@ -908,6 +988,75 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+      {/* Expense Details Modal */}
+      <Dialog open={showExpenseDetails} onOpenChange={setShowExpenseDetails}>
+        <DialogContent className="max-w-2xl bg-white rounded-3xl border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-slate-900 p-8 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-2">Daily Audit</p>
+                <h2 className="text-3xl font-black italic tracking-tighter">Expense Registry</h2>
+              </div>
+              <div className="text-right">
+                <p className="text-3xl font-black text-rose-400 italic">-{formatCurrency(closureStats.expenses)}</p>
+                <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Total Outflow</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-8">
+            <div className="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Time</th>
+                    <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Description</th>
+                    <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400">By</th>
+                    <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {dailyExpenseLogs.length > 0 ? (
+                    dailyExpenseLogs.map((log, i) => (
+                      <tr key={i} className="group">
+                        <td className="py-4 text-[10px] font-bold text-slate-400">
+                          {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                        </td>
+                        <td className="py-4">
+                          <p className="text-sm font-black text-slate-800">{log.note || 'General Expense'}</p>
+                        </td>
+                        <td className="py-4">
+                          <Badge variant="outline" className="text-[8px] font-black uppercase border-slate-100 text-slate-400">
+                            {log.userName || 'System'}
+                          </Badge>
+                        </td>
+                        <td className="py-4 text-right">
+                          <span className="text-sm font-black text-rose-500">-{formatCurrency(log.amount)}</span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="py-20 text-center text-slate-400 italic text-sm font-bold uppercase tracking-widest">
+                        No expense telemetry found for this session
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end">
+              <Button 
+                onClick={() => setShowExpenseDetails(false)}
+                className="bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest px-8 rounded-xl h-12 shadow-xl hover:shadow-slate-200 transition-all"
+              >
+                Close Audit
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

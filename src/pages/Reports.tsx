@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download, FileSpreadsheet } from "lucide-react";
+import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download, FileSpreadsheet, PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -32,55 +32,59 @@ const Reports = () => {
     principal: 0,
     interest: 0,
     docCharges: 0,
+    disbursed: 0,
+    expenses: 0,
+    penalties: 0,
+    extraCol: 0,
     byAgent: {} as Record<string, number>,
   });
-  const [history, setHistory] = useState<any[]>([]);
 
   const fetchReportData = async (selectedDate: string) => {
     setLoading(true);
     try {
       if (!selectedLineId) {
         setData([]);
-        setStats({ total: 0, cash: 0, online: 0, principal: 0, interest: 0, docCharges: 0, byAgent: {} });
+        setStats({ total: 0, cash: 0, online: 0, principal: 0, interest: 0, docCharges: 0, disbursed: 0, expenses: 0, penalties: 0, extraCol: 0, byAgent: {} });
         setLoading(false);
         return;
       }
 
-      // 1. Current Day Postings
-      let q = query(collection(db, "postings"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId));
-      if (userData?.role === "admin") q = query(q, where("adminId", "==", userData.uid));
-      const snap = await getDocs(q);
-      const docs = snap.docs.map(d => d.data());
+      // 1. Current Day Postings - Fetch by date only and filter in-memory to avoid index errors
+      const baseQ = query(collection(db, "postings"), where("date", "==", selectedDate));
+      const baseSnap = await getDocs(baseQ);
+      const docs = baseSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((d: any) => {
+          const matchesLine = d.lineId === selectedLineId;
+          const matchesAdmin = userData?.role === "admin" ? d.adminId === userData.uid : true;
+          return matchesLine && matchesAdmin;
+        });
       setData(docs);
 
-      let total = 0; let cash = 0; let online = 0; let principal = 0; let interest = 0;
-      const byAgent: Record<string, number> = {};
-
-      docs.forEach((item: any) => {
-        const amt = item.amount || 0;
-        total += amt;
-        principal += (item.principal || 0);
-        interest += (item.lateFee || 0);
-        if (item.payMode === "cash") cash += amt;
-        else online += amt;
-        const agent = item.memberName || "Unknown";
-        byAgent[agent] = (byAgent[agent] || 0) + amt;
-      });
-
-      // 2. Current Day Document Charges & Disbursements
+      // 2. Fetch Accounts & Disbursements first to get split ratios
       let docCharges = 0;
       let accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
       const accSnap = await getDocs(accQ);
-      
+
+      const accountRatios: Record<string, { p: number; i: number }> = {};
+      accSnap.docs.forEach(d => {
+        const a = d.data();
+        const loan = parseFloat(a.loanAmount || "0");
+        const total = parseFloat(a.totalAmount || "0");
+        if (total > 0) {
+          accountRatios[d.id] = { p: loan / total, i: (total - loan) / total };
+        } else {
+          accountRatios[d.id] = { p: 1, i: 0 };
+        }
+      });
+
       const disbursements = accSnap.docs
         .filter(d => d.data().createdAt && d.data().createdAt.startsWith(selectedDate))
         .map(d => {
           const a = d.data();
           docCharges += parseFloat(a.documentCharge || "0");
-          return { 
-            ...a, 
-            id: d.id, 
-            isDisbursement: true, 
+          return {
+            ...a, id: d.id, isDisbursement: true,
             amount: parseFloat(a.loanAmount || "0"),
             memberName: a.memberName || a.name,
             payMode: a.paymentType || "CASH",
@@ -88,27 +92,67 @@ const Reports = () => {
           };
         });
 
-      // Combined and Sorted: Disbursements first, then Collections
-      setData([...disbursements, ...docs]);
+      // 3. Single Loop for Postings (Collections)
+      let total = 0; let cash = 0; let online = 0; let principal = 0; let interest = 0; let penalties = 0; let extraCol = 0;
+      const byAgent: Record<string, number> = {};
 
-      setStats({ total, cash, online, principal, interest, docCharges, byAgent });
+      docs.forEach((item: any) => {
+        const amt = item.amount || 0;
+        if (item.status === "disbursement") return;
 
-      // 3. Previous Weeks Comparison (Last 3 weeks same day)
-      const historyList: any[] = [];
-      const baseDate = new Date(selectedDate);
-      for (let i = 1; i <= 3; i++) {
-        const prevDate = new Date(baseDate);
-        prevDate.setDate(prevDate.getDate() - (i * 7));
-        const prevDateStr = prevDate.toISOString().split("T")[0];
+        // Collection Stats (Money In)
+        total += amt;
+        if (item.payMode?.toLowerCase() === "cash") cash += amt;
+        else online += amt;
         
-        let hQ = query(collection(db, "postings"), where("date", "==", prevDateStr), where("lineId", "==", selectedLineId));
-        const hSnap = await getDocs(hQ);
-        let hTotal = 0;
-        hSnap.docs.forEach(d => hTotal += (d.data().amount || 0));
-        historyList.push({ date: prevDateStr, total: hTotal });
-      }
-      setHistory(historyList);
+        const pAmt = item.penaltyAmount || 0;
+        const eAmt = item.extraAmount || 0;
+        penalties += pAmt;
+        extraCol += eAmt;
+        total += (pAmt + eAmt); // Total inflow includes penalties and extras
 
+        const agent = item.collectedByName || "Unknown";
+        byAgent[agent] = (byAgent[agent] || 0) + (amt + eAmt);
+
+        // Principal/Interest Split (Auto-Calculated)
+        const ratio = accountRatios[item.accountId] || { p: 1, i: 0 };
+
+        if (item.status === "collection") {
+          if (item.principal !== undefined || item.interest !== undefined) {
+            principal += (item.principal || 0);
+            interest += (item.interest || 0);
+          } else {
+            principal += (amt * ratio.p);
+            interest += (amt * ratio.i);
+          }
+        } else if (item.status === "penalty" || item.status === "other") {
+          interest += amt; // Penalties are 100% interest
+        }
+
+        // Explicit late fees
+        interest += (item.lateFee || 0);
+      });
+
+      // Transaction Registry: Only show actual collection activities
+      setData(docs.filter((d: any) => 
+        d.status?.toLowerCase() === "collection" || 
+        d.status?.toLowerCase() === "penalty" || 
+        d.status?.toLowerCase() === "extra_collection" ||
+        d.status?.toLowerCase() === "extra_transfer_out"
+      ));
+
+      // Calculate total disbursed for stats
+      const disbursed = disbursements.reduce((sum, d) => sum + d.amount, 0);
+
+      // 4. Fetch Expenses
+      let expenses = 0;
+      const expQ = query(collection(db, "day_summaries"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId));
+      const expSnap = await getDocs(expQ);
+      expSnap.forEach(d => {
+        expenses += (d.data().expenses || 0);
+      });
+
+      setStats({ total, cash, online, principal, interest, docCharges, disbursed, expenses, penalties, extraCol, byAgent });
     } catch (err) {
       console.error(err);
       toast.error("Failed to load report data");
@@ -133,34 +177,37 @@ const Reports = () => {
       toast.error("No data to export");
       return;
     }
-    
+
     const doc = new jsPDF();
-    
+
     // Header
     doc.setFontSize(20);
     doc.setTextColor(15, 23, 42); // slate-900
     doc.text("Sridevi Finance Hub - Audit Report", 14, 22);
-    
+
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139); // slate-500
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
     doc.text(`Report Date: ${formatDate(date)}`, 14, 35);
-    
+
     const tableColumn = ["S.No", "Account No", "Member Name", "Collection", "Payment", "Mode", "Category"];
     const tableRows = data.map((item, idx) => [
       String(idx + 1).padStart(2, '0'),
-      item.accountNo, 
+      item.accountNo,
       item.memberName || item.name,
-      !item.isDisbursement ? formatCurrency(item.amount) : "—",
+      !item.isDisbursement ? formatCurrency(item.amount + (item.extraAmount || 0)) : "—",
       item.isDisbursement ? formatCurrency(item.amount) : "—",
-      item.payMode.toUpperCase(), 
-      item.status.toUpperCase()
+      item.payMode.toUpperCase(),
+      item.status.toUpperCase(),
+      item.purpose || "—"
     ]);
+
+    doc.text(`Total Expenses: ${formatCurrency(stats.expenses)}`, 14, 42);
 
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 45,
+      startY: 48,
       theme: 'striped',
       headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
@@ -176,7 +223,7 @@ const Reports = () => {
       toast.error("No data to export");
       return;
     }
-    
+
     const excelData = data.map((item, idx) => ({
       "S.No": idx + 1,
       "Account No": item.accountNo,
@@ -184,6 +231,7 @@ const Reports = () => {
       "Collection": !item.isDisbursement ? item.amount : 0,
       "Disbursement": item.isDisbursement ? item.amount : 0,
       "Doc Charges": item.documentCharge || 0,
+      "Daily Expenses": stats.expenses,
       "Mode": (item.payMode || "").toUpperCase(),
       "Category": (item.status || "").toUpperCase()
     }));
@@ -193,7 +241,7 @@ const Reports = () => {
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
@@ -211,22 +259,22 @@ const Reports = () => {
         <div className="flex gap-2">
           <div className="relative">
             <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-              type="date" 
-              value={date} 
-              onChange={(e) => setDate(e.target.value)} 
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
               className="pl-9 h-10 w-40 glass-card"
             />
           </div>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-slate-700 hover:bg-slate-100 font-bold"
             onClick={handleExportPDF}
           >
             <Download className="h-4 w-4" /> PDF
           </Button>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-emerald-600 hover:bg-emerald-50 font-bold"
             onClick={handleExportExcel}
           >
@@ -236,74 +284,108 @@ const Reports = () => {
       </div>
 
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="glass-card shadow-xl border-none border-t-4 border-rose-500 bg-white">
-            <CardHeader className="pb-2">
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Principal Amount</p>
-              <CardTitle className="text-3xl font-black text-rose-600 tracking-tighter">{formatCurrency(stats.principal)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                <TrendingUp className="h-3 w-3 text-rose-500" /> Capital Recovered
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card shadow-xl border-none border-t-4 border-blue-500 bg-white">
-            <CardHeader className="pb-2">
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Interest & Doc Charges</p>
-              <CardTitle className="text-3xl font-black text-blue-600 tracking-tighter">{formatCurrency(stats.interest + stats.docCharges)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-1">
-                <div className="flex justify-between text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                  <span>Interest/Late Fee:</span>
-                  <span className="text-blue-500">{formatCurrency(stats.interest)}</span>
-                </div>
-                <div className="flex justify-between text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                  <span>Document Charges:</span>
-                  <span className="text-blue-500">{formatCurrency(stats.docCharges)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card shadow-2xl border-none bg-slate-900 text-white relative overflow-hidden">
-            <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
-            <CardHeader className="pb-2 relative z-10">
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Total Collection</p>
-              <CardTitle className="text-4xl font-black tracking-tighter">{formatCurrency(stats.total)}</CardTitle>
-            </CardHeader>
-            <CardContent className="relative z-10">
-              <div className="mt-2 flex gap-4">
-                <div className="flex-1">
-                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Cash</p>
-                  <p className="text-xs font-black text-emerald-400">{formatCurrency(stats.cash)}</p>
-                </div>
-                <div className="flex-1 border-l border-white/10 pl-4">
-                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">UPI</p>
-                  <p className="text-xs font-black text-indigo-400">{formatCurrency(stats.online)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="glass-card border-none shadow-sm bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Previous Weeks</CardTitle>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <Card className="glass-card shadow-lg border-none border-t-4 border-rose-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Principal</p>
+            <CardTitle className="text-2xl font-black text-rose-600 tracking-tighter">{formatCurrency(stats.principal)}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {history.map((h, i) => (
-              <div key={i} className="flex justify-between items-center p-2 rounded-lg bg-white shadow-sm border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-500">{formatDate(h.date)}</span>
-                <span className="text-xs font-black text-slate-700">{formatCurrency(h.total)}</span>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <TrendingUp className="h-3 w-3 text-rose-500" /> Recovered
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-emerald-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Disbursed</p>
+            <CardTitle className="text-2xl font-black text-emerald-600 tracking-tighter">{formatCurrency(stats.disbursed)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <Users className="h-3 w-3 text-emerald-500" /> New Loans
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-amber-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Interest</p>
+            <CardTitle className="text-2xl font-black text-amber-600 tracking-tighter">{formatCurrency(stats.interest)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <PieIcon className="h-3 w-3 text-amber-500" /> Profit
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-blue-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Doc Chg</p>
+            <CardTitle className="text-2xl font-black text-blue-600 tracking-tighter">{formatCurrency(stats.docCharges)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <FileText className="h-3 w-3 text-blue-500" /> Fees
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-rose-400 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Expenses</p>
+            <CardTitle className="text-2xl font-black text-rose-500 tracking-tighter">{formatCurrency(stats.expenses)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest text-rose-300">
+              <Download className="h-3 w-3 text-rose-400" /> Maintenance
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-indigo-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Penalties</p>
+            <CardTitle className="text-2xl font-black text-indigo-600 tracking-tighter">{formatCurrency(stats.penalties)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <TrendingUp className="h-3 w-3 text-indigo-500" /> Extra Fine
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-purple-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Extra Col</p>
+            <CardTitle className="text-2xl font-black text-purple-600 tracking-tighter">{formatCurrency(stats.extraCol)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <PlusCircle className="h-3 w-3 text-purple-500" /> Misc Income
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-xl border-none bg-slate-900 text-white relative overflow-hidden">
+          <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
+          <CardHeader className="pb-1 p-4 relative z-10">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Total</p>
+            <CardTitle className="text-2xl font-black tracking-tighter">{formatCurrency(stats.total)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 relative z-10">
+            <div className="flex flex-col gap-0.5">
+              <div className="flex justify-between items-center">
+                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest">CASH</p>
+                <p className="text-[9px] font-black text-emerald-400">{formatCurrency(stats.cash)}</p>
               </div>
-            ))}
-            {history.length === 0 && !loading && (
-              <p className="text-[10px] text-slate-400 italic text-center py-4">No historical data found</p>
-            )}
+              <div className="flex justify-between items-center">
+                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest">UPI</p>
+                <p className="text-[9px] font-black text-indigo-400">{formatCurrency(stats.online)}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -387,14 +469,16 @@ const Reports = () => {
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">S.No</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Account No</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Member</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Value</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Collection</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Fine/Extra</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-center">Mode</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-center">Category</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Purpose</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Category</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {data.map((item, idx) => (
-                    <motion.tr 
+                    <motion.tr
                       key={idx}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -422,22 +506,20 @@ const Reports = () => {
                           <span className="text-xs text-slate-300">—</span>
                         )}
                       </td>
-                      <td className="px-6 py-4">
-                        {item.isDisbursement ? (
-                          <div className="flex flex-col">
-                            <span className="text-[9px] font-black text-emerald-600 uppercase tracking-tighter">New Disbursement</span>
-                            <span className="text-sm font-black text-rose-500">
-                              {formatCurrency(item.amount)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-300">—</span>
-                        )}
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex flex-col items-end">
+                          {item.penaltyAmount > 0 && <span className="text-sm font-black text-rose-500">+{formatCurrency(item.penaltyAmount)} Fine</span>}
+                          {item.extraAmount > 0 && <span className="text-sm font-black text-indigo-500">+{formatCurrency(item.extraAmount)} Extra</span>}
+                          {!(item.penaltyAmount > 0 || item.extraAmount > 0) && <span className="text-xs text-slate-300">—</span>}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest px-2 border-slate-200">
                           {item.payMode}
                         </Badge>
+                      </td>
+                      <td className="px-6 py-4">
+                        <p className="text-[10px] font-bold text-slate-500 truncate max-w-[120px]">{item.purpose || "—"}</p>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">

@@ -8,7 +8,13 @@ import { Input } from "@/components/ui/input";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, deleteDoc, doc, getDocs, query, where, writeBatch, updateDoc } from "firebase/firestore";
 import { toast } from "sonner";
-import { LayoutDashboard, MapPin, Plus, Database, ArrowRight, Trash2, Edit2 } from "lucide-react";
+import { LayoutDashboard, MapPin, Plus, Database, ArrowRight, Trash2, Edit2, Settings } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { logActivity } from "@/lib/audit";
 import {
   AlertDialog,
@@ -39,12 +45,22 @@ const LineSelection = () => {
   const { userData, logout } = useAuth();
   const { lines, setSelectedLineId, loadingLines } = useLine();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Prevent white background flicker/bleed on scroll
+    document.body.style.backgroundColor = "#020617";
+    return () => {
+      document.body.style.backgroundColor = "";
+    };
+  }, []);
   const [newLineName, setNewLineName] = useState("");
+  const [newLineNumber, setNewLineNumber] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
   const [renamingLineId, setRenamingLineId] = useState<string | null>(null);
   const [renamingName, setRenamingName] = useState("");
+  const [renamingNumber, setRenamingNumber] = useState("");
 
   // Filter lines based on role
   const availableLines = (userData?.role === "super_admin" || userData?.role === "admin")
@@ -71,6 +87,7 @@ const LineSelection = () => {
     try {
       await addDoc(collection(db, "lines"), {
         name: newLineName,
+        number: newLineNumber,
         createdAt: new Date().toISOString(),
       });
       toast.success("New Operational Line Created");
@@ -81,11 +98,12 @@ const LineSelection = () => {
           userData.name,
           userData.role,
           "LINE_CREATE",
-          `Established new operational line: ${newLineName}`
+          `Established new operational line: ${newLineNumber} - ${newLineName}`
         );
       }
       
       setNewLineName("");
+      setNewLineNumber("");
       setShowCreate(false);
     } catch (err) {
       toast.error("Failed to establish line");
@@ -93,10 +111,10 @@ const LineSelection = () => {
   };
 
   const handleUpdateLine = async () => {
-    if (!renamingLineId || !renamingName.trim()) return;
+    if (!renamingLineId || !renamingName.trim() || !renamingNumber.trim()) return;
     try {
       const lineRef = doc(db, "lines", renamingLineId);
-      await updateDoc(lineRef, { name: renamingName });
+      await updateDoc(lineRef, { name: renamingName, number: renamingNumber });
       toast.success("Line Identity Updated");
       
       if (userData) {
@@ -105,7 +123,7 @@ const LineSelection = () => {
           userData.name,
           userData.role,
           "LINE_UPDATE",
-          `Renamed line to: ${renamingName}`
+          `Renamed line to: ${renamingNumber} - ${renamingName}`
         );
       }
       
@@ -178,156 +196,214 @@ const LineSelection = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white flex items-center justify-center p-6 font-sans relative overflow-hidden">
-      {/* Dynamic Background */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-amber-500/10 blur-[120px] rounded-full" />
-         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full" />
+    <div className="min-h-screen w-full bg-[#020617] text-white flex flex-col items-center justify-start py-12 md:py-20 px-4 md:px-8 font-sans relative overflow-x-hidden selection:bg-amber-500/30">
+      {/* Animated Mesh Gradient Background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <motion.div 
+          animate={{ 
+            scale: [1, 1.2, 1],
+            rotate: [0, 90, 0],
+            x: [0, 100, 0],
+            y: [0, 50, 0]
+          }}
+          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+          className="absolute -top-[20%] -left-[10%] w-[60%] h-[60%] bg-amber-500/10 blur-[120px] rounded-full mix-blend-screen" 
+        />
+        <motion.div 
+          animate={{ 
+            scale: [1.2, 1, 1.2],
+            rotate: [90, 0, 90],
+            x: [0, -100, 0],
+            y: [0, -50, 0]
+          }}
+          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+          className="absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] bg-indigo-500/10 blur-[120px] rounded-full mix-blend-screen" 
+        />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay" />
       </div>
 
       <motion.div 
-        initial={{ opacity: 0, y: 40 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-5xl bg-slate-900/40 backdrop-blur-3xl rounded-[3rem] border border-white/5 overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)] z-10"
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-6xl bg-[#0F172A]/30 backdrop-blur-[40px] rounded-[3.5rem] border border-white/10 overflow-hidden shadow-[0_40px_100px_-20px_rgba(0,0,0,0.7)] z-10 relative"
       >
+        {/* Decorative Top Line */}
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
         
-        {/* Header */}
-        <div className="p-12 md:p-16 border-b border-white/5 bg-gradient-to-br from-slate-800/50 to-slate-900/50 relative overflow-hidden flex justify-between items-start">
-          <div className="absolute top-0 right-0 p-8 opacity-10">
-             <Database size={120} className="text-white" />
-          </div>
-          <div className="flex flex-col md:flex-row items-center gap-10 relative z-10">
+        {/* Header Section */}
+        <div className="px-8 pt-12 pb-10 md:px-16 md:pt-16 md:pb-12 border-b border-white/5 relative flex flex-col md:flex-row justify-between items-center gap-8">
+          <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
             <motion.div 
               whileHover={{ rotate: 5, scale: 1.05 }}
-              className="h-24 w-24 rounded-3xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-2xl shadow-amber-500/20"
+              className="h-20 w-20 rounded-3xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 flex items-center justify-center shadow-[0_0_40px_rgba(245,158,11,0.3)] border border-white/20"
             >
-              <Database className="text-white h-12 w-12" />
+              <Database className="text-white h-10 w-10 drop-shadow-lg" />
             </motion.div>
-            <div className="text-center md:text-left">
+            <div className="text-center md:text-left space-y-1">
               <motion.h1 
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2 }}
-                className="text-5xl font-black italic uppercase tracking-tighter"
+                className="text-4xl md:text-5xl font-black tracking-tight flex flex-wrap justify-center md:justify-start gap-x-3 items-baseline"
               >
-                Operative <span className="text-amber-500 not-italic">Channels</span>
+                <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60">OPERATIVE</span>
+                <span className="text-amber-500">CHANNELS</span>
               </motion.h1>
-              <p className="text-slate-400 text-xs font-black uppercase tracking-[0.4em] mt-2 opacity-60">Sridevi Finance Command Suite v2.0</p>
+              <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.5em] opacity-50 flex items-center justify-center md:justify-start gap-2">
+                <span className="h-px w-8 bg-slate-700" />
+                COMMAND SUITE V2.0
+                <span className="h-px w-8 bg-slate-700" />
+              </p>
             </div>
           </div>
           
-          <Button 
-            variant="ghost" 
-            onClick={async () => {
-              await logout();
-              navigate("/login");
-            }}
-            className="relative z-10 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 font-bold tracking-widest uppercase text-[10px]"
-          >
-            Logout
-          </Button>
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <Button 
+              variant="ghost" 
+              onClick={async () => {
+                await logout();
+                navigate("/login");
+              }}
+              className="px-6 py-6 rounded-2xl bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/20 transition-all font-black uppercase tracking-[0.2em] text-[10px]"
+            >
+              Terminate Session
+            </Button>
+          </motion.div>
         </div>
 
         {/* Selection Grid */}
-        <div className="p-12 md:p-16">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="px-8 py-12 md:px-16 md:py-16">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             
             {/* Full Portfolio - Only for Admins */}
             {(userData?.role === "super_admin" || userData?.role === "admin") && (
               <motion.button
-                whileHover={{ y: -8, backgroundColor: "rgba(30, 41, 59, 0.8)" }}
+                whileHover={{ y: -5, backgroundColor: "rgba(255, 255, 255, 0.05)", borderColor: "rgba(245, 158, 11, 0.4)" }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => handleSelection(null)}
-                className="group p-10 rounded-[2.5rem] bg-slate-800/40 border border-white/5 hover:border-amber-500/50 transition-all text-left relative flex flex-col gap-8 shadow-xl"
+                className="group p-6 rounded-[2rem] bg-white/[0.03] border border-white/10 transition-all duration-500 text-left relative flex flex-col gap-6 shadow-xl hover:shadow-amber-500/10 overflow-hidden"
               >
-                <div className="h-16 w-16 bg-slate-700/50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-amber-500 group-hover:text-white transition-all duration-500">
-                  <LayoutDashboard size={32} />
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 blur-3xl rounded-full -mr-12 -mt-12 group-hover:bg-amber-500/10 transition-all duration-700" />
+                <div className="h-12 w-12 bg-white/5 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-amber-500 group-hover:text-white transition-all duration-500 border border-white/5">
+                  <LayoutDashboard size={20} />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black tracking-tight">Full Portfolio</h3>
-                  <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mt-2 group-hover:text-slate-300 transition-colors">Master Enterprise View</p>
+                  <h3 className="text-lg font-black tracking-tight text-white group-hover:text-white transition-colors">Full Portfolio</h3>
+                  <p className="text-[8px] text-slate-500 font-black uppercase tracking-[0.25em] mt-2 group-hover:text-amber-500/80 transition-colors">Enterprise Master View</p>
                 </div>
-                <div className="absolute bottom-10 right-10 p-3 bg-slate-700/30 rounded-xl text-slate-500 group-hover:bg-amber-500 group-hover:text-white group-hover:translate-x-2 transition-all duration-500">
-                   <ArrowRight size={20} />
+                <div className="mt-auto flex items-center gap-2 text-slate-500 group-hover:text-white transition-all duration-500">
+                  <span className="text-[8px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all duration-500">Initialize</span>
+                  <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform duration-500" />
                 </div>
               </motion.button>
             )}
 
             {/* Dynamic Lines */}
-            <AnimatePresence>
+            <AnimatePresence mode="popLayout">
               {availableLines.map((line, idx) => (
                 <motion.div 
                   key={line.id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: idx * 0.05 }}
+                  layout
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={{ delay: idx * 0.05, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
                   className="relative group"
                 >
                   <motion.button
-                    whileHover={{ y: -8, backgroundColor: "rgba(30, 41, 59, 0.8)" }}
+                    whileHover={{ y: -5, scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     disabled={!!deletingLineId}
                     onClick={() => handleSelection(line.id)}
-                    className={`w-full p-10 rounded-[2.5rem] bg-slate-800/40 border border-white/5 hover:border-amber-500/50 transition-all text-left relative flex flex-col gap-8 shadow-xl ${deletingLineId === line.id ? 'opacity-50 grayscale' : ''}`}
+                    className={`w-full p-5 rounded-3xl bg-white/[0.02] backdrop-blur-md border border-white/10 transition-all duration-500 text-left relative flex flex-col h-full gap-4 shadow-2xl hover:border-amber-500/30 hover:shadow-amber-500/5 group overflow-hidden ${deletingLineId === line.id ? 'opacity-50 grayscale cursor-wait' : ''}`}
                   >
-                    <div className="h-16 w-16 bg-slate-700/50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-amber-500 group-hover:text-white transition-all duration-500">
-                      {deletingLineId === line.id ? <div className="h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" /> : <MapPin size={32} />}
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-black tracking-tight truncate pr-12">{line.name}</h3>
-                      <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mt-2 group-hover:text-slate-300 transition-colors">
-                        {deletingLineId === line.id ? 'Decommissioning Data...' : 'Regional Operative'}
-                      </p>
-                    </div>
-                    {!deletingLineId && (
-                      <div className="absolute bottom-10 right-10 p-3 bg-slate-700/30 rounded-xl text-slate-500 group-hover:bg-amber-500 group-hover:text-white group-hover:translate-x-2 transition-all duration-500">
-                         <ArrowRight size={20} />
+                    {/* Abstract background glow */}
+                    <div className="absolute -right-8 -top-8 w-24 h-24 bg-amber-500/10 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+                    
+                    <div className="flex items-center justify-between relative z-10">
+                      <div className="h-10 w-10 bg-slate-900 border border-white/5 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-amber-500 group-hover:text-white transition-all duration-500">
+                        {deletingLineId === line.id ? <div className="h-5 w-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" /> : <MapPin size={18} />}
                       </div>
-                    )}
+                      
+                      <div className="flex items-center gap-2">
+                        <div className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                          <span className="text-[9px] font-black text-amber-500 tracking-[0.2em]">#{line.number || (idx + 1)}</span>
+                        </div>
+                        
+                        {(userData?.role === "super_admin" || userData?.role === "admin") && (
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button 
+                                  className="h-8 w-8 rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 hover:text-white flex items-center justify-center transition-all border border-white/5"
+                                  title="Settings"
+                                >
+                                  <Settings size={14} className="hover:rotate-90 transition-transform duration-500" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="bg-[#0F172A] border-white/10 text-white rounded-xl p-1.5 min-w-[150px] shadow-2xl backdrop-blur-2xl">
+                                <DropdownMenuItem 
+                                  onClick={() => {
+                                    setRenamingLineId(line.id);
+                                    setRenamingName(line.name);
+                                    setRenamingNumber(line.number);
+                                  }}
+                                  className="flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg hover:bg-white/5 focus:bg-white/5 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-amber-500"
+                                >
+                                  <Edit2 size={12} />
+                                  Rename
+                                </DropdownMenuItem>
+
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <div className="flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg hover:bg-rose-500/10 focus:bg-rose-500/10 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-rose-500">
+                                      <Trash2 size={12} />
+                                      Decommission
+                                    </div>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent className="bg-[#0F172A] border border-white/10 text-white rounded-[2rem] p-8 max-w-sm">
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle className="text-xl font-black text-center">PURGE CHANNEL?</AlertDialogTitle>
+                                      <AlertDialogDescription className="text-slate-400 text-center text-[10px] uppercase tracking-widest mt-2">
+                                        Terminating <span className="text-white font-black">{line.name}</span> is permanent.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter className="mt-6 flex gap-3">
+                                      <AlertDialogCancel className="flex-1 bg-white/5 border-white/10 text-white rounded-lg text-[9px] font-black uppercase tracking-widest">ABORT</AlertDialogCancel>
+                                      <AlertDialogAction 
+                                        onClick={() => handleDeleteLine(line.id)}
+                                        className="flex-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[9px] font-black uppercase tracking-widest"
+                                      >
+                                        CONFIRM
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 relative z-10">
+                      <h3 className="text-lg font-black tracking-tight text-white group-hover:text-amber-500 transition-colors truncate">
+                        {line.name}
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <div className="h-1 w-1 bg-emerald-500 rounded-full animate-pulse" />
+                        <p className="text-[8px] text-slate-500 font-black uppercase tracking-[0.3em]">
+                          Active Operations
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-auto pt-3 border-t border-white/5 flex items-center justify-between opacity-50 group-hover:opacity-100 transition-opacity">
+                       <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Initialize Link</span>
+                       <ArrowRight size={14} className="text-slate-500 group-hover:translate-x-1 transition-transform" />
+                    </div>
                   </motion.button>
-
-                  {(userData?.role === "super_admin" || userData?.role === "admin") && (
-                    <>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRenamingLineId(line.id);
-                          setRenamingName(line.name);
-                        }}
-                        className="absolute top-10 right-24 p-3 rounded-xl bg-slate-700/30 text-slate-500 hover:bg-amber-500 hover:text-white transition-all opacity-0 group-hover:opacity-100 z-20 shadow-lg"
-                      >
-                        <Edit2 size={18} />
-                      </button>
-
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <button 
-                            onClick={(e) => e.stopPropagation()}
-                            className="absolute top-10 right-10 p-3 rounded-xl bg-slate-700/30 text-slate-500 hover:bg-rose-500 hover:text-white transition-all opacity-0 group-hover:opacity-100 z-20 shadow-lg"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] p-10">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle className="text-3xl font-black italic uppercase tracking-tighter">CONFIRM DECOMMISSIONING?</AlertDialogTitle>
-                            <AlertDialogDescription className="text-slate-400 font-bold text-base mt-4 leading-relaxed">
-                              You are about to permanently remove <span className="text-amber-500 font-black">{line.name}</span> from the active operative landscape. All associated accounts and postings will be <span className="text-rose-500 font-black">PURGED</span>.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter className="mt-10 gap-4">
-                            <AlertDialogCancel className="h-14 flex-1 bg-slate-800 border-white/5 text-white hover:bg-slate-700 rounded-2xl font-black uppercase tracking-widest text-[10px]">ABORT</AlertDialogCancel>
-                            <AlertDialogAction 
-                              onClick={() => handleDeleteLine(line.id)}
-                              className="h-14 flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl uppercase tracking-widest text-[10px] shadow-2xl shadow-rose-600/20"
-                            >
-                              PROCEED WITH PURGE
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </>
-                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -336,79 +412,108 @@ const LineSelection = () => {
             {userData?.role === "super_admin" && (
               !showCreate ? (
                 <motion.button
-                  whileHover={{ scale: 0.98, backgroundColor: "rgba(255, 255, 255, 0.05)" }}
+                  whileHover={{ scale: 0.98, backgroundColor: "rgba(255, 255, 255, 0.05)", borderColor: "rgba(245, 158, 11, 0.3)" }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={() => setShowCreate(true)}
-                  className="flex flex-col items-center justify-center gap-6 p-10 rounded-[2.5rem] border-2 border-dashed border-slate-800 hover:border-amber-500/50 transition-all text-slate-600 group"
+                  className="flex flex-col items-center justify-center h-full min-h-[200px] gap-4 p-6 rounded-[2rem] border-2 border-dashed border-white/10 hover:border-amber-500/50 transition-all text-slate-500 group relative overflow-hidden"
                 >
-                  <div className="h-16 w-16 rounded-2xl bg-slate-800/50 flex items-center justify-center group-hover:bg-amber-500/10 group-hover:text-amber-500 transition-all">
-                    <Plus size={32} className="group-hover:rotate-90 transition-all duration-500" />
+                  <div className="h-12 w-12 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-amber-500 group-hover:text-white transition-all duration-500 border border-white/5">
+                    <Plus size={24} className="group-hover:rotate-90 transition-all duration-500" />
                   </div>
-                  <span className="font-black text-[10px] uppercase tracking-[0.4em]">Establish Channel</span>
+                  <div className="text-center space-y-1">
+                    <span className="font-black text-[8px] uppercase tracking-[0.4em] block">Establish</span>
+                    <span className="font-black text-[8px] uppercase tracking-[0.4em] text-slate-600 group-hover:text-slate-400 transition-colors">New Channel</span>
+                  </div>
                 </motion.button>
               ) : (
                 <motion.div 
+                  layout
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="col-span-full bg-amber-500/5 p-12 rounded-[2.5rem] border border-amber-500/20 flex flex-col gap-6"
+                  className="col-span-full bg-amber-500/[0.03] p-8 md:p-10 rounded-[2.5rem] border border-amber-500/20 flex flex-col gap-6 shadow-2xl relative overflow-hidden"
                 >
-                  <div className="flex flex-col md:flex-row gap-6">
+                  <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/[0.05] blur-[80px] rounded-full -mr-24 -mt-24" />
+                  <div className="space-y-1">
+                    <h4 className="text-md font-black uppercase tracking-tight text-amber-500">Deploy New Channel</h4>
+                    <p className="text-[10px] font-medium text-slate-400">Define the identity for this operational sector.</p>
+                  </div>
+                  <div className="flex flex-col md:flex-row gap-3">
+                    <Input 
+                      value={newLineNumber} 
+                      onChange={(e) => setNewLineNumber(e.target.value)} 
+                      placeholder="Line #"
+                      className="h-14 w-full md:w-32 bg-[#020617] border-white/10 text-white font-bold text-md px-6 rounded-xl focus:ring-amber-500/20 focus:border-amber-500/40 transition-all"
+                    />
                     <Input 
                       value={newLineName} 
                       onChange={(e) => setNewLineName(e.target.value)} 
-                      placeholder="Enter Line Identity (e.g., Regional Sector A)"
-                      className="h-16 bg-slate-900 border-white/5 text-white font-black text-lg px-8 rounded-2xl focus:ring-amber-500/20"
+                      placeholder="e.g. Northern Regional Sector"
+                      className="h-14 flex-1 bg-[#020617] border-white/10 text-white font-bold text-md px-6 rounded-xl focus:ring-amber-500/20 focus:border-amber-500/40 transition-all"
                     />
-                    <Button onClick={handleCreateLine} className="h-16 px-12 bg-amber-500 text-slate-950 font-black uppercase tracking-widest rounded-2xl shadow-xl hover:bg-amber-400">ESTABLISH</Button>
+                    <Button onClick={handleCreateLine} className="h-14 px-8 bg-amber-500 text-slate-950 font-black uppercase tracking-widest rounded-xl shadow-xl hover:bg-amber-400 transition-all text-[11px]">DEPLOY</Button>
+                    <Button variant="ghost" onClick={() => setShowCreate(false)} className="h-14 px-6 text-slate-400 font-black uppercase tracking-widest rounded-xl hover:bg-white/5 transition-all text-[11px]">Cancel</Button>
                   </div>
-                  <button className="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-[0.3em] transition-colors" onClick={() => setShowCreate(false)}>Cancel Deployment</button>
                 </motion.div>
               )
             )}
           </div>
 
-          <Dialog open={!!renamingLineId} onOpenChange={(open) => !open && setRenamingLineId(null)}>
-            <DialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] p-10">
-              <DialogHeader>
-                <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Rename Line</DialogTitle>
-                <DialogDescription className="text-slate-400 font-bold text-base mt-4">
-                  Update the identity of this operative channel.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="py-6">
-                <Input 
-                  value={renamingName} 
-                  onChange={(e) => setRenamingName(e.target.value)} 
-                  className="h-14 bg-slate-800 border-white/5 text-white font-black px-6 rounded-xl"
-                  placeholder="Enter new line name"
-                />
-              </div>
-              <DialogFooter className="gap-4">
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setRenamingLineId(null)}
-                  className="h-14 flex-1 bg-slate-800 border-white/5 text-white hover:bg-slate-700 rounded-xl font-black uppercase tracking-widest text-[10px]"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleUpdateLine}
-                  className="h-14 flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl uppercase tracking-widest text-[10px] shadow-xl"
-                >
-                  Save Changes
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          <div className="mt-20 pt-10 border-t border-white/5 text-center flex flex-col items-center gap-4">
-             <div className="flex items-center gap-2 px-6 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
-                <div className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                <p className="text-[9px] font-black uppercase text-emerald-500 tracking-[0.5em]">SRIDEVI ENTERPRISE SECURITY CONTEXT ACTIVE</p>
-             </div>
-             <p className="text-[8px] text-slate-600 font-bold uppercase tracking-widest">Authorized Access Only • AES-256 Cloud Synchronization</p>
+          {/* Footer Context */}
+          <div className="mt-20 pt-10 border-t border-white/5 flex flex-col items-center gap-6">
+             <motion.div 
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               transition={{ delay: 1 }}
+               className="flex items-center gap-3 px-6 py-2.5 bg-emerald-500/5 border border-emerald-500/10 rounded-full"
+             >
+                <div className="h-2 w-2 bg-emerald-500 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse" />
+                <p className="text-[9px] font-black uppercase text-emerald-500/80 tracking-[0.4em]">SRIDEVI ENTERPRISE SECURITY ACTIVE</p>
+             </motion.div>
+             <p className="text-[8px] text-slate-600 font-bold uppercase tracking-[0.5em]">Authorized Personnel Only • AES-256 Multi-Zone Encryption</p>
           </div>
         </div>
       </motion.div>
+
+      {/* Rename Dialog */}
+      <Dialog open={!!renamingLineId} onOpenChange={(open) => !open && setRenamingLineId(null)}>
+        <DialogContent className="bg-[#0F172A] border border-white/10 text-white rounded-[2.5rem] p-10 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black tracking-tight text-center">Identity Update</DialogTitle>
+            <DialogDescription className="text-slate-400 font-medium text-center text-xs mt-2">
+              Modify the operative designation for this channel.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-8 space-y-4">
+            <Input 
+              value={renamingNumber} 
+              onChange={(e) => setRenamingNumber(e.target.value)} 
+              className="h-14 bg-[#020617] border-white/10 text-white font-bold px-6 rounded-xl text-md focus:ring-amber-500/20 focus:border-amber-500/40 transition-all"
+              placeholder="Line Number (e.g. 1)"
+            />
+            <Input 
+              value={renamingName} 
+              onChange={(e) => setRenamingName(e.target.value)} 
+              className="h-14 bg-[#020617] border-white/10 text-white font-bold px-6 rounded-xl text-md focus:ring-amber-500/20 focus:border-amber-500/40 transition-all"
+              placeholder="Designation name..."
+            />
+          </div>
+          <DialogFooter className="gap-3 flex flex-col sm:flex-row">
+            <Button 
+              variant="ghost" 
+              onClick={() => setRenamingLineId(null)}
+              className="h-12 flex-1 bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-xl font-black uppercase tracking-widest text-[9px] transition-all"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleUpdateLine}
+              className="h-12 flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl uppercase tracking-widest text-[9px] shadow-xl transition-all"
+            >
+              Update
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

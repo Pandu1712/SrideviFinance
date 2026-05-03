@@ -37,6 +37,7 @@ const menuSections: MenuSection[] = [
       { label: "Daily Posting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Master Ledger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin"] },
       { label: "New Account", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "Extra Amount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin"] },
       { label: "Members Registry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "agent"] },
     ]
   },
@@ -46,6 +47,13 @@ const menuSections: MenuSection[] = [
       { label: "Collection Portal", path: "/daily-collection", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Posting Approval", path: "/verify-postings", icon: <ShieldCheck size={18} />, roles: ["super_admin", "admin"] },
       { label: "Search Archives", path: "/posting-search", icon: <Search size={18} />, roles: ["super_admin", "admin", "agent"] },
+    ]
+  },
+  {
+    title: "System Management",
+    items: [
+      { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin"] },
+      { label: "Database Nexus", path: "/admin/database", icon: <Database size={18} />, roles: ["super_admin"] },
     ]
   }
 ];
@@ -75,7 +83,7 @@ const AppSidebar = () => {
           </div>
           <div className="flex flex-col">
             <h1 className="text-xl font-black tracking-tighter text-white leading-none">Sridevi Finance</h1>
-            <span className="text-[10px] font-bold text-accent tracking-[.25em] uppercase mt-1">Enterprise Hub</span>
+            <span className="text-[10px] font-bold text-accent mt-1">Enterprise Hub</span>
           </div>
         </div>
       </div>
@@ -83,7 +91,7 @@ const AppSidebar = () => {
       {/* Operational Context Switcher */}
       {(userData?.role === "super_admin" || userData?.role === "admin" || (userData?.role === "agent" && (userData.lineIds?.length || 0) > 1)) && (
         <div className="px-6 py-6 border-b border-white/5 bg-white/5">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-4">Operative Channel</h3>
+          <h3 className="text-[10px] font-black text-slate-500 mb-4">Operative Channel</h3>
           <button 
             onClick={() => {
               setSelectedLineId(null);
@@ -98,7 +106,7 @@ const AppSidebar = () => {
               </div>
               <div className="text-left">
                 <p className="text-xs font-black text-white leading-tight">{activeLineName}</p>
-                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Switch Line</p>
+                <p className="text-[9px] font-bold text-slate-500 mt-0.5">Switch Line</p>
               </div>
             </div>
             <ArrowRightLeft size={14} className="text-slate-600 group-hover:text-accent transition-colors" />
@@ -116,9 +124,12 @@ const AppSidebar = () => {
           if (authorizedItems.length === 0) return null;
 
           return (
-            <div key={sidx} className="space-y-4">
-              <h3 className="px-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500/80">{section.title}</h3>
-              <div className="space-y-1.5">
+            <div key={sidx} className="space-y-3">
+              <h3 className="px-4 text-[9px] font-black text-slate-500/60 flex items-center gap-2">
+                <span className="h-px w-4 bg-slate-800" />
+                {section.title}
+              </h3>
+              <div className="space-y-1">
                 {authorizedItems.map((item) => (
                   <NavLink
                     key={item.path}
@@ -127,16 +138,19 @@ const AppSidebar = () => {
                     className={({ isActive }) => {
                       const isExactlyActive = isActive && (item.path.includes('?') ? location.search === item.path.split('?')[1] || `?${item.path.split('?')[1]}` === location.search : true);
                       return cn(
-                        "group flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-bold transition-all duration-300",
+                        "group flex items-center gap-4 rounded-xl px-4 py-3 text-sm font-bold transition-all duration-500 relative overflow-hidden",
                         isExactlyActive
-                          ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20"
+                          ? "bg-amber-500 text-slate-950 shadow-[0_10px_30px_rgba(245,158,11,0.25)] border border-white/20"
                           : "text-slate-400 hover:bg-white/5 hover:text-white"
                       );
                     }}
                   >
-                    <span className="transition-transform group-hover:scale-125 duration-300">{item.icon}</span>
-                    <span className="flex-1 truncate tracking-tight">{item.label}</span>
-                    <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300" />
+                    <span className="transition-all group-hover:scale-110 duration-500 opacity-80 group-hover:opacity-100">{item.icon}</span>
+                    <span className="flex-1 truncate tracking-tight font-black text-[12px]">{item.label}</span>
+                    <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-500" />
+                    
+                    {/* Active Glow */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                   </NavLink>
                 ))}
               </div>
@@ -148,7 +162,7 @@ const AppSidebar = () => {
       <div className="p-4 bg-black/40 border-t border-white/5 backdrop-blur-md">
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-destructive hover:text-white transition-all duration-300 group"
+          className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-black text-slate-500 hover:bg-destructive hover:text-white transition-all duration-300 group"
         >
           <LogOut size={16} className="group-hover:-translate-x-1 transition-transform" />
           Terminate

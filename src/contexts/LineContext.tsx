@@ -5,6 +5,7 @@ import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 interface Line {
   id: string;
   name: string;
+  number: string;
   createdAt: string;
 }
 

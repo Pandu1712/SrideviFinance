@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CheckCircle2, XCircle, Edit, Search, User, IndianRupee, Calendar, ShieldCheck, AlertCircle, Trash2, RefreshCw, FileSpreadsheet } from "lucide-react";
+import { CheckCircle2, XCircle, Edit, Search, User, IndianRupee, Calendar, ShieldCheck, AlertCircle, Trash2, RefreshCw, FileSpreadsheet, CheckCheck } from "lucide-react";
+import { logActivity } from "@/lib/audit";
 import { exportToExcel } from "@/lib/excel";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ const PostingVerification = () => {
   const [postings, setPostings] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [isBulkApproving, setIsBulkApproving] = useState(false);
   
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedPosting, setSelectedPosting] = useState<any>(null);
@@ -113,6 +115,70 @@ const PostingVerification = () => {
     }
   };
 
+  const handleBulkApprove = async () => {
+    if (postings.length === 0) return;
+    
+    setIsBulkApproving(true);
+    const totalCount = postings.length;
+    const toastId = toast.loading(`Initiating Bulk Approval for ${totalCount} entries...`);
+
+    try {
+      let successCount = 0;
+      
+      for (const p of postings) {
+        successCount++;
+        toast.loading(`Processing ${successCount}/${totalCount}: ${p.memberName}...`, { id: toastId });
+        
+        const accountRef = doc(db, "accounts", p.accountId);
+        const postingRef = doc(db, "postings", p.id);
+
+        await runTransaction(db, async (transaction) => {
+          const accDoc = await transaction.get(accountRef);
+          if (!accDoc.exists()) return;
+
+          const accData = accDoc.data();
+          const postingAmount = parseFloat(String(p.amount));
+          
+          const newPaid = (accData.paid || 0) + postingAmount;
+          const newBalance = (accData.totalAmount || 0) - newPaid;
+          const newStatus = newBalance <= 0 ? "completed" : "active";
+
+          transaction.update(accountRef, {
+            paid: newPaid,
+            balance: Math.max(0, newBalance),
+            status: newStatus,
+            lastPostingDate: p.date,
+            lastCollectedByName: p.collectedByName || "Agent",
+            lastCollectedByRole: p.collectedByRole || "agent"
+          });
+
+          transaction.update(postingRef, { verified: true });
+        });
+      }
+
+      toast.success(`Successfully approved ${totalCount} collection entries`, { id: toastId });
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "POSTING_VERIFY_BATCH",
+          `Batch approved ${totalCount} collections in ${selectedLineId}`,
+          selectedLineId
+        );
+      }
+      
+      setPostings([]);
+    } catch (err: any) {
+      console.error("Bulk approval error:", err);
+      toast.error(`Approval failed: ${err.message}`, { id: toastId });
+      fetchPendingPostings();
+    } finally {
+      setIsBulkApproving(false);
+    }
+  };
+
   const openEdit = (posting: any) => {
     setSelectedPosting(posting);
     setEditAmount(String(posting.amount));
@@ -185,6 +251,16 @@ const PostingVerification = () => {
           </div>
         </div>
         <div className="flex gap-2">
+          {postings.length > 0 && (
+            <Button 
+              onClick={handleBulkApprove} 
+              disabled={isBulkApproving || loading}
+              className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest text-[10px] shadow-lg gap-2"
+            >
+              <CheckCheck size={16} />
+              Approve All ({postings.length})
+            </Button>
+          )}
           <Button variant="outline" onClick={fetchPendingPostings} className="h-10 font-bold">
             <RefreshCw className={loading ? "animate-spin mr-2 h-4 w-4" : "mr-2 h-4 w-4"} />
             Refresh List

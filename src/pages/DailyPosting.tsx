@@ -36,7 +36,8 @@ const DailyPosting = () => {
     date: new Date().toISOString().split("T")[0], 
     amount: "", 
     status: "collection", 
-    payMode: "cash" 
+    payMode: "cash",
+    penaltyAmount: ""
   });
 
   // Fetch accounts in line
@@ -92,12 +93,15 @@ const DailyPosting = () => {
     
     const q = query(
       collection(db, "postings"), 
-      where("lineId", "==", selectedLineId),
       where("date", "==", form.date)
     );
 
     const unsubscribe = onSnapshot(q, (snap) => {
-      const postedIds = new Set(snap.docs.map(d => d.data().accountId));
+      const postedIds = new Set(
+        snap.docs
+          .filter(d => d.data().lineId === selectedLineId)
+          .map(d => d.data().accountId)
+      );
       setTodayPostings(postedIds);
     }, (err) => {
       console.error("Load today postings error:", err);
@@ -170,7 +174,7 @@ const DailyPosting = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accountInfo || !form.amount) {
+    if (!accountInfo || (!form.amount && !form.penaltyAmount)) {
       toast.error("Please select an account and enter an amount");
       return;
     }
@@ -185,7 +189,16 @@ const DailyPosting = () => {
         }
       }
 
-      const postingAmount = parseFloat(form.amount);
+      const postingAmount = parseFloat(form.amount) || 0;
+      const penaltyAmount = parseFloat(form.penaltyAmount) || 0;
+      const totalCollection = postingAmount + penaltyAmount;
+
+      if (totalCollection <= 0) {
+        toast.error("Total amount must be greater than 0");
+        setLoading(false);
+        return;
+      }
+
       const accountRef = doc(db, "accounts", accountInfo.id);
 
       await runTransaction(db, async (transaction) => {
@@ -201,9 +214,11 @@ const DailyPosting = () => {
           accountNo: form.accountNo,
           date: form.date,
           amount: postingAmount,
+          penaltyAmount: penaltyAmount,
           status: form.status,
           payMode: form.payMode,
           lineId: accountInfo.lineId,
+          adminId: accountInfo.adminId || "", // Pass through adminId so admins can see this in their collections
           memberName: accountInfo.name,
           collectedByRole: userData?.role,
           collectedById: userData?.uid,
@@ -234,7 +249,7 @@ const DailyPosting = () => {
           userData.name,
           userData.role,
           "POSTING_CREATE",
-          `Submitted ${formatCurrency(postingAmount)} from ${accountInfo.name} (#${accountInfo.accountNo}) ${userData.role === 'agent' ? '(Pending Approval)' : ''}`
+          `Submitted ${formatCurrency(totalCollection)} ${penaltyAmount > 0 ? `(Inc. ${formatCurrency(penaltyAmount)} Penalty)` : ''} from ${accountInfo.name} (#${accountInfo.accountNo}) ${userData.role === 'agent' ? '(Pending Approval)' : ''}`
         );
       }
 
@@ -251,7 +266,7 @@ const DailyPosting = () => {
       }
       
       setIsSuccess(true);
-      setLastPostedAmount(postingAmount);
+      setLastPostedAmount(totalCollection);
       
       // Update local state for immediate feedback (Greening the list)
       setTodayPostings(prev => new Set([...Array.from(prev), accountInfo.id]));
@@ -364,7 +379,7 @@ const DailyPosting = () => {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount (₹)</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Collection Amount (₹)</Label>
                           <Input 
                             type="text" 
                             inputMode="decimal"
@@ -379,13 +394,32 @@ const DailyPosting = () => {
                           <Select value={form.status} onValueChange={v => handleChange("status", v)}>
                             <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="collection">Collection</SelectItem>
-                              <SelectItem value="penalty">Penalty</SelectItem>
+                              <SelectItem value="collection">Standard Collection</SelectItem>
+                              <SelectItem value="penalty">Fine / Penalty</SelectItem>
                               <SelectItem value="other">Other Fees</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                       </div>
+
+                      {form.status === 'penalty' && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="space-y-1.5 bg-rose-50 p-4 rounded-xl border border-rose-100"
+                        >
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-rose-500">Extra Penalty Amount (₹)</Label>
+                          <Input 
+                            type="text" 
+                            inputMode="decimal"
+                            value={form.penaltyAmount} 
+                            onChange={e => handleChange("penaltyAmount", e.target.value)} 
+                            placeholder="Enter penalty..." 
+                            className="h-11 text-lg font-black bg-white border-rose-200 focus:border-rose-500 focus:ring-rose-200" 
+                          />
+                          <p className="text-[9px] font-bold text-rose-400 italic">Note: This amount is recorded as an additional fee.</p>
+                        </motion.div>
+                      )}
 
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Mode</Label>
