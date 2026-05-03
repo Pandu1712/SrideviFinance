@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { db, auth } from "@/lib/firebase";
 import { collection, getDocs, query, where, deleteDoc, doc, setDoc, updateDoc, DocumentData } from "firebase/firestore";
 import { signOut } from "firebase/auth";
@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Trash2, Plus, UserCog, Mail, Phone, Lock, User, ShieldCheck, ArrowRight, Activity, Smartphone, BadgeCheck, MapPin, Edit2 } from "lucide-react";
+import { Trash2, Plus, UserCog, Mail, Phone, Lock, User, ShieldCheck, ArrowRight, Activity, Smartphone, BadgeCheck, MapPin, Edit2, FileSpreadsheet } from "lucide-react";
+import { exportToExcel } from "@/lib/excel";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -33,17 +34,38 @@ const ManageAgents = () => {
   const [editingAgent, setEditingAgent] = useState<DocumentData | null>(null);
   const [editForm, setEditForm] = useState({ name: "", phone: "", lineIds: [] as string[] });
   const [updating, setUpdating] = useState(false);
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const type = searchParams.get("type") || "agent";
+  const isPartner = type === "partner";
+  
+  const pageTitle = isPartner ? "Partner Management" : "Field Force Management";
+  const subTitle = isPartner ? "Manage enterprise partners and stakeholders." : "Provision and oversee active agents operating in the field.";
+  const buttonLabel = isPartner ? "Add New Partner" : "Deploy New Agent";
 
   const fetchAgents = async () => {
     if (!userData) return;
     try {
       const q = userData.role === 'super_admin' 
-        ? query(collection(db, "users"), where("role", "==", "agent"))
-        : query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", userData.uid));
+        ? query(collection(db, "users"), where("role", "==", "agent"), where("userType", "==", isPartner ? "partner" : "agent"))
+        : query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", userData.uid), where("userType", "==", isPartner ? "partner" : "agent"));
         
       const snap = await getDocs(q);
       const list: DocumentData[] = [];
       snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
+      
+      // Fallback for older agents without userType (they are agents)
+      if (list.length === 0 && !isPartner) {
+        const qFallback = userData.role === 'super_admin' 
+          ? query(collection(db, "users"), where("role", "==", "agent"))
+          : query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", userData.uid));
+        const snapFallback = await getDocs(qFallback);
+        snapFallback.forEach(d => {
+          const data = d.data();
+          if (!data.userType) list.push({ id: d.id, ...data as Record<string, any> });
+        });
+      }
+
       setAgents(list);
     } catch (err) {
       console.error("Error fetching agents:", err);
@@ -104,6 +126,7 @@ const ManageAgents = () => {
         email: form.email,
         phone: form.phone,
         role: "agent",
+        userType: isPartner ? "partner" : "agent",
         lineIds: form.lineIds,
         adminId: userData?.uid,
         createdAt: new Date().toISOString(),
@@ -131,6 +154,28 @@ const ManageAgents = () => {
     }
   };
 
+  const handleExportExcel = () => {
+    if (agents.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+    
+    const data = agents.map((agent, i) => ({
+      "Sl No": i + 1,
+      "Agent Name": agent.name,
+      "Email": agent.email,
+      "Phone": agent.phone || 'N/A',
+      "Role": (agent.role || 'AGENT').toUpperCase(),
+      "Assigned Lines": (agent.lineIds && agent.lineIds.length > 0) 
+          ? agent.lineIds.map((id: string) => lines.find(l => l.id === id)?.name).filter(Boolean).join(", ") 
+          : (lines.find((l:any) => l.id === agent.lineId)?.name || "Unassigned"),
+      "Deployed At": agent.createdAt ? formatDate(agent.createdAt) : 'N/A'
+    }));
+
+    exportToExcel(data, isPartner ? "Partner_Registry" : "Agent_Registry", isPartner ? "Partners" : "Agents");
+    toast.success(`${isPartner ? 'Partner' : 'Agent'} registry exported as Excel`);
+  };
+
   if (authLoading) return <div className="h-screen flex items-center justify-center">Authenticating Personnel Access...</div>;
 
   return (
@@ -145,18 +190,19 @@ const ManageAgents = () => {
             <UserCog className="text-white h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tight text-primary">Field Force Management</h1>
-            <p className="text-muted-foreground font-medium">Provision and oversee active agents operating in the field.</p>
+            <h1 className="text-3xl font-black tracking-tight text-primary">{pageTitle}</h1>
+            <p className="text-muted-foreground font-medium">{subTitle}</p>
           </div>
         </div>
 
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-accent text-accent-foreground h-11 px-6 shadow-xl hover:bg-accent/90 font-bold border-none transition-all">
-              <Plus className="mr-2 h-5 w-5" /> Deploy New Agent
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[440px] glass-card border-white/20 p-8 shadow-2xl">
+        <div className="flex gap-2">
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-accent text-accent-foreground h-11 px-6 shadow-xl hover:bg-accent/90 font-bold border-none transition-all">
+                <Plus className="mr-2 h-5 w-5" /> {buttonLabel}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[440px] glass-card border-white/20 p-8 shadow-2xl">
             <DialogHeader className="mb-6 text-center">
               <div className="h-16 w-16 bg-accent/10 rounded-2xl flex items-center justify-center mb-4 mx-auto">
                 <Smartphone size={32} className="text-accent" />
@@ -235,7 +281,14 @@ const ManageAgents = () => {
             </div>
           </DialogContent>
         </Dialog>
-
+        <Button 
+          variant="outline" 
+          className="h-11 gap-2 border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-bold"
+          onClick={handleExportExcel}
+        >
+          <FileSpreadsheet className="h-4 w-4" /> Export Excel
+        </Button>
+      </div>
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent className="sm:max-w-[440px] glass-card border-white/20 p-8 shadow-2xl">
             <DialogHeader className="mb-6 text-center">

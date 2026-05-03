@@ -10,6 +10,7 @@ export type AuditAction =
   | "POSTING_DELETE" 
   | "LINE_CREATE" 
   | "LINE_DELETE" 
+  | "LINE_UPDATE"
   | "EXPENSE_UPDATE"
   | "ACCOUNT_SHIFT";
 

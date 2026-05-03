@@ -6,9 +6,9 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, deleteDoc, doc, getDocs, query, where, writeBatch } from "firebase/firestore";
+import { collection, addDoc, deleteDoc, doc, getDocs, query, where, writeBatch, updateDoc } from "firebase/firestore";
 import { toast } from "sonner";
-import { LayoutDashboard, MapPin, Plus, Database, ArrowRight, Trash2 } from "lucide-react";
+import { LayoutDashboard, MapPin, Plus, Database, ArrowRight, Trash2, Edit2 } from "lucide-react";
 import { logActivity } from "@/lib/audit";
 import {
   AlertDialog,
@@ -21,6 +21,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 /**
  * MEGA-STABLE Line Selection Page
@@ -35,6 +43,8 @@ const LineSelection = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
+  const [renamingLineId, setRenamingLineId] = useState<string | null>(null);
+  const [renamingName, setRenamingName] = useState("");
 
   // Filter lines based on role
   const availableLines = (userData?.role === "super_admin" || userData?.role === "admin")
@@ -79,6 +89,29 @@ const LineSelection = () => {
       setShowCreate(false);
     } catch (err) {
       toast.error("Failed to establish line");
+    }
+  };
+
+  const handleUpdateLine = async () => {
+    if (!renamingLineId || !renamingName.trim()) return;
+    try {
+      const lineRef = doc(db, "lines", renamingLineId);
+      await updateDoc(lineRef, { name: renamingName });
+      toast.success("Line Identity Updated");
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "LINE_UPDATE",
+          `Renamed line to: ${renamingName}`
+        );
+      }
+      
+      setRenamingLineId(null);
+    } catch (err) {
+      toast.error("Failed to update line");
     }
   };
 
@@ -254,33 +287,46 @@ const LineSelection = () => {
                   </motion.button>
 
                   {(userData?.role === "super_admin" || userData?.role === "admin") && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <button 
-                          onClick={(e) => e.stopPropagation()}
-                          className="absolute top-10 right-10 p-3 rounded-xl bg-slate-700/30 text-slate-500 hover:bg-rose-500 hover:text-white transition-all opacity-0 group-hover:opacity-100 z-20 shadow-lg"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] p-10">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle className="text-3xl font-black italic uppercase tracking-tighter">CONFIRM DECOMMISSIONING?</AlertDialogTitle>
-                          <AlertDialogDescription className="text-slate-400 font-bold text-base mt-4 leading-relaxed">
-                            You are about to permanently remove <span className="text-amber-500 font-black">{line.name}</span> from the active operative landscape. All associated accounts and postings will be <span className="text-rose-500 font-black">PURGED</span>.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter className="mt-10 gap-4">
-                          <AlertDialogCancel className="h-14 flex-1 bg-slate-800 border-white/5 text-white hover:bg-slate-700 rounded-2xl font-black uppercase tracking-widest text-[10px]">ABORT</AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => handleDeleteLine(line.id)}
-                            className="h-14 flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl uppercase tracking-widest text-[10px] shadow-2xl shadow-rose-600/20"
+                    <>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingLineId(line.id);
+                          setRenamingName(line.name);
+                        }}
+                        className="absolute top-10 right-24 p-3 rounded-xl bg-slate-700/30 text-slate-500 hover:bg-amber-500 hover:text-white transition-all opacity-0 group-hover:opacity-100 z-20 shadow-lg"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button 
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute top-10 right-10 p-3 rounded-xl bg-slate-700/30 text-slate-500 hover:bg-rose-500 hover:text-white transition-all opacity-0 group-hover:opacity-100 z-20 shadow-lg"
                           >
-                            PROCEED WITH PURGE
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                            <Trash2 size={18} />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] p-10">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="text-3xl font-black italic uppercase tracking-tighter">CONFIRM DECOMMISSIONING?</AlertDialogTitle>
+                            <AlertDialogDescription className="text-slate-400 font-bold text-base mt-4 leading-relaxed">
+                              You are about to permanently remove <span className="text-amber-500 font-black">{line.name}</span> from the active operative landscape. All associated accounts and postings will be <span className="text-rose-500 font-black">PURGED</span>.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter className="mt-10 gap-4">
+                            <AlertDialogCancel className="h-14 flex-1 bg-slate-800 border-white/5 text-white hover:bg-slate-700 rounded-2xl font-black uppercase tracking-widest text-[10px]">ABORT</AlertDialogCancel>
+                            <AlertDialogAction 
+                              onClick={() => handleDeleteLine(line.id)}
+                              className="h-14 flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl uppercase tracking-widest text-[10px] shadow-2xl shadow-rose-600/20"
+                            >
+                              PROCEED WITH PURGE
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </>
                   )}
                 </motion.div>
               ))}
@@ -319,6 +365,40 @@ const LineSelection = () => {
               )
             )}
           </div>
+
+          <Dialog open={!!renamingLineId} onOpenChange={(open) => !open && setRenamingLineId(null)}>
+            <DialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] p-10">
+              <DialogHeader>
+                <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Rename Line</DialogTitle>
+                <DialogDescription className="text-slate-400 font-bold text-base mt-4">
+                  Update the identity of this operative channel.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-6">
+                <Input 
+                  value={renamingName} 
+                  onChange={(e) => setRenamingName(e.target.value)} 
+                  className="h-14 bg-slate-800 border-white/5 text-white font-black px-6 rounded-xl"
+                  placeholder="Enter new line name"
+                />
+              </div>
+              <DialogFooter className="gap-4">
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setRenamingLineId(null)}
+                  className="h-14 flex-1 bg-slate-800 border-white/5 text-white hover:bg-slate-700 rounded-xl font-black uppercase tracking-widest text-[10px]"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleUpdateLine}
+                  className="h-14 flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl uppercase tracking-widest text-[10px] shadow-xl"
+                >
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <div className="mt-20 pt-10 border-t border-white/5 text-center flex flex-col items-center gap-4">
              <div className="flex items-center gap-2 px-6 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full">

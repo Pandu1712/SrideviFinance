@@ -7,14 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, Calendar, FileText, IndianRupee, Printer, Download, Filter, Target } from "lucide-react";
+import { Search, Calendar, FileText, IndianRupee, Printer, Download, Filter, Target, FileSpreadsheet, Edit, Save, X, ArrowRightLeft, MoveRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { updateDoc, doc, runTransaction, getDoc } from "firebase/firestore";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { exportToExcel } from "@/lib/excel";
 
 const PostingSearch = () => {
   const { userData } = useAuth();
@@ -24,6 +27,14 @@ const PostingSearch = () => {
   const [results, setResults] = useState<DocumentData[]>([]);
   const [memberSummary, setMemberSummary] = useState<DocumentData | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedPosting, setSelectedPosting] = useState<any>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editDate, setEditDate] = useState("");
+  
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [destAccountNo, setDestAccountNo] = useState("");
 
   // Auto-load daily activities on mount
   useEffect(() => {
@@ -43,20 +54,15 @@ const PostingSearch = () => {
       if (selectedLineId) constraints.push(where("lineId", "==", selectedLineId));
       if (date) constraints.push(where("date", "==", date));
       
-      // If searchTerm (Name/AccNo) is provided, we might need a different approach 
-      // since Firestore doesn't support easy case-insensitive substring search without indexing.
-      // We will fetch based on other filters and then filter client-side for name.
-      
       if (constraints.length > 0) {
         q = query(postingsRef, ...constraints);
       } else {
-        q = query(postingsRef); // Careful with large datasets, but for this app it should be fine
+        q = query(postingsRef);
       }
 
       const snap = await getDocs(q);
       let list = snap.docs.map(d => ({ id: d.id, ...d.data() as any }));
 
-      // Client-side filtering for member name or account no
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         list = list.filter(r => 
@@ -64,7 +70,6 @@ const PostingSearch = () => {
           r.accountNo?.toLowerCase().includes(term)
         );
 
-        // If a specific account is being tracked, load its summary
         if (list.length > 0) {
           const accNo = list[0].accountNo;
           const accSnap = await getDocs(query(collection(db, "accounts"), where("accountNo", "==", accNo)));
@@ -74,7 +79,6 @@ const PostingSearch = () => {
         }
       }
 
-      // Sort by date desc
       list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
       setResults(list);
@@ -88,6 +92,138 @@ const PostingSearch = () => {
   };
 
   const total = results.reduce((sum, r) => sum + (r.amount || 0), 0);
+
+  const openEdit = (posting: any) => {
+    setSelectedPosting(posting);
+    setEditAmount(String(posting.amount));
+    setEditDate(posting.date);
+    setEditDialogOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!selectedPosting || !editAmount || !editDate) return;
+    setLoading(true);
+    try {
+      const postingRef = doc(db, "postings", selectedPosting.id);
+      const newAmount = parseFloat(editAmount);
+      const oldAmount = selectedPosting.amount;
+      const diff = newAmount - oldAmount;
+
+      await runTransaction(db, async (transaction) => {
+        transaction.update(postingRef, { 
+          amount: newAmount,
+          date: editDate
+        });
+
+        if (selectedPosting.verified) {
+          const accountRef = doc(db, "accounts", selectedPosting.accountId);
+          const accSnap = await transaction.get(accountRef);
+          if (accSnap.exists()) {
+            const accData = accSnap.data();
+            const newPaid = (accData.paid || 0) + diff;
+            const newBalance = (accData.totalAmount || 0) - newPaid;
+            
+            transaction.update(accountRef, {
+              paid: newPaid,
+              balance: Math.max(0, newBalance),
+              status: newBalance <= 0 ? "completed" : "active"
+            });
+          }
+        }
+      });
+
+      toast.success("Transaction updated successfully");
+      setResults(prev => prev.map(p => p.id === selectedPosting.id ? { ...p, amount: newAmount, date: editDate } : p));
+      setEditDialogOpen(false);
+      handleSearch();
+    } catch (err) {
+      console.error("Save edit error:", err);
+      toast.error("Update failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openTransfer = (posting: any) => {
+    setSelectedPosting(posting);
+    setDestAccountNo("");
+    setTransferDialogOpen(true);
+  };
+
+  const saveTransfer = async () => {
+    if (!selectedPosting || !destAccountNo) return;
+    setLoading(true);
+    try {
+      const sourceAccRef = doc(db, "accounts", selectedPosting.accountId);
+      const sourceSnap = await getDoc(sourceAccRef);
+      if (!sourceSnap.exists()) {
+        toast.error("Source account record missing");
+        setLoading(false);
+        return;
+      }
+      const sourceData = sourceSnap.data();
+
+      const destQuery = query(collection(db, "accounts"), where("accountNo", "==", destAccountNo));
+      const destSnap = await getDocs(destQuery);
+      if (destSnap.empty) {
+        toast.error("Destination account not found");
+        setLoading(false);
+        return;
+      }
+      const destDoc = destSnap.docs[0];
+      const destData = destDoc.data();
+      const destId = destDoc.id;
+
+      if (destAccountNo === sourceData.accountNo) {
+        toast.error("Source and Destination accounts are identical");
+        setLoading(false);
+        return;
+      }
+
+      await runTransaction(db, async (transaction) => {
+        const postingRef = doc(db, "postings", selectedPosting.id);
+        const destAccRef = doc(db, "accounts", destId);
+        const amount = selectedPosting.amount;
+
+        transaction.update(sourceAccRef, {
+          paid: (sourceData.paid || 0) - amount,
+          balance: (sourceData.balance || 0) + amount
+        });
+
+        transaction.update(destAccRef, {
+          paid: (destData.paid || 0) + amount,
+          balance: (destData.balance || 0) - amount
+        });
+
+        transaction.update(postingRef, {
+          accountId: destId,
+          accountNo: destAccountNo,
+          memberName: destData.name,
+          lineId: destData.lineId
+        });
+
+        const logRef = doc(collection(db, "activity_logs"));
+        transaction.set(logRef, {
+          type: "posting_transfer",
+          postingId: selectedPosting.id,
+          fromAccount: sourceData.accountNo,
+          toAccount: destAccountNo,
+          amount: amount,
+          performedBy: userData?.name || "System",
+          timestamp: new Date()
+        });
+      });
+
+      toast.success(`Post successfully shifted to ${destAccountNo}`);
+      setTransferDialogOpen(false);
+      handleSearch();
+    } catch (err: any) {
+      console.error("Shift error:", err);
+      toast.error("Failed to shift posting");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <motion.div 
@@ -236,7 +372,7 @@ const PostingSearch = () => {
                 p.accountNo,
                 formatCurrency(p.amount),
                 p.payMode.toUpperCase(),
-                agents.find(a => a.id === p.agentId)?.name || "System"
+                p.collectedByName || "System"
               ]);
 
               autoTable(doc, {
@@ -254,6 +390,32 @@ const PostingSearch = () => {
           >
              <Download size={18} />
              <span className="text-[10px] uppercase tracking-widest">Export PDF</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            className="flex-1 h-14 rounded-2xl border-emerald-200 text-emerald-600 font-bold hover:bg-emerald-50 transition-all flex flex-col items-center justify-center gap-1"
+            onClick={() => {
+              if (results.length === 0) {
+                toast.error("No data to export");
+                return;
+              }
+              
+              const data = results.map(p => ({
+                "Date": formatDate(p.date),
+                "Member": p.memberName,
+                "Account No": p.accountNo,
+                "Amount": p.amount || 0,
+                "Mode": (p.payMode || "").toUpperCase(),
+                "Category": (p.status || "").toUpperCase(),
+                "Agent": p.collectedByName || "System"
+              }));
+
+              exportToExcel(data, `Search_Export_${date || 'all'}`, "Search Results");
+              toast.success("Results Exported as Excel");
+            }}
+          >
+             <FileSpreadsheet size={18} />
+             <span className="text-[10px] uppercase tracking-widest">Export Excel</span>
           </Button>
         </div>
       </div>
@@ -279,6 +441,7 @@ const PostingSearch = () => {
                 <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-right">Collection</th>
                 <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-center">Status</th>
                 <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-center">Pay Mode</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -329,6 +492,27 @@ const PostingSearch = () => {
                       <td className="p-4 text-center">
                         <span className="text-[10px] font-black uppercase tracking-tighter text-slate-400">{r.payMode}</span>
                       </td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-slate-300 hover:text-blue-500 hover:bg-blue-50"
+                              onClick={() => openTransfer(r)}
+                              title="Shift to Another Account"
+                            >
+                              <ArrowRightLeft size={14} />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-slate-300 hover:text-accent hover:bg-accent/5"
+                              onClick={() => openEdit(r)}
+                            >
+                              <Edit size={14} />
+                            </Button>
+                          </div>
+                        </td>
                     </motion.tr>
                   ))
                 )}
@@ -337,6 +521,107 @@ const PostingSearch = () => {
           </table>
         </CardContent>
       </Card>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-slate-900 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+              <Edit size={20} className="text-accent" />
+              Adjust Transaction
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs mt-1">
+              Correcting entry for {selectedPosting?.memberName}
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Correct Amount</Label>
+              <div className="relative">
+                <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="number" 
+                  value={editAmount} 
+                  onChange={e => setEditAmount(e.target.value)} 
+                  className="pl-9 h-12 finance-input font-black text-lg" 
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Correction Date</Label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="date" 
+                  value={editDate} 
+                  onChange={e => setEditDate(e.target.value)} 
+                  className="pl-9 h-12 finance-input font-bold" 
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+                Cancel
+              </Button>
+              <Button onClick={saveEdit} className="flex-1 h-12 rounded-xl bg-slate-900 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-slate-800">
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-blue-600 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+              <ArrowRightLeft size={20} />
+              Shift Transaction
+            </DialogTitle>
+            <DialogDescription className="text-blue-100 text-xs mt-1 font-medium">
+              Moving funds from {selectedPosting?.accountNo} to a new account.
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-6">
+             <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-blue-600 font-black shadow-sm">
+                   {selectedPosting?.amount}
+                </div>
+                <div className="flex-1">
+                   <p className="text-[10px] font-black uppercase text-blue-400">Transaction Date</p>
+                   <p className="text-xs font-bold text-blue-900">{formatDate(selectedPosting?.date)}</p>
+                </div>
+                <MoveRight className="text-blue-300" />
+             </div>
+
+             <div className="space-y-2">
+               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Destination Account</Label>
+               <div className="relative group">
+                 <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                 <Input 
+                   placeholder="Enter ACC-XXXX" 
+                   value={destAccountNo}
+                   onChange={e => setDestAccountNo(e.target.value.toUpperCase())}
+                   className="pl-9 h-12 finance-input font-black text-lg border-slate-200" 
+                 />
+               </div>
+               <p className="text-[10px] text-slate-400 font-medium italic px-1">Source account will be debited and target account credited automatically.</p>
+             </div>
+
+             <div className="flex gap-3 pt-2">
+               <Button variant="outline" onClick={() => setTransferDialogOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs">
+                 Cancel
+               </Button>
+               <Button 
+                 onClick={saveTransfer} 
+                 disabled={loading || !destAccountNo}
+                 className="flex-1 h-12 rounded-xl bg-blue-600 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700"
+               >
+                 {loading ? "Processing..." : "Confirm Shift"}
+               </Button>
+             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 };

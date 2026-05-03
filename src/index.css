@@ -33,10 +33,15 @@
     --input: 214 32% 91%;
     --ring: 221 39% 11%;
 
-    --radius: 1rem;
+    --radius: 1.25rem;
 
     --sidebar-background: 222 47% 11%;
     --sidebar-foreground: 210 40% 98%;
+    
+    /* Responsive Spacing Tokens */
+    --padding-mobile: 1rem;
+    --padding-tablet: 1.5rem;
+    --padding-desktop: 2rem;
   }
 
   * {
@@ -64,6 +69,18 @@
 
   .premium-shadow {
     @apply shadow-[0_20px_50px_rgba(8,_112,_184,_0.07)];
+  }
+
+  .mobile-bottom-nav {
+    @apply fixed bottom-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-xl border-t border-slate-100 flex items-center justify-around px-4 z-[50] pb-safe;
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
   }
 
   /* Responsive & Premium Table System */

@@ -1,3 +1,4 @@
+import { toast as sonnerToast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, orderBy, limit, DocumentData, Timestamp, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, limit, DocumentData, Timestamp, onSnapshot, updateDoc, doc, addDoc, runTransaction, setDoc, getDoc } from "firebase/firestore";
 import { logActivity, AuditAction } from "@/lib/audit";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,6 +18,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const StatCard = ({ title, value, icon, color, trend, index }: { title: string; value: string | number; icon: React.ReactNode; color: string; trend?: string; index: number }) => (
   <motion.div
@@ -73,20 +75,12 @@ const Dashboard = () => {
   const [showAllStream, setShowAllStream] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split("T")[0]);
   const [isSettingOpening, setIsSettingOpening] = useState(false);
+  const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [openingInput, setOpeningInput] = useState("");
+  const [expenseInput, setExpenseInput] = useState({ amount: "", note: "" });
 
-  // Date Auto-Refresh logic
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date().toISOString().split("T")[0];
-      if (now !== currentDate) {
-        setCurrentDate(now);
-        setStreamDateFilter(now);
-        // Refreshing current date will trigger the main useEffect to re-run
-      }
-    }, 60000); // Check every minute
-    return () => clearInterval(timer);
-  }, [currentDate]);
+  // Date Auto-Refresh logic - Removed forced auto-refresh to allow manual selection
+  // The initial date is set on component mount
 
   useEffect(() => {
     let unsubscribeAccounts: (() => void) | null = null;
@@ -94,9 +88,16 @@ const Dashboard = () => {
     let unsubscribeLogs: (() => void) | null = null;
 
     const today = new Date();
+    if (!currentDate || isNaN(new Date(currentDate).getTime())) {
+       return;
+    }
+
     const todayStr = currentDate;
-    const startOfMonth = new Date(new Date(currentDate).getFullYear(), new Date(currentDate).getMonth(), 1).toISOString().split("T")[0];
-    const startOfYear = new Date(new Date(currentDate).getFullYear(), 0, 1).toISOString().split("T")[0];
+    const dateObj = new Date(currentDate);
+    const startOfMonth = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1).toISOString().split("T")[0];
+    const startOfYear = new Date(dateObj.getFullYear(), 0, 1).toISOString().split("T")[0];
+    
+    setClosureStats({ openingBalance: 0, agentCol: 0, adminCol: 0, agentDisburse: 0, adminDisburse: 0, docCharges: 0, expenses: 0 });
 
     const setupListeners = async () => {
       if (!userData) return;
@@ -139,14 +140,8 @@ const Dashboard = () => {
               balance += (acc.balance || 0);
               expected += (acc.totalAmount || 0);
             }
-            if (acc.createdAt && acc.createdAt.startsWith(todayStr)) {
-              if (adminIdsSet.has(acc.adminId)) dtAdDisburse += (acc.loanAmount || 0);
-              else dtAgDisburse += (acc.loanAmount || 0);
-              dtDocCharge += parseFloat(acc.documentCharge || "0");
-            }
           });
           
-          setClosureStats(p => ({ ...p, agentDisburse: dtAgDisburse, adminDisburse: dtAdDisburse, docCharges: dtDocCharge }));
           setStats(prev => ({
             ...prev,
             totalAccounts: totalAcc,
@@ -161,7 +156,7 @@ const Dashboard = () => {
 
         unsubscribePostings = onSnapshot(postingsRef, (snapshot) => {
           let totalCol = 0; let agCol = 0; let adCol = 0; 
-          let agDis = 0; let adDis = 0;
+          let agDis = 0; let adDis = 0; let dtDocCharge = 0;
           const chartCol: Record<string, number> = {};
           snapshot.forEach(d => {
             const data = d.data();
@@ -170,19 +165,33 @@ const Dashboard = () => {
             
             if (data.date === todayStr) {
                const amt = data.amount || 0;
-               if (data.status === 'payment') {
-                 if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adDis += amt;
-                 else agDis += amt;
-               } else {
-                 if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adCol += amt;
-                 else agCol += amt;
-               }
+                if (data.status === 'disbursement') {
+                  if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adDis += amt;
+                  else agDis += amt;
+                } else if (data.status === 'charge') {
+                  dtDocCharge += amt;
+                } else {
+                  // Collection
+                  if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adCol += amt;
+                  else if (data.collectedByRole === 'agent') agCol += amt;
+                  else {
+                    if (adminIdsSet.has(data.collectedById)) adCol += amt;
+                    else agCol += amt;
+                  }
+                }
             }
             
             const monthKey = data.date?.substring(0, 7) || "Unknown";
             chartCol[monthKey] = (chartCol[monthKey] || 0) + (data.amount || 0);
           });
-          setClosureStats(p => ({ ...p, agentCol: agCol, adminCol: adCol, agentDisburse: agDis, adminDisburse: adDis }));
+          setClosureStats(p => ({ 
+            ...p, 
+            agentCol: agCol, 
+            adminCol: adCol,
+            agentDisburse: agDis,
+            adminDisburse: adDis,
+            docCharges: dtDocCharge
+          }));
           const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any as any })).sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 200);
           setRecentPostings(recent);
           const allKeys = Array.from(new Set([...Object.keys(chartCol)]));
@@ -210,37 +219,6 @@ const Dashboard = () => {
           });
           setClosureStats(p => ({ ...p, expenses: totalExp, openingBalance: totalOpening }));
         });
-
-        const handleSetOpening = async () => {
-          if (!openingInput || isNaN(parseFloat(openingInput))) return;
-          try {
-            const docId = `${todayStr}_${selectedLineId || 'global'}`;
-            await updateDoc(doc(db, "day_summaries", docId), {
-              openingBalance: parseFloat(openingInput),
-              date: todayStr,
-              lineId: selectedLineId || 'global'
-            }).catch(async () => {
-              const { setDoc } = await import("firebase/firestore");
-              await setDoc(doc(db, "day_summaries", docId), {
-                openingBalance: parseFloat(openingInput),
-                date: todayStr,
-                lineId: selectedLineId || 'global',
-                expenses: 0
-              });
-            });
-            toast.success("Opening Balance Updated");
-            setIsSettingOpening(false);
-            setOpeningInput("");
-          } catch (err) {
-            console.error("Set opening error:", err);
-          }
-        };
-
-        return () => {
-          if (unsubscribeAccounts) unsubscribeAccounts();
-          if (unsubscribePostings) unsubscribePostings();
-          if (unsubscribeExpenses) unsubscribeExpenses();
-        };
 
       } else if (userData.role === "admin") {
         let accountsRef: any = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
@@ -323,6 +301,92 @@ const Dashboard = () => {
       if (unsubscribeLogs) unsubscribeLogs();
     };
   }, [userData, timeFilter, selectedLineId, currentDate]);
+  
+  const handleSetOpening = async () => {
+    if (!openingInput || isNaN(parseFloat(openingInput))) return;
+    try {
+      const todayStr = currentDate;
+      const docId = `${todayStr}_${selectedLineId || 'global'}`;
+      const summaryRef = doc(db, "day_summaries", docId);
+      
+      const snap = await getDoc(summaryRef);
+      if (snap.exists()) {
+        await updateDoc(summaryRef, {
+          openingBalance: parseFloat(openingInput)
+        });
+      } else {
+        await setDoc(summaryRef, {
+          openingBalance: parseFloat(openingInput),
+          date: todayStr,
+          lineId: selectedLineId || 'global',
+          expenses: 0
+        });
+      }
+      sonnerToast.success("Opening Balance Updated");
+      setIsSettingOpening(false);
+      setOpeningInput("");
+    } catch (err) {
+      console.error("Set opening error:", err);
+    }
+  };
+
+  const handleAddExpense = async () => {
+    if (!expenseInput.amount || isNaN(parseFloat(expenseInput.amount))) return;
+    try {
+      const todayStr = currentDate;
+      const amount = parseFloat(expenseInput.amount);
+      const lineId = selectedLineId || 'global';
+      
+      // 1. Log the individual expense for audit
+      await addDoc(collection(db, "expenses_log"), {
+        amount,
+        note: expenseInput.note || "Daily Expense",
+        date: todayStr,
+        lineId,
+        userName: userData?.name,
+        timestamp: new Date().toISOString()
+      });
+
+      // 2. Update aggregate in day_summaries
+      const docId = `${todayStr}_${lineId}`;
+      const summaryRef = doc(db, "day_summaries", docId);
+      
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(summaryRef);
+        if (!snap.exists()) {
+          transaction.set(summaryRef, {
+            expenses: amount,
+            openingBalance: 0,
+            date: todayStr,
+            lineId
+          });
+        } else {
+          const currentExp = snap.data().expenses || 0;
+          transaction.update(summaryRef, {
+            expenses: currentExp + amount
+          });
+        }
+      });
+
+      sonnerToast.success("Expense recorded successfully");
+      setIsAddingExpense(false);
+      setExpenseInput({ amount: "", note: "" });
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "POSTING_CREATE", // Using a general action for financial entries
+          `Recorded Expense: ₹${amount} (${expenseInput.note || 'No note'})`,
+          selectedLineId
+        );
+      }
+    } catch (err) {
+      console.error("Add expense error:", err);
+      sonnerToast.error("Failed to record expense");
+    }
+  };
 
   const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Full Portfolio";
 
@@ -358,6 +422,31 @@ const Dashboard = () => {
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
             Neural Pulse Active
+          </div>
+          
+          <div className="flex items-center gap-2 bg-white/50 backdrop-blur-sm border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm">
+            <Calendar className="h-4 w-4 text-slate-400" />
+            <input 
+              type="date" 
+              value={currentDate}
+              onChange={(e) => {
+                setCurrentDate(e.target.value);
+                setStreamDateFilter(e.target.value);
+              }}
+              className="bg-transparent border-none text-[11px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 w-[130px]"
+            />
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-6 px-2 text-[9px] font-black uppercase tracking-widest text-accent hover:bg-accent/10"
+              onClick={() => {
+                const today = new Date().toISOString().split("T")[0];
+                setCurrentDate(today);
+                setStreamDateFilter(today);
+              }}
+            >
+              Today
+            </Button>
           </div>
         </div>
       </div>
@@ -524,7 +613,8 @@ const Dashboard = () => {
               {isSettingOpening ? (
                 <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
                   <Input 
-                    type="number" 
+                    type="text"
+                    inputMode="decimal"
                     placeholder="Opening Balance" 
                     value={openingInput}
                     onChange={e => setOpeningInput(e.target.value)}
@@ -533,10 +623,34 @@ const Dashboard = () => {
                   <Button onClick={handleSetOpening} className="h-8 px-3 bg-emerald-500 text-white font-black text-[9px] uppercase">Save</Button>
                   <Button onClick={() => setIsSettingOpening(false)} variant="ghost" className="h-8 px-2 text-slate-400">Cancel</Button>
                 </div>
+              ) : isAddingExpense ? (
+                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
+                  <Input 
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Amount" 
+                    value={expenseInput.amount}
+                    onChange={e => setExpenseInput(prev => ({ ...prev, amount: e.target.value }))}
+                    className="h-8 w-24 text-xs font-bold rounded-lg border-slate-200"
+                  />
+                  <Input 
+                    placeholder="Note..." 
+                    value={expenseInput.note}
+                    onChange={e => setExpenseInput(prev => ({ ...prev, note: e.target.value }))}
+                    className="h-8 w-32 text-xs font-bold rounded-lg border-slate-200"
+                  />
+                  <Button onClick={handleAddExpense} className="h-8 px-3 bg-rose-500 text-white font-black text-[9px] uppercase">Record</Button>
+                  <Button onClick={() => setIsAddingExpense(false)} variant="ghost" className="h-8 px-2 text-slate-400">Cancel</Button>
+                </div>
               ) : (
-                <Button onClick={() => setIsSettingOpening(true)} variant="outline" className="h-8 border-slate-200 font-black text-[9px] uppercase tracking-widest bg-white">
-                  Set Opening Balance
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button onClick={() => setIsSettingOpening(true)} variant="outline" className="h-8 border-slate-200 font-black text-[9px] uppercase tracking-widest bg-white">
+                    Set Opening Balance
+                  </Button>
+                  <Button onClick={() => setIsAddingExpense(true)} variant="outline" className="h-8 border-rose-100 text-rose-500 font-black text-[9px] uppercase tracking-widest bg-rose-50/50 hover:bg-rose-50">
+                    Add Expense
+                  </Button>
+                </div>
               )}
               <Badge className="bg-slate-900 text-white border-none text-[8px] font-black uppercase tracking-widest px-3 py-1">
                 Live Balance Audit

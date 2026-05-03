@@ -88,20 +88,6 @@ const NewAccount = () => {
   const [docDescription, setDocDescription] = useState("");
   const [docType, setDocType] = useState("Aadhar Card");
 
-  useEffect(() => {
-    const fetchVillages = async () => {
-      try {
-        const snap = await getDocs(collection(db, "villages"));
-        const list: any[] = [];
-        snap.forEach(d => list.push({ id: d.id, ...d.data() as any }));
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        setVillages(list);
-      } catch (err) {
-        console.error("Error fetching villages:", err);
-      }
-    };
-    fetchVillages();
-  }, []);
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -134,6 +120,7 @@ const NewAccount = () => {
     try {
       const docRef = await addDoc(collection(db, "villages"), {
         ...newVillageData,
+        lineId: watch("lineId"),
         createdAt: new Date().toISOString(),
       });
       const newVillageObj = { id: docRef.id, ...newVillageData };
@@ -211,6 +198,28 @@ const NewAccount = () => {
       altPhone: "",
     },
   });
+
+  const selectedLineIdForVillage = watch("lineId");
+
+  useEffect(() => {
+    const fetchVillages = async () => {
+      if (!selectedLineIdForVillage) {
+        setVillages([]);
+        return;
+      }
+      try {
+        const q = query(collection(db, "villages"), where("lineId", "==", selectedLineIdForVillage));
+        const snap = await getDocs(q);
+        const list: any[] = [];
+        snap.forEach(d => list.push({ id: d.id, ...d.data() as any }));
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setVillages(list);
+      } catch (err) {
+        console.error("Error fetching villages:", err);
+      }
+    };
+    fetchVillages();
+  }, [selectedLineIdForVillage]);
 
   const loanAmount = watch("loanAmount");
   const interestAmount = watch("interestAmount");
@@ -494,9 +503,67 @@ const NewAccount = () => {
           balance: total - initialPaidValue,
           status: (total - initialPaidValue) <= 0 ? "completed" : "active",
           adminId: userData?.uid,
+          adminRole: userData?.role,
           createdAt: new Date().toISOString(),
         };
-        await addDoc(collection(db, "accounts"), newPayload);
+        const accountDocRef = await addDoc(collection(db, "accounts"), newPayload);
+
+        // 1. Record Disbursement Posting
+        await addDoc(collection(db, "postings"), {
+          accountId: accountDocRef.id,
+          accountNo: data.accountNo,
+          date: data.startDate,
+          amount: parseFloat(data.loanAmount),
+          status: "disbursement",
+          payMode: data.paymentType,
+          lineId: data.lineId,
+          memberName: data.name,
+          collectedByRole: userData?.role,
+          collectedById: userData?.uid,
+          collectedByName: userData?.name,
+          createdAt: new Date().toISOString(),
+          isSystem: true
+        });
+
+        // 2. Record Document Charge Posting (if > 0)
+        const docCharge = parseFloat(data.documentCharge || "0");
+        if (docCharge > 0) {
+          await addDoc(collection(db, "postings"), {
+            accountId: accountDocRef.id,
+            accountNo: data.accountNo,
+            date: data.startDate,
+            amount: docCharge,
+            status: "charge",
+            payMode: "cash", // Usually cash
+            lineId: data.lineId,
+            memberName: data.name,
+            collectedByRole: userData?.role,
+            collectedById: userData?.uid,
+            collectedByName: userData?.name,
+            createdAt: new Date().toISOString(),
+            isSystem: true
+          });
+        }
+
+        // 3. Record Initial Posting if paid > 0
+        if (initialPaidValue > 0) {
+          await addDoc(collection(db, "postings"), {
+            accountId: accountDocRef.id,
+            accountNo: data.accountNo,
+            date: data.startDate,
+            amount: initialPaidValue,
+            status: "collection",
+            payMode: data.paymentType,
+            lineId: data.lineId,
+            memberName: data.name,
+            collectedByRole: userData?.role,
+            collectedById: userData?.uid,
+            collectedByName: userData?.name,
+            createdAt: new Date().toISOString(),
+            isInitial: true
+          });
+        }
+
         toast.success("Account created successfully");
 
         if (userData) {

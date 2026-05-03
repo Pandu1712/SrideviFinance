@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, where, doc, updateDoc, DocumentData, runTransaction, orderBy } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where, doc, updateDoc, DocumentData, runTransaction, orderBy, onSnapshot } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,10 +25,12 @@ const DailyPosting = () => {
   const [assignedMembers, setAssignedMembers] = useState<DocumentData[]>([]);
   const [fetchingMembers, setFetchingMembers] = useState(false);
   const [villageFilter, setVillageFilter] = useState("all");
+  const [timelineFilter, setTimelineFilter] = useState("all");
   const [availableVillages, setAvailableVillages] = useState<string[]>([]);
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastPostedAmount, setLastPostedAmount] = useState(0);
   const [todayPostings, setTodayPostings] = useState<Set<string>>(new Set());
+  const [mobileView, setMobileView] = useState<"list" | "form">("list");
   const [form, setForm] = useState({ 
     accountNo: "", 
     date: new Date().toISOString().split("T")[0], 
@@ -53,8 +55,6 @@ const DailyPosting = () => {
         }
         const snap = await getDocs(q);
         const membersList = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-        const vils = Array.from(new Set(membersList.map(m => m.village).filter(Boolean))) as string[];
-        setAvailableVillages(vils.sort());
         membersList.sort((a: any, b: any) => (a.accountNo || "").localeCompare(b.accountNo || ""));
         setAssignedMembers(membersList);
       } catch (err) {
@@ -66,34 +66,54 @@ const DailyPosting = () => {
     loadAssignedMembers();
   }, [userData, selectedLineId]);
 
+  // Fetch available villages for the selected line
+  useEffect(() => {
+    const fetchLineVillages = async () => {
+      if (!selectedLineId) {
+        setAvailableVillages([]);
+        return;
+      }
+      try {
+        const q = query(collection(db, "villages"), where("lineId", "==", selectedLineId));
+        const snap = await getDocs(q);
+        const vils = snap.docs.map(d => d.data().name).sort();
+        setAvailableVillages(vils);
+      } catch (err) {
+        console.error("Fetch villages error:", err);
+      }
+    };
+    fetchLineVillages();
+  }, [selectedLineId]);
+
   // Fetch today's postings to highlight paid accounts
   // Fetch today's postings to highlight paid accounts
   useEffect(() => {
-    const loadTodayPostings = async () => {
-      if (!selectedLineId || !form.date) return;
-      try {
-        const q = query(
-          collection(db, "postings"), 
-          where("lineId", "==", selectedLineId),
-          where("date", "==", form.date)
-        );
-        const snap = await getDocs(q);
-        const postedIds = new Set(snap.docs.map(d => d.data().accountId));
-        setTodayPostings(postedIds);
-      } catch (err) {
-        console.error("Load today postings error:", err);
-      }
-    };
-    loadTodayPostings();
+    if (!selectedLineId || !form.date) return;
+    
+    const q = query(
+      collection(db, "postings"), 
+      where("lineId", "==", selectedLineId),
+      where("date", "==", form.date)
+    );
+
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const postedIds = new Set(snap.docs.map(d => d.data().accountId));
+      setTodayPostings(postedIds);
+    }, (err) => {
+      console.error("Load today postings error:", err);
+    });
+
+    return () => unsubscribe();
   }, [selectedLineId, form.date]);
 
   const selectMember = (member: DocumentData) => {
     setAccountInfo(member);
-    setForm(prev => ({ ...prev, accountNo: member.accountNo }));
+    setForm(prev => ({ ...prev, accountNo: member.accountNo, amount: String(member.installmentAmount || "") }));
     toast.info(`Selected: ${member.name}`);
     
-    // Auto-scroll to profile on mobile
+    // Auto-scroll and switch view on mobile
     if (window.innerWidth < 1024) {
+      setMobileView("form");
       setTimeout(() => {
         profileRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
@@ -131,6 +151,7 @@ const DailyPosting = () => {
       const d = snap.docs[0];
       const accountData = { id: d.id, ...(d.data() as any) };
       setAccountInfo(accountData);
+      setForm(prev => ({ ...prev, amount: String(accountData.installmentAmount || "") }));
       toast.success("Account loaded successfully");
       
       // Auto-scroll to profile on mobile
@@ -172,10 +193,8 @@ const DailyPosting = () => {
         if (!accDoc.exists()) throw new Error("Account does not exist!");
 
         const accData = accDoc.data();
-        const newPaid = (accData.paid || 0) + postingAmount;
-        const newBalance = (accData.totalAmount || 0) - newPaid;
-        const newStatus = newBalance <= 0 ? "completed" : "active";
-
+        const isVerified = userData?.role !== 'agent';
+        
         const postingRef = doc(collection(db, "postings"));
         transaction.set(postingRef, {
           accountId: accountInfo.id,
@@ -186,17 +205,27 @@ const DailyPosting = () => {
           payMode: form.payMode,
           lineId: accountInfo.lineId,
           memberName: accountInfo.name,
+          collectedByRole: userData?.role,
+          collectedById: userData?.uid,
+          collectedByName: userData?.name,
+          verified: isVerified,
           createdAt: new Date().toISOString(),
         });
 
-        transaction.update(accountRef, {
-          paid: newPaid,
-          balance: Math.max(0, newBalance),
-          status: newStatus,
-          lastPostingDate: form.date,
-          lastCollectedByName: userData?.name,
-          lastCollectedByRole: userData?.role
-        });
+        if (isVerified) {
+          const newPaid = (accData.paid || 0) + postingAmount;
+          const newBalance = (accData.totalAmount || 0) - newPaid;
+          const newStatus = newBalance <= 0 ? "completed" : "active";
+
+          transaction.update(accountRef, {
+            paid: newPaid,
+            balance: Math.max(0, newBalance),
+            status: newStatus,
+            lastPostingDate: form.date,
+            lastCollectedByName: userData?.name,
+            lastCollectedByRole: userData?.role
+          });
+        }
       });
 
       if (userData) {
@@ -204,21 +233,28 @@ const DailyPosting = () => {
           userData.uid,
           userData.name,
           userData.role,
-          "COLLECTION_POST",
-          `Collected ${formatCurrency(postingAmount)} from ${accountInfo.name} (#${accountInfo.accountNo})`
+          "POSTING_CREATE",
+          `Submitted ${formatCurrency(postingAmount)} from ${accountInfo.name} (#${accountInfo.accountNo}) ${userData.role === 'agent' ? '(Pending Approval)' : ''}`
         );
       }
 
-      toast.success("Posted successfully");
+      if (userData?.role === 'agent') {
+        toast.success("Collection submitted! Awaiting admin approval.");
+      } else {
+        toast.success("Posted and finalized successfully");
+        // Update local state for balance ONLY if verified
+        setAccountInfo(prev => prev ? { 
+          ...prev, 
+          paid: (prev.paid || 0) + postingAmount, 
+          balance: Math.max(0, (prev.balance || 0) - postingAmount) 
+        } : null);
+      }
+      
       setIsSuccess(true);
       setLastPostedAmount(postingAmount);
       
-      // Update local state for balance
-      setAccountInfo(prev => prev ? { 
-        ...prev, 
-        paid: (prev.paid || 0) + postingAmount, 
-        balance: Math.max(0, (prev.balance || 0) - postingAmount) 
-      } : null);
+      // Update local state for immediate feedback (Greening the list)
+      setTodayPostings(prev => new Set([...Array.from(prev), accountInfo.id]));
 
     } catch (err: any) {
       toast.error(err.message || "Failed");
@@ -246,185 +282,237 @@ const DailyPosting = () => {
             </p>
           </div>
         </div>
+
+        {/* Mobile View Toggle */}
+        <div className="flex lg:hidden bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+          <button 
+            onClick={() => setMobileView("list")}
+            className={cn(
+              "flex-1 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+              mobileView === "list" ? "bg-white text-primary shadow-sm" : "text-slate-400"
+            )}
+          >
+            Member Portfolio
+          </button>
+          <button 
+            onClick={() => setMobileView("form")}
+            className={cn(
+              "flex-1 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+              mobileView === "form" ? "bg-white text-primary shadow-sm" : "text-slate-400"
+            )}
+          >
+            Entry Portal
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
         <AnimatePresence mode="wait">
           {!isSuccess ? (
-            <motion.div
-              key="posting-form"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="lg:col-span-4 space-y-6"
-            >
-              {/* Entry Portal - NOW FIRST */}
-              <Card className="glass-card border-none shadow-2xl overflow-hidden">
-                <CardHeader className="bg-slate-900 text-white py-4">
-                  <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-[0.2em]">
-                    <CreditCard className="h-4 w-4 text-accent" />
-                    Entry Portal
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <form onSubmit={handleSubmit} className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Account Number</Label>
-                        <div className="relative">
+            <>
+              {/* Entry Portal - Conditional on Mobile */}
+              <motion.div
+                key="posting-form"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                className={cn(
+                  "lg:col-span-4 space-y-6",
+                  mobileView === "list" ? "hidden lg:block" : "block"
+                )}
+              >
+                <Card className="glass-card border-none shadow-2xl overflow-hidden">
+                  <CardHeader className="bg-slate-900 text-white py-4">
+                    <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-[0.2em]">
+                      <CreditCard className="h-4 w-4 text-accent" />
+                      Entry Portal
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Account Number</Label>
+                          <div className="relative">
+                            <Input 
+                              value={form.accountNo} 
+                              onChange={e => handleChange("accountNo", e.target.value)} 
+                              onBlur={() => fetchAccount()}
+                              placeholder="ACC-000" 
+                              className="h-11 pl-4 pr-12 text-lg font-black finance-input" 
+                            />
+                            <Button 
+                              type="button"
+                              size="icon" 
+                              onClick={() => fetchAccount()}
+                              className="absolute right-1 top-1 h-9 w-9 bg-primary text-white rounded-lg"
+                            >
+                              <Search size={16} />
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Posting Date</Label>
                           <Input 
-                            value={form.accountNo} 
-                            onChange={e => handleChange("accountNo", e.target.value)} 
-                            onBlur={() => fetchAccount()}
-                            placeholder="ACC-000" 
-                            className="h-11 pl-4 pr-12 text-lg font-black finance-input" 
+                            type="date" 
+                            value={form.date} 
+                            onChange={e => handleChange("date", e.target.value)} 
+                            className="h-11 finance-input font-bold" 
                           />
-                          <Button 
-                            type="button"
-                            size="icon" 
-                            onClick={() => fetchAccount()}
-                            className="absolute right-1 top-1 h-9 w-9 bg-primary text-white rounded-lg"
-                          >
-                            <Search size={16} />
-                          </Button>
                         </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Posting Date</Label>
-                        <Input 
-                          type="date" 
-                          value={form.date} 
-                          onChange={e => handleChange("date", e.target.value)} 
-                          className="h-11 finance-input font-bold" 
-                        />
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount (₹)</Label>
-                        <Input 
-                          type="text" 
-                          inputMode="decimal"
-                          value={form.amount} 
-                          onChange={e => handleChange("amount", e.target.value)} 
-                          placeholder="0.00" 
-                          className="h-11 text-lg font-black finance-input border-accent/20 focus:border-accent" 
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount (₹)</Label>
+                          <Input 
+                            type="text" 
+                            inputMode="decimal"
+                            value={form.amount} 
+                            onChange={e => handleChange("amount", e.target.value)} 
+                            placeholder="0.00" 
+                            className="h-11 text-lg font-black finance-input border-accent/20 focus:border-accent" 
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Category</Label>
+                          <Select value={form.status} onValueChange={v => handleChange("status", v)}>
+                            <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="collection">Collection</SelectItem>
+                              <SelectItem value="penalty">Penalty</SelectItem>
+                              <SelectItem value="other">Other Fees</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
+
                       <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Category</Label>
-                        <Select value={form.status} onValueChange={v => handleChange("status", v)}>
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Mode</Label>
+                        <Select value={form.payMode} onValueChange={v => handleChange("payMode", v)}>
                           <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="collection">Collection</SelectItem>
-                            <SelectItem value="penalty">Penalty</SelectItem>
-                            <SelectItem value="other">Other Fees</SelectItem>
+                            <SelectItem value="cash">Cash</SelectItem>
+                            <SelectItem value="bank">Bank</SelectItem>
+                            <SelectItem value="upi">UPI</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <Button 
+                        type="submit" 
+                        className="w-full h-16 md:h-14 bg-primary text-white font-black uppercase tracking-widest shadow-2xl hover:bg-slate-900 transition-all active:scale-95" 
+                        disabled={loading || !accountInfo}
+                      >
+                        {loading ? "Authorizing..." : "Submit Collection"}
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              {/* Portfolio - Conditional on Mobile */}
+              <motion.div
+                key="portfolio"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className={cn(
+                  "lg:col-span-3",
+                  mobileView === "form" ? "hidden lg:block" : "block"
+                )}
+              >
+                <Card className="glass-card h-[calc(100vh-250px)] overflow-hidden flex flex-col border-none shadow-2xl transition-all">
+                  <CardHeader className="border-b border-primary/5 bg-slate-50/50 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <CardTitle className="text-sm font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
+                        <Users className="h-4 w-4 text-accent" />
+                        Portfolio
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Select value={timelineFilter} onValueChange={setTimelineFilter}>
+                          <SelectTrigger className="h-8 w-20 sm:w-24 text-[10px] font-black uppercase tracking-widest border-none bg-white shadow-sm">
+                            <SelectValue placeholder="Freq" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Freq</SelectItem>
+                            <SelectItem value="daily">Daily Only</SelectItem>
+                            <SelectItem value="weekly">Weekly Only</SelectItem>
+                            <SelectItem value="monthly">Monthly Only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Select value={villageFilter} onValueChange={setVillageFilter}>
+                          <SelectTrigger className="h-8 w-24 sm:w-28 text-[10px] font-black uppercase tracking-widest border-none bg-white shadow-sm">
+                            <SelectValue placeholder="Village" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Villages</SelectItem>
+                            {availableVillages.map(v => (
+                              <SelectItem key={v} value={v}>{v}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
                     </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Mode</Label>
-                      <Select value={form.payMode} onValueChange={v => handleChange("payMode", v)}>
-                        <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="cash">Cash</SelectItem>
-                          <SelectItem value="bank">Bank</SelectItem>
-                          <SelectItem value="upi">UPI</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <Button 
-                      type="submit" 
-                      className="w-full h-16 md:h-14 bg-primary text-white font-black uppercase tracking-widest shadow-2xl hover:bg-slate-900 transition-all active:scale-95" 
-                      disabled={loading || !accountInfo}
-                    >
-                      {loading ? "Authorizing..." : "Submit Collection"}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-
-              <Card className="glass-card h-[calc(100vh-250px)] overflow-hidden flex flex-col border-none shadow-2xl transition-all">
-                <CardHeader className="border-b border-primary/5 bg-slate-50/50 py-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <CardTitle className="text-sm font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
-                      <Users className="h-4 w-4 text-accent" />
-                      Portfolio
-                    </CardTitle>
-                    <Select value={villageFilter} onValueChange={setVillageFilter}>
-                      <SelectTrigger className="h-8 w-32 text-[10px] font-black uppercase tracking-widest border-none bg-white shadow-sm">
-                        <SelectValue placeholder="Village" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Villages</SelectItem>
-                        {availableVillages.map(v => (
-                          <SelectItem key={v} value={v}>{v}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0 flex-1 overflow-hidden">
-                  <ScrollArea className="h-full">
-                    <div className="p-3 space-y-2">
-                      {fetchingMembers ? (
-                        <div className="p-5 text-center text-xs text-muted-foreground animate-pulse">Syncing members...</div>
-                      ) : assignedMembers
-                          .filter(m => villageFilter === 'all' || m.village === villageFilter)
-                          .map((m) => (
-                        <button 
-                          key={m.id}
-                          onClick={() => selectMember(m)}
-                          className={cn(
-                            "w-full text-left p-3 rounded-2xl border border-transparent transition-all group",
-                            accountInfo?.id === m.id 
-                              ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
-                              : todayPostings.has(m.id)
-                                ? "bg-emerald-50 border-emerald-100" 
-                                : "hover:bg-slate-50 hover:border-slate-100"
-                          )}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={cn(
-                              "h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-black transition-all",
-                              accountInfo?.id === m.id ? "bg-white text-accent" : 
-                              todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
-                            )}>
-                              {m.accountNo}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className={cn("text-[13px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>{m.name}</p>
-                              <div className="flex items-center gap-2">
-                                <span className={cn("text-[9px] font-bold opacity-60", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                  # {m.accountNo}
-                                </span>
-                                {m.village && (
-                                  <span className={cn("text-[8px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                    • {m.village}
+                  </CardHeader>
+                  <CardContent className="p-0 flex-1 overflow-hidden">
+                    <ScrollArea className="h-full">
+                      <div className="p-3 space-y-2">
+                        {fetchingMembers ? (
+                          <div className="p-5 text-center text-xs text-muted-foreground animate-pulse">Syncing members...</div>
+                        ) : assignedMembers
+                            .filter(m => (villageFilter === 'all' || m.village === villageFilter) && (timelineFilter === 'all' || m.paymentFrequency === timelineFilter))
+                            .map((m) => (
+                          <button 
+                            key={m.id}
+                            onClick={() => selectMember(m)}
+                            className={cn(
+                              "w-full text-left p-3 rounded-2xl border border-transparent transition-all group",
+                              accountInfo?.id === m.id 
+                                ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
+                                : todayPostings.has(m.id)
+                                  ? "bg-emerald-50 border-emerald-100" 
+                                  : "hover:bg-slate-50 hover:border-slate-100"
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-black transition-all",
+                                accountInfo?.id === m.id ? "bg-white text-accent" : 
+                                todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
+                              )}>
+                                {m.accountNo}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={cn("text-[13px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>{m.name}</p>
+                                <div className="flex items-center gap-2">
+                                  <span className={cn("text-[9px] font-bold opacity-60", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                    # {m.accountNo}
                                   </span>
-                                )}
+                                  {m.village && (
+                                    <span className={cn("text-[8px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                      • {m.village}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                 {m.phone && (
+                                   <a href={`tel:${m.phone}`} onClick={e => e.stopPropagation()} className="p-2 bg-slate-100 rounded-lg hover:bg-emerald-100 text-emerald-600">
+                                     <Zap size={12} />
+                                   </a>
+                                 )}
+                                 <ArrowRight size={14} className={cn("ml-1", accountInfo?.id === m.id ? "text-white" : "text-slate-300")} />
                               </div>
                             </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                               {m.phone && (
-                                 <a href={`tel:${m.phone}`} onClick={e => e.stopPropagation()} className="p-2 bg-slate-100 rounded-lg hover:bg-emerald-100 text-emerald-600">
-                                   <Zap size={12} />
-                                 </a>
-                               )}
-                               <ArrowRight size={14} className={cn("ml-1", accountInfo?.id === m.id ? "text-white" : "text-slate-300")} />
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </motion.div>
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </>
           ) : (
             <motion.div
               key="success-receipt"

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, addDoc, deleteDoc, doc, DocumentData, updateDoc } from "firebase/firestore";
+import { collection, getDocs, addDoc, deleteDoc, doc, DocumentData, updateDoc, query, where } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLine } from "@/contexts/LineContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,9 +12,9 @@ import { MapPin, Plus, Trash2, ShieldAlert, Edit, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-
 const ManageVillages = () => {
   const { userData, loading: authLoading } = useAuth();
+  const { selectedLineId } = useLine();
   const [villages, setVillages] = useState<DocumentData[]>([]);
   const [villageData, setVillageData] = useState({
     name: "",
@@ -24,10 +25,15 @@ const ManageVillages = () => {
   });
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isRenamingLine, setIsRenamingLine] = useState(false);
+  const [newLineName, setNewLineName] = useState("");
+  const { lines } = useLine();
 
   const fetchVillages = async () => {
+    if (!selectedLineId) return;
     try {
-      const snap = await getDocs(collection(db, "villages"));
+      const q = query(collection(db, "villages"), where("lineId", "==", selectedLineId));
+      const snap = await getDocs(q);
       const list: DocumentData[] = [];
       snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
       // Sort alphabetically
@@ -40,10 +46,12 @@ const ManageVillages = () => {
   };
 
   useEffect(() => {
-    if (userData?.role === "super_admin" || userData?.role === "admin") {
+    if ((userData?.role === "super_admin" || userData?.role === "admin") && selectedLineId) {
       fetchVillages();
+    } else {
+      setVillages([]);
     }
-  }, [userData]);
+  }, [userData, selectedLineId]);
 
   const handleSave = async () => {
     if (!villageData.name.trim()) {
@@ -59,6 +67,7 @@ const ManageVillages = () => {
         district: villageData.district.trim(),
         pincode: villageData.pincode.trim(),
         postOffice: villageData.postOffice.trim(),
+        lineId: selectedLineId,
         updatedAt: new Date().toISOString(),
       };
 
@@ -134,6 +143,25 @@ const ManageVillages = () => {
     }
   };
 
+  const handleLineRename = async () => {
+    if (!selectedLineId || !newLineName.trim()) return;
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, "lines", selectedLineId), {
+        name: newLineName.trim(),
+        updatedAt: new Date().toISOString()
+      });
+      toast.success("Line renamed successfully");
+      setIsRenamingLine(false);
+      setNewLineName("");
+      // Refreshing through context happens automatically via onSnapshot
+    } catch (err) {
+      toast.error("Failed to rename line");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (authLoading) return <div className="h-screen flex items-center justify-center">Loading Data...</div>;
 
   return (
@@ -152,6 +180,42 @@ const ManageVillages = () => {
             <p className="text-muted-foreground font-medium">Configure central village dropdown for account creation.</p>
           </div>
         </div>
+
+        {selectedLineId && (userData?.role === "super_admin" || userData?.role === "admin") && (
+          <Card className="glass-card border-none shadow-lg p-4 flex items-center gap-4 bg-white/50 backdrop-blur-sm">
+             <div className="flex-1">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-none mb-1">Active Line</p>
+                <h3 className="text-lg font-black text-slate-900 leading-none">
+                  {lines.find(l => l.id === selectedLineId)?.name || "Unknown Line"}
+                </h3>
+             </div>
+             
+             {isRenamingLine ? (
+                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
+                   <Input 
+                     value={newLineName}
+                     onChange={e => setNewLineName(e.target.value)}
+                     placeholder="New Line Name"
+                     className="h-9 w-48 finance-input text-xs font-bold"
+                   />
+                   <Button onClick={handleLineRename} className="h-9 px-4 bg-emerald-500 text-white font-black text-[10px] uppercase">Save</Button>
+                   <Button variant="ghost" onClick={() => setIsRenamingLine(false)} className="h-9 text-slate-400">Cancel</Button>
+                </div>
+             ) : (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewLineName(lines.find(l => l.id === selectedLineId)?.name || "");
+                    setIsRenamingLine(true);
+                  }}
+                  className="h-10 border-slate-200 font-black text-[10px] uppercase tracking-widest px-4 group"
+                >
+                  <Edit size={14} className="mr-2 text-slate-400 group-hover:text-accent" />
+                  Rename Line
+                </Button>
+             )}
+          </Card>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -7,14 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File } from "lucide-react";
+import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File, FileSpreadsheet, Edit, IndianRupee, Calendar, ArrowRightLeft, MoveRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Calendar } from "lucide-react";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { exportToExcel } from "@/lib/excel";
 
 import { useSearchParams } from "react-router-dom";
 
@@ -27,6 +28,17 @@ const Ledger = () => {
   const [accountInfo, setAccountInfo] = useState<DocumentData | null>(null);
   const [postings, setPostings] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Edit Posting States
+  const [editPostingOpen, setEditPostingOpen] = useState(false);
+  const [selectedEditPosting, setSelectedEditPosting] = useState<any>(null);
+  const [editPostDate, setEditPostDate] = useState("");
+  const [editPostAmount, setEditPostAmount] = useState("");
+
+  // Transfer Posting States
+  const [transferPostingOpen, setTransferPostingOpen] = useState(false);
+  const [selectedPostingForTransfer, setSelectedPostingForTransfer] = useState<any>(null);
+  const [destAccountNo, setDestAccountNo] = useState("");
 
   // Fetch agents for mapping
   useEffect(() => {
@@ -44,6 +56,122 @@ const Ledger = () => {
   useEffect(() => {
     if (userData && accountNo) handleSearch();
   }, [userData]);
+
+  const handleEditPosting = (posting: DocumentData) => {
+    setSelectedEditPosting(posting);
+    setEditPostDate(posting.date);
+    setEditPostAmount(posting.amount.toString());
+    setEditPostingOpen(true);
+  };
+
+  const handleTransferInit = (p: any) => {
+    setSelectedPostingForTransfer(p);
+    setDestAccountNo("");
+    setTransferPostingOpen(true);
+  };
+
+  const saveTransferPosting = async () => {
+    if (!selectedPostingForTransfer || !destAccountNo || !accountInfo) return;
+    
+    if (destAccountNo === accountInfo.accountNo) {
+      toast.error("Source and Destination accounts are the same");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const destQuery = query(collection(db, "accounts"), where("accountNo", "==", destAccountNo));
+      const destSnap = await getDocs(destQuery);
+      if (destSnap.empty) {
+        toast.error("Destination account not found");
+        setLoading(false);
+        return;
+      }
+      const destDoc = destSnap.docs[0];
+      const destData = destDoc.data();
+      const destId = destDoc.id;
+
+      await runTransaction(db, async (transaction) => {
+        const sourceAccRef = doc(db, "accounts", accountInfo.id);
+        const destAccRef = doc(db, "accounts", destId);
+        const postingRef = doc(db, "postings", selectedPostingForTransfer.id);
+
+        const amount = selectedPostingForTransfer.amount;
+
+        transaction.update(sourceAccRef, {
+          paid: (accountInfo.paid || 0) - amount,
+          balance: (accountInfo.balance || 0) + amount
+        });
+
+        transaction.update(destAccRef, {
+          paid: (destData.paid || 0) + amount,
+          balance: (destData.balance || 0) - amount
+        });
+
+        transaction.update(postingRef, {
+          accountId: destId,
+          accountNo: destAccountNo,
+          memberName: destData.name,
+          lineId: destData.lineId
+        });
+
+        const logRef = doc(collection(db, "activity_logs"));
+        transaction.set(logRef, {
+          type: "posting_transfer",
+          postingId: selectedPostingForTransfer.id,
+          fromAccount: accountInfo.accountNo,
+          toAccount: destAccountNo,
+          amount: amount,
+          performedBy: userData?.name || "System",
+          timestamp: new Date()
+        });
+      });
+
+      toast.success(`Transferred ${formatCurrency(selectedPostingForTransfer.amount)} to ${destAccountNo}`);
+      setTransferPostingOpen(false);
+      handleSearch();
+    } catch (err) {
+      console.error("Transfer error:", err);
+      toast.error("Transfer failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveEditPosting = async () => {
+    if (!selectedEditPosting || !accountInfo) return;
+    setLoading(true);
+    try {
+      const postingRef = doc(db, "postings", selectedEditPosting.id);
+      const oldAmount = selectedEditPosting.amount;
+      const newAmount = parseFloat(editPostAmount);
+      const diff = newAmount - oldAmount;
+
+      await runTransaction(db, async (transaction) => {
+        const accRef = doc(db, "accounts", accountInfo.id);
+        const accDoc = await transaction.get(accRef);
+        
+        transaction.update(postingRef, {
+          date: editPostDate,
+          amount: newAmount
+        });
+
+        transaction.update(accRef, {
+          paid: (accDoc.data()?.paid || 0) + diff,
+          balance: (accDoc.data()?.balance || 0) - diff
+        });
+      });
+
+      toast.success("Transaction updated successfully");
+      setEditPostingOpen(false);
+      handleSearch();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update transaction");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDeletePosting = async (posting: DocumentData) => {
     if (userData?.role !== "super_admin") return;
@@ -212,7 +340,27 @@ const Ledger = () => {
             doc.save(`Ledger_${accountNo}_${new Date().toISOString().split("T")[0]}.pdf`);
             toast.success("Ledger Exported as PDF");
           }}>
-            <Download className="h-4 w-4" /> Export PDF
+            <Download className="h-4 w-4" /> PDF
+          </Button>
+          <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-emerald-600 font-bold hover:bg-emerald-50 hover:border-emerald-200 transition-all" onClick={() => {
+            if (!accountInfo || postings.length === 0) {
+              toast.error("No data to export");
+              return;
+            }
+            
+            const data = postings.map((p, i) => ({
+              "Sl No": i + 1,
+              "Date": formatDate(p.date),
+              "Description": p.status?.toUpperCase() || "PAYMENT",
+              "Amount": p.amount || 0,
+              "Mode": (p.payMode || "CASH").toUpperCase(),
+              "Collected By": p.collectedByName || "System"
+            }));
+
+            exportToExcel(data, `Ledger_${accountNo}`, "Ledger");
+            toast.success("Ledger Exported as Excel");
+          }}>
+            <FileSpreadsheet className="h-4 w-4" /> Excel
           </Button>
 
         </div>
@@ -278,9 +426,11 @@ const Ledger = () => {
                   <p className="text-[10px] font-bold text-destructive/60">Status: {accountInfo.status.toUpperCase()}</p>
                 </CardContent>
               </Card>
+            </div>
 
-              {/* Advanced Metadata */}
-              <Card className="bg-slate-50 border-slate-200 shadow-inner md:col-span-2">
+            {/* Advanced Metadata */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card className="bg-slate-50 border-slate-200 shadow-inner">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="space-y-1">
                     <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Assignment Profile</p>
@@ -290,7 +440,7 @@ const Ledger = () => {
                        </div>
                        <div className="flex flex-col">
                           <span className="text-xs font-black text-primary uppercase">
-                            {agents.find(a => a.id === accountInfo.agentId)?.name || 'System Auto-Assigned'}
+                            {agents.find(a => a.id === accountInfo.agentId)?.name || accountInfo.lastCollectedByName || 'System Auto-Assigned'}
                           </span>
                           <span className="text-[9px] font-bold text-slate-400">Dedicated Collection Agent</span>
                        </div>
@@ -303,7 +453,7 @@ const Ledger = () => {
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-50 border-slate-200 shadow-inner md:col-span-2">
+              <Card className="bg-slate-50 border-slate-200 shadow-inner">
                 <CardContent className="p-4 flex items-center justify-between">
                    <div className="space-y-1">
                       <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Loan Timeline</p>
@@ -391,15 +541,13 @@ const Ledger = () => {
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Payment Mode</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Collected By</th>
                       <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-center">Status</th>
-                      {userData?.role === "super_admin" && (
-                        <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Delete</th>
-                      )}
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-primary/5">
                     {postings.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="text-center py-20 text-muted-foreground italic bg-slate-50/50">
+                        <td colSpan={8} className="text-center py-20 text-muted-foreground italic bg-slate-50/50">
                           <User className="h-12 w-12 mx-auto mb-3 text-muted-foreground/20" />
                           No payment history found for this account.
                         </td>
@@ -439,18 +587,41 @@ const Ledger = () => {
                                 {p.status}
                               </span>
                             </td>
-                            {userData?.role === "super_admin" && (
-                              <td className="p-4 text-right">
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="h-8 w-8 text-destructive/50 hover:text-destructive hover:bg-destructive/10"
-                                  onClick={() => handleDeletePosting(p)}
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
+                            <td className="p-4 text-right">
+                                {userData?.role === "super_admin" && (
+                                  <div className="flex justify-end gap-1">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      title="Transfer Posting"
+                                      className="h-8 w-8 text-slate-300 hover:text-blue-500 hover:bg-blue-50"
+                                      onClick={() => handleTransferInit(p)}
+                                    >
+                                      <ArrowRightLeft size={14} />
+                                    </Button>
+                                    {userData?.role === "super_admin" && (
+                                      <>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          className="h-8 w-8 text-slate-300 hover:text-accent hover:bg-accent/5"
+                                          onClick={() => handleEditPosting(p)}
+                                        >
+                                          <Edit size={14} />
+                                        </Button>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          className="h-8 w-8 text-slate-300 hover:text-destructive hover:bg-destructive/5"
+                                          onClick={() => handleDeletePosting(p)}
+                                        >
+                                          <Trash2 size={14} />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
                               </td>
-                            )}
                           </motion.tr>
                         );
                       })
@@ -462,7 +633,7 @@ const Ledger = () => {
                         <td colSpan={2} className="p-4 text-xs font-bold text-primary-foreground uppercase tracking-widest">Final Total Summarized</td>
                         <td className="p-4 text-lg font-black text-white text-right">{formatCurrency(runningTotal)}</td>
                         <td className="p-4 text-lg font-black text-accent text-right">{formatCurrency(runningTotal)}</td>
-                        <td colSpan={2}></td>
+                        <td colSpan={4}></td>
                       </tr>
                     </tfoot>
                   )}
@@ -482,6 +653,107 @@ const Ledger = () => {
           </div>
         </div>
       )}
+
+      <Dialog open={editPostingOpen} onOpenChange={setEditPostingOpen}>
+        <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-slate-900 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+              <Edit size={20} className="text-accent" />
+              Adjust Transaction
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs mt-1">
+              Correcting ledger entry for {accountInfo?.name}
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Correct Amount</Label>
+              <div className="relative">
+                <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="number" 
+                  value={editPostAmount} 
+                  onChange={e => setEditPostAmount(e.target.value)} 
+                  className="pl-9 h-12 finance-input font-black text-lg" 
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">New Transaction Date</Label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="date" 
+                  value={editPostDate} 
+                  onChange={e => setEditPostDate(e.target.value)} 
+                  className="pl-9 h-12 finance-input font-bold" 
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={() => setEditPostingOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+                Cancel
+              </Button>
+              <Button onClick={saveEditPosting} className="flex-1 h-12 rounded-xl bg-slate-900 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-slate-800">
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={transferPostingOpen} onOpenChange={setTransferPostingOpen}>
+        <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-blue-600 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+              <ArrowRightLeft size={20} className="text-white" />
+              Shift Transaction
+            </DialogTitle>
+            <DialogDescription className="text-blue-100 text-xs mt-1">
+              Moving entry from {accountInfo?.accountNo} to a different account
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 flex items-center gap-3">
+               <div className="h-10 w-10 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm font-black text-sm">
+                  {selectedPostingForTransfer?.amount}
+               </div>
+               <div className="flex-1">
+                  <p className="text-[10px] font-black uppercase text-blue-400 leading-none">Moving Amount</p>
+                  <p className="text-xs font-bold text-blue-700 mt-1">{formatDate(selectedPostingForTransfer?.date)}</p>
+               </div>
+               <MoveRight className="text-blue-300" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Destination Account No</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  placeholder="Enter ACC-XXXX" 
+                  value={destAccountNo} 
+                  onChange={e => setDestAccountNo(e.target.value.toUpperCase())} 
+                  className="pl-9 h-12 finance-input font-black text-lg" 
+                />
+              </div>
+              <p className="text-[9px] font-medium text-slate-400 px-1 italic">Balances will be automatically adjusted on both accounts.</p>
+            </div>
+            
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={() => setTransferPostingOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+                Cancel
+              </Button>
+              <Button 
+                onClick={saveTransferPosting} 
+                disabled={loading || !destAccountNo}
+                className="flex-1 h-12 rounded-xl bg-blue-600 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700"
+              >
+                {loading ? "Shifting..." : "Shift Now"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 };

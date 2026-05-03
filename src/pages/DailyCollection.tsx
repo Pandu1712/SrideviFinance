@@ -8,15 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Scale, ShieldCheck } from "lucide-react";
+import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Scale, ShieldCheck, FileSpreadsheet } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { generateRepaymentSchedule, getGoogleMapsUrl } from "@/lib/loanUtils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { logActivity } from "@/lib/audit";
+import { exportToExcel } from "@/lib/excel";
 
 const DailyCollection = () => {
   const navigate = useNavigate();
@@ -46,6 +48,12 @@ const DailyCollection = () => {
   const [digiPayer, setDigiPayer] = useState("");
   const [lateFee, setLateFee] = useState("");
   const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // Edit Posting States
+  const [editPostingOpen, setEditPostingOpen] = useState(false);
+  const [selectedEditPosting, setSelectedEditPosting] = useState<any>(null);
+  const [editPostDate, setEditPostDate] = useState("");
+  const [editPostAmount, setEditPostAmount] = useState("");
 
   // Admin Override States
   const [overrideModalOpen, setOverrideModalOpen] = useState(false);
@@ -315,6 +323,29 @@ const DailyCollection = () => {
 
     doc.save(`Ledger_${activeLineName}_${date}.pdf`);
     toast.success("Operational Ledger Exported");
+  };
+
+  const handleExportExcel = () => {
+    if (records.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+    
+    const data = records.map((r, i) => ({
+      "Sl No": i + 1,
+      "Member Name": r.memberName,
+      "Account No": r.accountNo,
+      "Recovery Amount": r.amount || 0,
+      "Principal Component": r.principal || 0,
+      "Late Fee": r.lateFee || 0,
+      "Payment Mode": (r.payMode || "").toUpperCase(),
+      "Collected By": r.collectedByName,
+      "Role": (r.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'),
+      "Date": formatDate(r.date)
+    }));
+
+    exportToExcel(data, `Daily_Recovery_${date}`, "Recovery Ledger");
+    toast.success("Operational Ledger Exported as Excel");
   };
 
 
@@ -854,6 +885,30 @@ const DailyCollection = () => {
   const cashTotal = records.filter(r => r.payMode === 'cash').reduce((acc, r) => acc + (r.amount || 0), 0);
   const onlineTotal = records.filter(r => r.payMode !== 'cash').reduce((acc, r) => acc + (r.amount || 0), 0);
 
+  const handleEditPosting = (posting: any) => {
+    setSelectedEditPosting(posting);
+    setEditPostDate(posting.date);
+    setEditPostAmount(String(posting.amount));
+    setEditPostingOpen(true);
+  };
+
+  const saveEditPosting = async () => {
+    if (!selectedEditPosting || !editPostDate || !editPostAmount) return;
+    try {
+      const postingRef = doc(db, "postings", selectedEditPosting.id);
+      const updates = {
+        date: editPostDate,
+        amount: parseFloat(editPostAmount)
+      };
+      await updateDoc(postingRef, updates);
+      toast.success("Entry revised successfully");
+      setRecords(prev => prev.map(p => p.id === selectedEditPosting.id ? { ...p, ...updates } : p));
+      setEditPostingOpen(false);
+    } catch (err) {
+      toast.error("Correction failed");
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -888,6 +943,9 @@ const DailyCollection = () => {
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Verify ID</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-center">Audit</th>
                 {userData?.role === "super_admin" && (
+                  <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Edit</th>
+                )}
+                {userData?.role === "super_admin" && (
                   <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Delete</th>
                 )}
               </tr>
@@ -912,14 +970,24 @@ const DailyCollection = () => {
                   <td className="p-5 text-center"><Badge variant="outline" className="text-slate-400 text-[9px] font-black uppercase">{r.status}</Badge></td>
                   {userData?.role === "super_admin" && (
                     <td className="p-5 text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-slate-300 hover:text-destructive hover:bg-destructive/5"
-                        onClick={() => handleDeletePosting(r)}
-                      >
-                        <Trash2 size={14} />
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-slate-300 hover:text-blue-500 hover:bg-blue-50/50"
+                          onClick={() => handleEditPosting(r)}
+                        >
+                          <Edit3 size={14} />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-slate-300 hover:text-destructive hover:bg-destructive/5"
+                          onClick={() => handleDeletePosting(r)}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -1011,8 +1079,8 @@ const DailyCollection = () => {
               <h2 className="text-3xl font-black italic uppercase tracking-tighter text-slate-900">Audit Complete?</h2>
               <p className="text-slate-500 font-medium max-w-sm">Once all postings are verified and expenses are logged, this day's operative cycle is considered closed. Ensure all manual overrides match physical records.</p>
               <div className="flex gap-4 w-full pt-4">
-                 <Button onClick={handleExportPDF} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-slate-200">Export PDF Ledger</Button>
-
+                 <Button onClick={handleExportPDF} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-slate-200">Export PDF</Button>
+                 <Button onClick={handleExportExcel} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-emerald-200 text-emerald-600 hover:bg-emerald-50">Export Excel</Button>
               </div>
            </Card>
         </motion.div>
@@ -1135,6 +1203,53 @@ const DailyCollection = () => {
           )}
         </AnimatePresence>
 
+      <Dialog open={editPostingOpen} onOpenChange={setEditPostingOpen}>
+        <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-slate-900 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+              <Edit3 size={20} className="text-amber-400" />
+              Manual Correction
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs mt-1">
+              Modifying transaction for {selectedEditPosting?.memberName}
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Corrected Amount</Label>
+              <div className="relative">
+                <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="number" 
+                  value={editPostAmount} 
+                  onChange={e => setEditPostAmount(e.target.value)} 
+                  className="pl-9 h-12 finance-input font-black text-lg" 
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Adjusted Date</Label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="date" 
+                  value={editPostDate} 
+                  onChange={e => setEditPostDate(e.target.value)} 
+                  className="pl-9 h-12 finance-input font-bold" 
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={() => setEditPostingOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+                Cancel
+              </Button>
+              <Button onClick={saveEditPosting} className="flex-1 h-12 rounded-xl bg-slate-900 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-slate-800">
+                Confirm Revision
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 };

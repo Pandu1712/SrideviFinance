@@ -8,13 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download } from "lucide-react";
+import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { exportToExcel } from "@/lib/excel";
 
 const COLORS = ["#0F172A", "#D4AF37", "#64748B", "#F59E0B", "#10B981"];
 
@@ -127,6 +128,70 @@ const Reports = () => {
 
   const barData = Object.entries(stats.byAgent).map(([name, value]) => ({ name, value }));
 
+  const handleExportPDF = () => {
+    if (data.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+    
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text("Sridevi Finance Hub - Audit Report", 14, 22);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+    doc.text(`Report Date: ${formatDate(date)}`, 14, 35);
+    
+    const tableColumn = ["S.No", "Account No", "Member Name", "Collection", "Payment", "Mode", "Category"];
+    const tableRows = data.map((item, idx) => [
+      String(idx + 1).padStart(2, '0'),
+      item.accountNo, 
+      item.memberName || item.name,
+      !item.isDisbursement ? formatCurrency(item.amount) : "—",
+      item.isDisbursement ? formatCurrency(item.amount) : "—",
+      item.payMode.toUpperCase(), 
+      item.status.toUpperCase()
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 45,
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      styles: { fontSize: 8, cellPadding: 3 }
+    });
+
+    doc.save(`Report_${date}.pdf`);
+    toast.success("PDF Report Exported Successfully");
+  };
+
+  const handleExportExcel = () => {
+    if (data.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+    
+    const excelData = data.map((item, idx) => ({
+      "S.No": idx + 1,
+      "Account No": item.accountNo,
+      "Member Name": item.memberName || item.name,
+      "Collection": !item.isDisbursement ? item.amount : 0,
+      "Disbursement": item.isDisbursement ? item.amount : 0,
+      "Doc Charges": item.documentCharge || 0,
+      "Mode": (item.payMode || "").toUpperCase(),
+      "Category": (item.status || "").toUpperCase()
+    }));
+
+    exportToExcel(excelData, `Financial_Report_${date}`, "Report");
+    toast.success("Excel Report Exported Successfully");
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -156,50 +221,16 @@ const Reports = () => {
           <Button 
             variant="outline" 
             className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-slate-700 hover:bg-slate-100 font-bold"
-            onClick={() => {
-              if (data.length === 0) {
-                toast.error("No data to export");
-                return;
-              }
-              
-              const doc = new jsPDF();
-              
-              // Header
-              doc.setFontSize(20);
-              doc.setTextColor(15, 23, 42); // slate-900
-              doc.text("Sridevi Finance Hub - Audit Report", 14, 22);
-              
-              doc.setFontSize(10);
-              doc.setTextColor(100, 116, 139); // slate-500
-              doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
-              doc.text(`Report Date: ${formatDate(date)}`, 14, 35);
-              
-              const tableColumn = ["S.No", "Account No", "Member Name", "Collection", "Payment", "Mode", "Category"];
-              const tableRows = data.map((item, idx) => [
-                String(idx + 1).padStart(2, '0'),
-                item.accountNo, 
-                item.memberName || item.name,
-                !item.isDisbursement ? formatCurrency(item.amount) : "—",
-                item.isDisbursement ? formatCurrency(item.amount) : "—",
-                item.payMode.toUpperCase(), 
-                item.status.toUpperCase()
-              ]);
-
-              autoTable(doc, {
-                head: [tableColumn],
-                body: tableRows,
-                startY: 45,
-                theme: 'striped',
-                headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-                alternateRowStyles: { fillColor: [248, 250, 252] },
-                styles: { fontSize: 8, cellPadding: 3 }
-              });
-
-              doc.save(`Report_${date}.pdf`);
-              toast.success("PDF Report Exported Successfully");
-            }}
+            onClick={handleExportPDF}
           >
-            <Download className="h-4 w-4" /> Export PDF
+            <Download className="h-4 w-4" /> PDF
+          </Button>
+          <Button 
+            variant="outline" 
+            className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-emerald-600 hover:bg-emerald-50 font-bold"
+            onClick={handleExportExcel}
+          >
+            <FileSpreadsheet className="h-4 w-4" /> Excel
           </Button>
         </div>
       </div>

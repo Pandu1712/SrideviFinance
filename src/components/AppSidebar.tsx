@@ -25,14 +25,14 @@ interface MenuSection {
 
 const menuSections: MenuSection[] = [
   {
-    title: "Intelligence & Insight",
+    title: "Analytics & Reporting",
     items: [
       { label: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Reports Engine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin"] },
     ]
   },
   {
-    title: "Financial Logistics",
+    title: "Loan Operations",
     items: [
       { label: "Daily Posting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Master Ledger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin"] },
@@ -41,18 +41,11 @@ const menuSections: MenuSection[] = [
     ]
   },
   {
-    title: "Collection Matrix",
+    title: "Recovery Management",
     items: [
       { label: "Collection Portal", path: "/daily-collection", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "Posting Approval", path: "/verify-postings", icon: <ShieldCheck size={18} />, roles: ["super_admin", "admin"] },
       { label: "Search Archives", path: "/posting-search", icon: <Search size={18} />, roles: ["super_admin", "admin", "agent"] },
-    ]
-  },
-  {
-    title: "Security & Ops",
-    items: [
-      { label: "Manage Agents", path: "/manage-agents", icon: <UserCog size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Admin Control", path: "/manage-admins", icon: <ShieldCheck size={18} />, roles: ["super_admin"] },
     ]
   }
 ];
@@ -69,12 +62,6 @@ const AppSidebar = () => {
   const handleLogout = async () => {
     await logout();
     navigate("/login");
-  };
-
-  const roleLabels = {
-    super_admin: "System Architect",
-    admin: "Executive Manager",
-    agent: "Account Officer",
   };
 
   const sidebarContent = (
@@ -137,14 +124,15 @@ const AppSidebar = () => {
                     key={item.path}
                     to={item.path}
                     onClick={() => setMobileOpen(false)}
-                    className={({ isActive }) =>
-                      cn(
+                    className={({ isActive }) => {
+                      const isExactlyActive = isActive && (item.path.includes('?') ? location.search === item.path.split('?')[1] || `?${item.path.split('?')[1]}` === location.search : true);
+                      return cn(
                         "group flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-bold transition-all duration-300",
-                        isActive
+                        isExactlyActive
                           ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20"
                           : "text-slate-400 hover:bg-white/5 hover:text-white"
-                      )
-                    }
+                      );
+                    }}
                   >
                     <span className="transition-transform group-hover:scale-125 duration-300">{item.icon}</span>
                     <span className="flex-1 truncate tracking-tight">{item.label}</span>
@@ -157,18 +145,7 @@ const AppSidebar = () => {
         })}
       </nav>
 
-      {/* Integrated Profile & Logout */}
       <div className="p-4 bg-black/40 border-t border-white/5 backdrop-blur-md">
-        <div className="bg-white/5 rounded-2xl p-4 mb-4 flex items-center gap-3 border border-white/5 group hover:bg-white/10 transition-all cursor-default">
-          <div className="h-10 w-10 min-w-[40px] rounded-xl bg-slate-800 border border-white/10 flex items-center justify-center font-black text-accent shadow-inner">
-            {userData?.name?.charAt(0) || "U"}
-          </div>
-          <div className="flex flex-col min-w-0">
-            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{userData ? roleLabels[userData.role] : "System Access"}</p>
-            <p className="text-sm font-bold text-white truncate max-w-[120px]">{userData?.name || "Anonymous User"}</p>
-          </div>
-        </div>
-        
         <button
           onClick={handleLogout}
           className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-destructive hover:text-white transition-all duration-300 group"
@@ -183,29 +160,31 @@ const AppSidebar = () => {
   return (
     <>
       {/* Mobile Interaction Bar */}
-      <div className="lg:hidden fixed top-0 left-0 w-full h-20 bg-[#0F172A] border-b border-white/5 flex items-center justify-between px-6 z-40 shadow-2xl">
+      <div className="lg:hidden fixed top-0 left-0 w-full h-16 bg-[#0F172A] border-b border-white/5 flex items-center justify-between px-4 z-40 shadow-2xl backdrop-blur-md bg-opacity-90">
         <div className="flex items-center">
           <button
-            className="p-3 -ml-3 text-slate-400 hover:text-white active:scale-95 transition-all"
+            className="p-2 text-slate-400 hover:text-white active:scale-95 transition-all"
             onClick={() => setMobileOpen(true)}
           >
-            <Menu size={28} />
+            <Menu size={24} />
           </button>
-          <div className="ml-2 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-accent-gradient flex items-center justify-center shadow-lg">
-              <IndianRupee className="h-5 w-5 text-white" />
+          <div className="ml-2 flex items-center gap-2">
+            <div className="h-8 w-8 rounded-lg bg-accent-gradient flex items-center justify-center shadow-lg">
+              <IndianRupee className="h-4 w-4 text-white" />
             </div>
-            <span className="font-black text-white text-lg tracking-tighter hidden sm:inline-block">Sridevi Finance</span>
-            <span className="font-black text-white text-lg tracking-tighter sm:hidden">Sridevi</span>
+            <span className="font-black text-white text-md tracking-tighter">Sridevi Finance</span>
           </div>
         </div>
         
-        <button
-          onClick={handleLogout}
-          className="flex items-center justify-center h-10 w-10 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm"
-        >
-          <LogOut size={18} />
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-[1px] bg-white/10" />
+          <button
+            onClick={handleLogout}
+            className="flex items-center justify-center h-8 w-8 rounded-lg bg-rose-500/10 text-rose-500 transition-all"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>

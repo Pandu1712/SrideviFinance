@@ -8,6 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Archive, FileText, IndianRupee, MapPin, Calendar, Phone, Filter, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency } from "@/lib/utils";
+import { useLine } from "@/contexts/LineContext";
+import { Button } from "@/components/ui/button";
+import { FileSpreadsheet } from "lucide-react";
+import { exportToExcel } from "@/lib/excel";
+import { toast } from "sonner";
 
 const OldAccounts = () => {
   const { userData } = useAuth();
@@ -47,6 +52,28 @@ const OldAccounts = () => {
     a.accountNo?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handleExportExcel = () => {
+    if (filtered.length === 0) {
+      toast.error("No records to export");
+      return;
+    }
+    
+    const data = filtered.map((a, i) => ({
+      "Sl No": i + 1,
+      "Account No": a.accountNo,
+      "Name": a.name,
+      "Village": a.village,
+      "Phone": a.phone,
+      "Total Amount": a.totalAmount || 0,
+      "Paid": a.paid || 0,
+      "Start Date": a.startDate || "",
+      "End Date": a.endDate || ""
+    }));
+
+    exportToExcel(data, "Settled_Archives", "Archives");
+    toast.success("Archives exported as Excel");
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -73,6 +100,13 @@ const OldAccounts = () => {
             className="pl-9 h-11 finance-input" 
           />
         </div>
+        <Button 
+          variant="outline" 
+          className="h-11 gap-2 border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-bold"
+          onClick={handleExportExcel}
+        >
+          <FileSpreadsheet className="h-4 w-4" /> Export Excel
+        </Button>
       </div>
 
       <Card className="glass-card border-none shadow-2xl overflow-hidden">

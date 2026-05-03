@@ -7,7 +7,7 @@ import { collection, getDocs, query, where, DocumentData } from "firebase/firest
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2, Download } from "lucide-react";
+import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2, Download, FileSpreadsheet } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { deleteDoc, doc, updateDoc, writeBatch } from "firebase/firestore";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { exportToExcel } from "@/lib/excel";
 
 const Members = () => {
   const { userData } = useAuth();
@@ -27,6 +28,7 @@ const Members = () => {
   const [search, setSearch] = useState("");
   const [villageFilter, setVillageFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [availableVillages, setAvailableVillages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -61,6 +63,25 @@ const Members = () => {
     fetchData();
   }, [userData, selectedLineId]);
 
+  // Fetch available villages for the selected line
+  useEffect(() => {
+    const fetchLineVillages = async () => {
+      if (!selectedLineId) {
+        setAvailableVillages([]);
+        return;
+      }
+      try {
+        const q = query(collection(db, "villages"), where("lineId", "==", selectedLineId));
+        const snap = await getDocs(q);
+        const vils = snap.docs.map(d => d.data().name).sort();
+        setAvailableVillages(vils);
+      } catch (err) {
+        console.error("Fetch villages error:", err);
+      }
+    };
+    fetchLineVillages();
+  }, [selectedLineId]);
+
   const handleDelete = async (id: string, name: string) => {
     const member = members.find(m => m.id === id);
     if (member && (member.balance > 0 || member.status !== 'completed')) {
@@ -86,7 +107,6 @@ const Members = () => {
     navigate(`/accounts/edit/${member.id}`);
   };
 
-  const uniqueVillages = Array.from(new Set(members.map(m => m.village).filter(Boolean))).sort();
   const today = new Date().toISOString().split("T")[0];
 
   const filtered = members.filter(m => {
@@ -150,6 +170,31 @@ const Members = () => {
     toast.success("PDF Exported Successfully");
   };
 
+  const handleExportExcel = () => {
+    if (filtered.length === 0) {
+      toast.error("No members to export");
+      return;
+    }
+    
+    const data = filtered.map(m => ({
+      "Account No": m.accountNo,
+      "Name": m.name,
+      "Village": m.village || "N/A",
+      "Phone": m.phone || "N/A",
+      "Total Amount": m.totalAmount || 0,
+      "Paid": m.paid || 0,
+      "Balance": m.balance || 0,
+      "Installment": m.installmentAmount || 0,
+      "Frequency": m.paymentFrequency?.toUpperCase(),
+      "Status": m.status?.toUpperCase(),
+      "Start Date": m.startDate || "N/A",
+      "End Date": m.endDate || "N/A",
+    }));
+
+    exportToExcel(data, `Members_Registry_${selectedLineId || 'all'}`, "Members");
+    toast.success("Excel Exported Successfully");
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -184,8 +229,8 @@ const Members = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Villages</SelectItem>
-              {uniqueVillages.map(v => (
-                <SelectItem key={v as string} value={v as string}>{v as string}</SelectItem>
+              {availableVillages.map(v => (
+                <SelectItem key={v} value={v}>{v}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -207,7 +252,14 @@ const Members = () => {
             className="h-10 px-4 glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest gap-2 flex-1 md:flex-none hover:bg-slate-50 hover:text-accent transition-all"
             onClick={exportToPDF}
           >
-            <Download size={14} /> Export PDF
+            <Download size={14} /> PDF
+          </Button>
+          <Button 
+            variant="outline" 
+            className="h-10 px-4 glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest gap-2 flex-1 md:flex-none hover:bg-emerald-50 hover:text-emerald-600 transition-all"
+            onClick={handleExportExcel}
+          >
+            <FileSpreadsheet size={14} /> Excel
           </Button>
         </div>
       </div>
