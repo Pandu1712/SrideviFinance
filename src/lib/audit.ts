@@ -12,7 +12,9 @@ export type AuditAction =
   | "LINE_DELETE" 
   | "LINE_UPDATE"
   | "EXPENSE_UPDATE"
-  | "ACCOUNT_SHIFT";
+  | "ACCOUNT_SHIFT"
+  | "BATCH_DATE_CHANGE"
+  | "POSTING_VERIFY_BATCH";
 
 export const logActivity = async (
   userId: string,

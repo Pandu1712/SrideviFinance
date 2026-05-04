@@ -6,9 +6,9 @@ import { collection, getDocs, query, where, Timestamp, orderBy } from "firebase/
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download, FileSpreadsheet, PlusCircle } from "lucide-react";
+import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download, FileSpreadsheet, PlusCircle, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,8 @@ const Reports = () => {
     expenses: 0,
     penalties: 0,
     extraCol: 0,
+    agentCol: 0,
+    adminCol: 0,
     byAgent: {} as Record<string, number>,
   });
 
@@ -49,110 +51,99 @@ const Reports = () => {
         return;
       }
 
-      // 1. Current Day Postings - Fetch by date only and filter in-memory to avoid index errors
+      const adminUsersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["super_admin", "admin"])));
+      const adminIdsSet = new Set(adminUsersSnap.docs.map(d => d.id));
+
+      // 1. Current Day Postings
       const baseQ = query(collection(db, "postings"), where("date", "==", selectedDate));
       const baseSnap = await getDocs(baseQ);
       const docs = baseSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter((d: any) => {
-          const matchesLine = d.lineId === selectedLineId;
-          const matchesAdmin = userData?.role === "admin" ? d.adminId === userData.uid : true;
-          return matchesLine && matchesAdmin;
-        });
-      setData(docs);
+        .filter((d: any) => d.lineId === selectedLineId && (userData?.role === "admin" ? d.adminId === userData.uid : true));
 
-      // 2. Fetch Accounts & Disbursements first to get split ratios
-      let docCharges = 0;
-      let accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
+      // 2. Fetch Accounts created today for Principal/Interest Stats
+      const accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
       const accSnap = await getDocs(accQ);
-
-      const accountRatios: Record<string, { p: number; i: number }> = {};
-      accSnap.docs.forEach(d => {
-        const a = d.data();
-        const loan = parseFloat(a.loanAmount || "0");
-        const total = parseFloat(a.totalAmount || "0");
-        if (total > 0) {
-          accountRatios[d.id] = { p: loan / total, i: (total - loan) / total };
-        } else {
-          accountRatios[d.id] = { p: 1, i: 0 };
-        }
-      });
-
-      const disbursements = accSnap.docs
-        .filter(d => d.data().createdAt && d.data().createdAt.startsWith(selectedDate))
+      
+      let newPrincipal = 0;
+      let newInterest = 0;
+      let newDocCharges = 0;
+      
+      const newAccounts = accSnap.docs
+        .filter(d => d.data().startDate === selectedDate) // Matching on startDate for "opened today"
         .map(d => {
           const a = d.data();
-          docCharges += parseFloat(a.documentCharge || "0");
+          const p = parseFloat(a.loanAmount || "0");
+          const i = parseFloat(a.interestAmount || "0");
+          newPrincipal += p;
+          newInterest += i;
+          newDocCharges += parseFloat(a.documentCharge || "0");
           return {
-            ...a, id: d.id, isDisbursement: true,
-            amount: parseFloat(a.loanAmount || "0"),
+            ...a, id: d.id, isNewAccount: true,
+            amount: p,
             memberName: a.memberName || a.name,
             payMode: a.paymentType || "CASH",
-            status: "New Account"
+            status: "New Account",
+            isDisbursement: true
           };
         });
 
-      // 3. Single Loop for Postings (Collections)
-      let total = 0; let cash = 0; let online = 0; let principal = 0; let interest = 0; let penalties = 0; let extraCol = 0;
+      // 3. Stats Calculation
+      let totalInflow = 0; let cashIn = 0; let onlineIn = 0; let penalties = 0; let extraCol = 0;
+      let agentCol = 0; let adminCol = 0;
       const byAgent: Record<string, number> = {};
 
       docs.forEach((item: any) => {
         const amt = item.amount || 0;
         if (item.status === "disbursement") return;
 
-        // Collection Stats (Money In)
-        total += amt;
-        if (item.payMode?.toLowerCase() === "cash") cash += amt;
-        else online += amt;
+        totalInflow += amt;
+        if (item.payMode?.toLowerCase() === "cash") cashIn += amt;
+        else onlineIn += amt;
         
         const pAmt = item.penaltyAmount || 0;
         const eAmt = item.extraAmount || 0;
         penalties += pAmt;
         extraCol += eAmt;
-        total += (pAmt + eAmt); // Total inflow includes penalties and extras
+        totalInflow += (pAmt + eAmt);
 
-        const agent = item.collectedByName || "Unknown";
-        byAgent[agent] = (byAgent[agent] || 0) + (amt + eAmt);
-
-        // Principal/Interest Split (Auto-Calculated)
-        const ratio = accountRatios[item.accountId] || { p: 1, i: 0 };
+        const agentName = item.collectedByName || "Unknown";
+        byAgent[agentName] = (byAgent[agentName] || 0) + (amt + eAmt);
 
         if (item.status === "collection") {
-          if (item.principal !== undefined || item.interest !== undefined) {
-            principal += (item.principal || 0);
-            interest += (item.interest || 0);
-          } else {
-            principal += (amt * ratio.p);
-            interest += (amt * ratio.i);
-          }
-        } else if (item.status === "penalty" || item.status === "other") {
-          interest += amt; // Penalties are 100% interest
+          if (adminIdsSet.has(item.collectedById)) adminCol += amt;
+          else agentCol += amt;
         }
-
-        // Explicit late fees
-        interest += (item.lateFee || 0);
       });
 
-      // Transaction Registry: Only show actual collection activities
-      setData(docs.filter((d: any) => 
-        d.status?.toLowerCase() === "collection" || 
-        d.status?.toLowerCase() === "penalty" || 
-        d.status?.toLowerCase() === "extra_collection" ||
-        d.status?.toLowerCase() === "extra_transfer_out"
-      ));
+      // 4. Combine Postings and New Accounts for the Registry
+      const combinedData = [
+        ...docs.filter((d: any) => ["collection", "penalty", "extra_collection", "extra_transfer_out"].includes(d.status?.toLowerCase())),
+        ...newAccounts
+      ].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
-      // Calculate total disbursed for stats
-      const disbursed = disbursements.reduce((sum, d) => sum + d.amount, 0);
+      setData(combinedData);
 
-      // 4. Fetch Expenses
+      // 5. Fetch Expenses
       let expenses = 0;
-      const expQ = query(collection(db, "day_summaries"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId));
-      const expSnap = await getDocs(expQ);
-      expSnap.forEach(d => {
-        expenses += (d.data().expenses || 0);
-      });
+      const expSnap = await getDocs(query(collection(db, "day_summaries"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId)));
+      expSnap.forEach(d => expenses += (d.data().expenses || 0));
 
-      setStats({ total, cash, online, principal, interest, docCharges, disbursed, expenses, penalties, extraCol, byAgent });
+      setStats({ 
+        total: totalInflow, 
+        cash: cashIn, 
+        online: onlineIn, 
+        principal: newPrincipal, 
+        interest: newInterest, 
+        docCharges: newDocCharges, 
+        disbursed: newPrincipal, 
+        expenses, 
+        penalties, 
+        extraCol, 
+        byAgent,
+        agentCol,
+        adminCol
+      });
     } catch (err) {
       console.error(err);
       toast.error("Failed to load report data");
@@ -287,36 +278,48 @@ const Reports = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <Card className="glass-card shadow-lg border-none border-t-4 border-rose-500 bg-white">
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Principal</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">New Accounts Principal</p>
             <CardTitle className="text-2xl font-black text-rose-600 tracking-tighter">{formatCurrency(stats.principal)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
             <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-              <TrendingUp className="h-3 w-3 text-rose-500" /> Recovered
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="glass-card shadow-lg border-none border-t-4 border-emerald-500 bg-white">
-          <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Disbursed</p>
-            <CardTitle className="text-2xl font-black text-emerald-600 tracking-tighter">{formatCurrency(stats.disbursed)}</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-              <Users className="h-3 w-3 text-emerald-500" /> New Loans
+              <TrendingUp className="h-3 w-3 text-rose-500" /> Capital
             </div>
           </CardContent>
         </Card>
 
         <Card className="glass-card shadow-lg border-none border-t-4 border-amber-500 bg-white">
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Interest</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">New Accounts Interest</p>
             <CardTitle className="text-2xl font-black text-amber-600 tracking-tighter">{formatCurrency(stats.interest)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
             <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-              <PieIcon className="h-3 w-3 text-amber-500" /> Profit
+              <PieIcon className="h-3 w-3 text-amber-500" /> Expected Profit
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-emerald-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Agent Collection</p>
+            <CardTitle className="text-2xl font-black text-emerald-600 tracking-tighter">{formatCurrency(stats.agentCol)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <Users className="h-3 w-3 text-emerald-500" /> Field Agents
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card shadow-lg border-none border-t-4 border-indigo-500 bg-white">
+          <CardHeader className="pb-2 p-4">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Admin Collection</p>
+            <CardTitle className="text-2xl font-black text-indigo-600 tracking-tighter">{formatCurrency(stats.adminCol)}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+              <ShieldCheck className="h-3 w-3 text-indigo-500" /> Admin/Super
             </div>
           </CardContent>
         </Card>
@@ -333,38 +336,14 @@ const Reports = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-card shadow-lg border-none border-t-4 border-rose-400 bg-white">
+        <Card className="glass-card shadow-lg border-none border-t-4 border-purple-500 bg-white">
           <CardHeader className="pb-2 p-4">
             <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Expenses</p>
             <CardTitle className="text-2xl font-black text-rose-500 tracking-tighter">{formatCurrency(stats.expenses)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
             <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest text-rose-300">
-              <Download className="h-3 w-3 text-rose-400" /> Maintenance
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="glass-card shadow-lg border-none border-t-4 border-indigo-500 bg-white">
-          <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Penalties</p>
-            <CardTitle className="text-2xl font-black text-indigo-600 tracking-tighter">{formatCurrency(stats.penalties)}</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-              <TrendingUp className="h-3 w-3 text-indigo-500" /> Extra Fine
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="glass-card shadow-lg border-none border-t-4 border-purple-500 bg-white">
-          <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Extra Col</p>
-            <CardTitle className="text-2xl font-black text-purple-600 tracking-tighter">{formatCurrency(stats.extraCol)}</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-              <PlusCircle className="h-3 w-3 text-purple-500" /> Misc Income
+              <Download className="h-3 w-3 text-rose-400" /> Outflow
             </div>
           </CardContent>
         </Card>
@@ -469,10 +448,10 @@ const Reports = () => {
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">S.No</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Account No</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Member</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Collection</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Fine/Extra</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Inflow (Coll)</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Outflow (Loan)</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-center">Mode</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Purpose</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Details/Interest</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Category</th>
                   </tr>
                 </thead>
@@ -497,34 +476,50 @@ const Reports = () => {
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{item.village || 'N/A'}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 text-right">
                         {!item.isDisbursement ? (
-                          <span className="text-sm font-black text-emerald-600">
-                            {formatCurrency(item.amount)}
-                          </span>
+                          <div className="flex flex-col items-end">
+                            <span className="text-sm font-black text-emerald-600">
+                              {formatCurrency(item.amount)}
+                            </span>
+                            {item.penaltyAmount > 0 && <span className="text-[9px] font-bold text-rose-500">+{formatCurrency(item.penaltyAmount)} Fine</span>}
+                            {item.extraAmount > 0 && <span className="text-[9px] font-bold text-indigo-500">+{formatCurrency(item.extraAmount)} Extra</span>}
+                          </div>
                         ) : (
                           <span className="text-xs text-slate-300">—</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="flex flex-col items-end">
-                          {item.penaltyAmount > 0 && <span className="text-sm font-black text-rose-500">+{formatCurrency(item.penaltyAmount)} Fine</span>}
-                          {item.extraAmount > 0 && <span className="text-sm font-black text-indigo-500">+{formatCurrency(item.extraAmount)} Extra</span>}
-                          {!(item.penaltyAmount > 0 || item.extraAmount > 0) && <span className="text-xs text-slate-300">—</span>}
+                        {item.isDisbursement ? (
+                          <span className="text-sm font-black text-rose-600">
+                            {formatCurrency(item.loanAmount || item.amount)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-center">
+                          <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest px-2 border-slate-200">
+                            {item.payMode}
+                          </Badge>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest px-2 border-slate-200">
-                          {item.payMode}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-[10px] font-bold text-slate-500 truncate max-w-[120px]">{item.purpose || "—"}</p>
+                        <div className="flex flex-col">
+                          <p className="text-[10px] font-bold text-slate-500 truncate max-w-[150px]">
+                            {item.isDisbursement ? `Int: ${formatCurrency(item.interestAmount || 0)}` : (item.purpose || "Regular Posting")}
+                          </p>
+                          {item.nameTelugu && <span className="text-[10px] font-medium text-slate-400 font-telugu">{item.nameTelugu}</span>}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <Badge className={cn(
+                          "text-[9px] font-black uppercase tracking-widest",
+                          item.isDisbursement ? "bg-rose-100 text-rose-700 hover:bg-rose-100" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
+                        )}>
                           {item.status || 'Active'}
-                        </span>
+                        </Badge>
                       </td>
                     </motion.tr>
                   ))}

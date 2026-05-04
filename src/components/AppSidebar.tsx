@@ -53,7 +53,6 @@ const menuSections: MenuSection[] = [
     title: "System Management",
     items: [
       { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Database Nexus", path: "/admin/database", icon: <Database size={18} />, roles: ["super_admin"] },
     ]
   }
 ];

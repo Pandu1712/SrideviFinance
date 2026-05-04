@@ -66,6 +66,14 @@ const DailyCollection = () => {
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [batchNewDate, setBatchNewDate] = useState(new Date().toISOString().split("T")[0]);
   const [isBulkMoving, setIsBulkMoving] = useState(false);
+   
+  // Agent Expense States
+  const [isAddingExpense, setIsAddingExpense] = useState(false);
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseNote, setExpenseNote] = useState("");
+  const [totalCollectionToday, setTotalCollectionToday] = useState(0);
+  const [dailyExpenseLogs, setDailyExpenseLogs] = useState<any[]>([]);
+  const [showExpenseDetails, setShowExpenseDetails] = useState(false);
 
 
   const gridDates = Array.from({ length: 5 }, (_, i) => {
@@ -106,6 +114,31 @@ const DailyCollection = () => {
         }
       });
       setPostings(postMap);
+
+      // Calculate total collection for today (Agent View)
+      let dailyTotal = 0;
+      const todayStr = new Date().toISOString().split("T")[0];
+      postSnap.forEach(d => {
+        const data = d.data();
+        if (data.date === todayStr && data.collectedById === userData.uid) {
+          dailyTotal += (data.amount || 0);
+        }
+      });
+      setTotalCollectionToday(dailyTotal);
+
+      // Fetch Expenses for Agent View
+      let expLogQ = query(collection(db, "expenses_log"), where("date", "==", date), where("lineId", "==", targetLine));
+      if (userData.role === 'agent') {
+        expLogQ = query(expLogQ, where("collectedById", "==", userData.uid));
+      }
+      
+      const expLogSnap = await getDocs(expLogQ);
+      const logs = expLogSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setDailyExpenseLogs(logs);
+      
+      // Calculate personal total for agent
+      const personalTotal = logs.reduce((acc, log: any) => acc + (log.amount || 0), 0);
+      setExpense(String(personalTotal));
     } catch (err) {
       console.error("Grid Sync Error:", err);
       toast.error("Sync Error. Please Check Internet.");
@@ -229,11 +262,85 @@ const DailyCollection = () => {
         setExpense("0");
         setOpeningBalance("0");
       }
+
+      // Fetch Individual Expense Logs for the registry
+      let expLogQ = query(collection(db, "expenses_log"), where("date", "==", date), where("lineId", "==", selectedLineId));
+      
+      const expLogSnap = await getDocs(expLogQ);
+      const logs = expLogSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setDailyExpenseLogs(logs);
+
     } catch (err) {
       console.error(err);
       toast.error("Search failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddExpense = async () => {
+    if (!expenseAmount || isNaN(parseFloat(expenseAmount)) || !selectedLineId) return;
+    setIsSavingSummary(true);
+    try {
+      const amount = parseFloat(expenseAmount);
+      const lineId = selectedLineId;
+      const todayStr = date;
+      
+      // 1. Log for audit and separate breakdown
+      await addDoc(collection(db, "expenses_log"), {
+        amount,
+        note: expenseNote || "Operational Expense (Daily Collection)",
+        date: todayStr,
+        lineId,
+        userName: userData?.name,
+        userRole: userData?.role,
+        collectedById: userData?.uid,
+        timestamp: new Date().toISOString()
+      });
+
+      // 2. Update aggregate in day_summaries
+      const docId = `${todayStr}_${lineId}`;
+      const summaryRef = doc(db, "day_summaries", docId);
+      
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(summaryRef);
+        if (!snap.exists()) {
+          transaction.set(summaryRef, {
+            expenses: amount,
+            openingBalance: 0,
+            date: todayStr,
+            lineId
+          });
+        } else {
+          const currentExp = snap.data().expenses || 0;
+          transaction.update(summaryRef, {
+            expenses: currentExp + amount
+          });
+        }
+      });
+
+      toast.success("Expense recorded successfully");
+      setIsAddingExpense(false);
+      setExpenseAmount("");
+      setExpenseNote("");
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "POSTING_CREATE",
+          `Recorded Expense: ₹${amount} (${expenseNote || 'No note'})`,
+          selectedLineId
+        );
+      }
+      
+      handleSearch(); // Refresh financial totals
+    } catch (err) {
+      console.error("Add expense error:", err);
+      toast.error("Failed to record expense");
+    } finally {
+      setIsSavingSummary(false);
     }
   };
 
@@ -295,50 +402,116 @@ const DailyCollection = () => {
     
     const doc = new jsPDF();
     const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Master Portfolio";
+    const pageWidth = doc.internal.pageSize.getWidth();
     
-    // Title
-    doc.setFontSize(22);
-    doc.setTextColor(15, 23, 42); // slate-900
-    doc.text("SRIDEVI FINANCE HUB", 14, 22);
+    // 1. Premium Header
+    doc.setFillColor(15, 23, 42); // slate-900
+    doc.rect(0, 0, pageWidth, 45, 'F');
     
-    // Subtitle
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text(`Daily Recovery Ledger - ${activeLineName}`, 14, 30);
-    doc.text(`Operative Date: ${formatDate(date)}`, 14, 35);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 40);
+    doc.setFontSize(24);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text("SRI DEVI FINANCE HUB", 14, 25);
+    
+    doc.setFontSize(9);
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.setFont("helvetica", "normal");
+    doc.text("PREMIUM FINANCIAL AUDIT & RECOVERY LEDGER", 14, 32);
+    
+    // Header Right Info
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    doc.text(`DATE: ${formatDate(date).toUpperCase()}`, pageWidth - 14, 22, { align: 'right' });
+    doc.text(`TERRITORY: ${activeLineName.toUpperCase()}`, pageWidth - 14, 28, { align: 'right' });
+    doc.text(`GENERATED: ${new Date().toLocaleString().toUpperCase()}`, pageWidth - 14, 34, { align: 'right' });
 
-    const tableColumn = ["ID", "Member Name", "Account No", "Amount", "Mode", "Collected By"];
+    // 2. Executive Summary Cards (Visual Representation)
+    doc.setFillColor(248, 250, 252); // slate-50
+    doc.roundedRect(14, 52, 60, 25, 3, 3, 'F');
+    doc.setTextColor(100, 116, 139);
+    doc.setFontSize(7);
+    doc.text("TOTAL RECOVERY", 18, 60);
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(14);
+    doc.text(formatCurrency(total), 18, 70);
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(pageWidth / 2 - 30, 52, 60, 25, 3, 3, 'F');
+    doc.setTextColor(100, 116, 139);
+    doc.setFontSize(7);
+    doc.text("OPERATIONAL EXPENSES", pageWidth / 2 - 26, 60);
+    doc.setTextColor(225, 29, 72); // rose-600
+    doc.setFontSize(14);
+    doc.text(`-${formatCurrency(parseFloat(expense))}`, pageWidth / 2 - 26, 70);
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(pageWidth - 74, 52, 60, 25, 3, 3, 'F');
+    doc.setTextColor(100, 116, 139);
+    doc.setFontSize(7);
+    doc.text("NET CASH FLOW", pageWidth - 70, 60);
+    doc.setTextColor(5, 150, 105); // emerald-600
+    doc.setFontSize(14);
+    doc.text(formatCurrency(total - parseFloat(expense)), pageWidth - 70, 70);
+
+    // 3. Transactions Table
+    const tableColumn = ["ID", "MEMBER NAME", "ACCOUNT NO", "CREDIT (₹)", "MODE", "COLLECTED BY"];
     const tableRows = records.map((r, i) => [
       `#${String(i+1).padStart(2, '0')}`,
-      r.memberName,
+      r.memberName.toUpperCase(),
       r.accountNo,
-      formatCurrency(r.amount),
+      Number(r.amount).toLocaleString('en-IN'),
       r.payMode.toUpperCase(),
-      `${r.collectedByName} (${r.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'})`
+      `${r.collectedByName.toUpperCase()} (${r.collectedByRole === 'super_admin' ? 'ADMIN' : 'AGENT'})`
     ]);
 
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 50,
-      theme: 'grid',
-      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 8, cellPadding: 3 },
+      startY: 85,
+      theme: 'striped',
+      headStyles: { 
+        fillColor: [15, 23, 42], 
+        textColor: [255, 255, 255], 
+        fontSize: 8,
+        fontStyle: 'bold',
+        cellPadding: 4
+      },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+      styles: { 
+        fontSize: 8, 
+        cellPadding: 4,
+        textColor: [51, 65, 85],
+        lineColor: [226, 232, 240],
+        lineWidth: 0.1
+      },
       columnStyles: {
-        3: { halign: 'right', fontStyle: 'bold' } // Amount column
-      }
+        3: { halign: 'right', fontStyle: 'bold', textColor: [5, 150, 105] }, // Credit column
+        0: { halign: 'center' }
+      },
+      margin: { left: 14, right: 14 }
     });
 
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    const total = records.reduce((acc, r) => acc + (r.amount || 0), 0);
-    
-    doc.setFontSize(12);
-    doc.setTextColor(15, 23, 42);
-    doc.text(`Aggregated Recovery: ${formatCurrency(total)}`, 14, finalY);
+    const finalY = (doc as any).lastAutoTable.finalY + 20;
+
+    // 4. Verification Footer
+    if (finalY < doc.internal.pageSize.getHeight() - 40) {
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(14, finalY, 70, finalY);
+      doc.line(pageWidth - 70, finalY, pageWidth - 14, finalY);
+      
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text("FIELD AGENT SIGNATURE", 14, finalY + 5);
+      doc.text("AUTHORIZING OFFICER", pageWidth - 14, finalY + 5, { align: 'right' });
+      
+      doc.setFontSize(6);
+      doc.setTextColor(203, 213, 225);
+      doc.text("THIS IS A COMPUTER GENERATED REPORT SECURED BY SRI DEVI FINANCE HUB AUDIT PROTOCOLS.", pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
+    }
 
     doc.save(`Ledger_${activeLineName}_${date}.pdf`);
-    toast.success("Operational Ledger Exported");
+    toast.success("Premium Audit Ledger Exported");
   };
 
   const handleExportExcel = () => {
@@ -405,6 +578,8 @@ const DailyCollection = () => {
 
       setSubmitting(true);
       try {
+        const isVerified = userData?.role === 'super_admin' || userData?.role === 'admin';
+
         const postingData = {
           accountId: targetCell.custId,
           accountNo: targetCell.accountNo,
@@ -417,35 +592,41 @@ const DailyCollection = () => {
           payMode: payMode,
           agentId: userData?.uid,
           adminId: activeCustomer?.adminId || "",
-          lineId: activeCustomer?.lineId || "default",
+          lineId: selectedLineId || activeCustomer?.lineId || "default",
           timestamp: serverTimestamp(),
+          createdAt: new Date().toISOString(),
           status: 'collection',
+          collectedById: userData?.uid,
           collectedByName: userData?.name || 'Unknown Agent',
-          collectedByRole: userData?.role || 'agent'
+          collectedByRole: userData?.role || 'agent',
+          verified: isVerified
         };
 
         await addDoc(collection(db, "postings"), postingData);
-        const accountRef = doc(db, "accounts", targetCell.custId);
         
-        // Logic: Paid increases by total recovery, Balance decreases only by principal
-        await updateDoc(accountRef, {
-          paid: increment(amountNum),
-          balance: increment(-principalAmount)
-        });
+        if (isVerified) {
+          const accountRef = doc(db, "accounts", targetCell.custId);
+          
+          // Logic: Paid increases by total recovery, Balance decreases only by principal
+          await updateDoc(accountRef, {
+            paid: increment(amountNum),
+            balance: increment(-principalAmount)
+          });
 
-        if (activeCustomer && activeCustomer.id === targetCell.custId) {
-          setActiveCustomer((prev: any) => ({
-            ...prev,
-            paid: (prev.paid || 0) + amountNum,
-            balance: (prev.balance || 0) - principalAmount
-          }));
+          if (activeCustomer && activeCustomer.id === targetCell.custId) {
+            setActiveCustomer((prev: any) => ({
+              ...prev,
+              paid: (prev.paid || 0) + amountNum,
+              balance: (prev.balance || 0) - principalAmount
+            }));
+          }
+
+          setCustomers(prev => prev.map(c => 
+            c.id === targetCell.custId 
+              ? { ...c, paid: (c.paid || 0) + amountNum, balance: (c.balance || 0) - principalAmount } 
+              : c
+          ));
         }
-
-        setCustomers(prev => prev.map(c => 
-          c.id === targetCell.custId 
-            ? { ...c, paid: (c.paid || 0) + amountNum, balance: (c.balance || 0) - principalAmount } 
-            : c
-        ));
 
         toast.success(`Success ₹${amountNum}`);
         setPayDialogOpen(false);
@@ -506,7 +687,8 @@ const DailyCollection = () => {
         timestamp: serverTimestamp(),
         status: 'collection',
         collectedByName: userData?.name || 'Admin',
-        collectedByRole: 'super_admin'
+        collectedByRole: 'super_admin',
+        verified: true
       };
 
       await addDoc(collection(db, "postings"), postingData);
@@ -575,6 +757,19 @@ const DailyCollection = () => {
                       className="w-full h-12 rounded-2xl bg-white pl-12 pr-4 text-sm font-bold text-slate-700 placeholder:text-slate-300 shadow-xl focus:outline-none"
                    />
                 </div>
+                 
+                 {/* Recovery Tracker Header */}
+                 <div className="grid grid-cols-2 gap-3 pt-2">
+                    <div className="bg-white/10 backdrop-blur-md rounded-[1.5rem] p-4 border border-white/20">
+                       <p className="text-[8px] font-black text-white/50 uppercase tracking-widest mb-1">Today's Recovery</p>
+                       <h3 className="text-xl font-black text-white italic tracking-tighter">₹{totalCollectionToday}</h3>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-md rounded-[1.5rem] p-4 border border-white/20">
+                       <p className="text-[8px] font-black text-white/50 uppercase tracking-widest mb-1">Total Expenses</p>
+                       <h3 className="text-xl font-black text-rose-300 italic tracking-tighter">₹{expense}</h3>
+                    </div>
+                 </div>
+
                 {uniqueVillages.length > 0 && (
                   <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
                     <button 
@@ -614,19 +809,41 @@ const DailyCollection = () => {
                  onClick={() => { setActiveCustomer(c); setDetailModalOpen(true); }}
                  className="bg-white rounded-[2rem] p-4 shadow-sm border border-slate-100 active:scale-[0.98] transition-all"
                >
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-start justify-between mb-4">
                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="h-10 w-10 rounded-2xl bg-slate-50 flex items-center justify-center text-[#5f259f] text-[10px] font-black border border-slate-100 shrink-0 uppercase">
+                        <div className="h-12 w-12 rounded-2xl bg-[#5f259f]/5 flex items-center justify-center text-[#5f259f] text-[11px] font-black border border-[#5f259f]/10 shrink-0 uppercase">
                            {c.accountNo}
                         </div>
                         <div className="min-w-0">
-                           <h3 className="text-[13px] font-black text-slate-900 tracking-tighter leading-none uppercase truncate">{c.memberName || c.name}</h3>
-                           <p className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{c.accountNo}</p>
+                           <h3 className="text-[14px] font-black text-slate-900 tracking-tighter leading-none uppercase truncate">{c.memberName || c.name}</h3>
+                           <p className="text-[9px] font-bold text-slate-400 mt-1.5 uppercase tracking-tighter">{c.village || 'No Village'}</p>
                         </div>
                      </div>
                      <div className="text-right shrink-0">
-                        <h4 className="text-[14px] font-black text-rose-500 italic tracking-tighter">₹{c.balance || 0}</h4>
+                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Outstanding</p>
+                        <h4 className="text-[16px] font-black text-rose-500 italic tracking-tighter leading-none">₹{c.balance || 0}</h4>
                      </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                     <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                        <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Debt</p>
+                        <p className="text-xs font-black text-slate-700">₹{c.totalAmount || 0}</p>
+                     </div>
+                     <div className="bg-emerald-50 rounded-2xl p-3 border border-emerald-100">
+                        <p className="text-[7px] font-black text-emerald-400 uppercase tracking-widest mb-1">Recovered</p>
+                        <p className="text-xs font-black text-emerald-600">₹{c.paid || 0}</p>
+                     </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-1.5 px-1">
+                       <p className="text-[8px] font-black text-slate-400 uppercase">Repayment Velocity</p>
+                       <p className="text-[9px] font-black text-[#5f259f] italic">{Math.min(100, Math.round(((c.paid || 0) / (c.totalAmount || 1)) * 100))}%</p>
+                    </div>
+                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                       <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, ((c.paid || 0) / (c.totalAmount || 1)) * 100)}%` }} className="h-full bg-gradient-to-r from-[#5f259f] to-[#a855f7] rounded-full" />
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-3 border-t border-slate-50">
@@ -653,6 +870,55 @@ const DailyCollection = () => {
                   <p className="text-sm font-black uppercase tracking-widest">No Members Found</p>
                </div>
              )}
+
+             <div className="mt-8 space-y-4 pb-20">
+                <div className="h-[1px] bg-slate-200 w-full" />
+                <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-500">
+                           <Banknote size={18} />
+                        </div>
+                        <div>
+                           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-900 leading-none">Operational Expenses</h3>
+                           <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Audit Ledger Entry</p>
+                        </div>
+                     </div>
+                     <div className="text-right flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                           <button 
+                             onClick={() => setShowExpenseDetails(true)} 
+                             className="p-1 hover:bg-slate-100 rounded-lg transition-colors"
+                           >
+                             <Search size={14} className="text-slate-400" />
+                           </button>
+                           <h4 className="text-[14px] font-black text-rose-500 italic tracking-tighter">₹{expense}</h4>
+                        </div>
+                        <p className="text-[7px] font-bold text-slate-400 uppercase">Today's Total</p>
+                     </div>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={() => setIsAddingExpense(true)}
+                      className="flex-1 h-12 rounded-2xl bg-rose-500 text-white font-black uppercase tracking-widest text-[10px] shadow-lg shadow-rose-100 flex items-center justify-center gap-2"
+                    >
+                      <Zap size={14} className="fill-white" /> Add New
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      onClick={() => setShowExpenseDetails(true)}
+                      className="w-12 h-12 rounded-2xl border-slate-100 bg-white text-slate-400 flex items-center justify-center shadow-sm"
+                    >
+                      <FileSpreadsheet size={18} />
+                    </Button>
+                  </div>
+
+                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight text-center leading-relaxed px-4 italic opacity-60">
+                    Expenses are logged individually for transparency and audit compliance.
+                  </p>
+                </div>
+             </div>
            </div>
         </div>
 
@@ -771,10 +1037,11 @@ const DailyCollection = () => {
                                       {post?.collectedByRole === 'super_admin' ? <Zap size={18} /> : post ? <Check size={18} className="text-emerald-500" /> : d.slice(8, 10)}
                                    </div>
                                    <div className="flex-1">
-                                      <p className="text-lg font-black text-slate-900 leading-none">
-                                         ₹{post ? post.amount : Math.min(activeCustomer.installmentAmount, activeCustomer.balance)}
-                                      </p>
-                                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1.5 tracking-widest">{formatDate(d)} • Plan #{i+1}</p>
+                                      <div className="flex items-center gap-2">
+                                         <p className="text-lg font-black text-slate-900 leading-none">₹{post ? post.amount : activeCustomer.installmentAmount}</p>
+                                         {!post && <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">(Suggested)</span>}
+                                      </div>
+                                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1.5 tracking-widest">{formatDate(d)} • PLAN #{i + 1}</p>
                                    </div>
                                    <div className="text-right">
                                       {post ? (
@@ -1006,7 +1273,8 @@ const DailyCollection = () => {
               <tr className="bg-slate-50 border-b border-slate-100">
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">ID</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Member Info</th>
-                <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Total Credit</th>
+                <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Credit</th>
+                <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">A/C Balance</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500 text-right">Late Fee</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Mode</th>
                 <th className="p-5 text-[10px] uppercase font-black text-slate-500">Collected By</th>
@@ -1026,6 +1294,9 @@ const DailyCollection = () => {
                   <td className="p-5 text-xs font-black text-slate-400">#{String(i+1).padStart(2,'0')}</td>
                   <td className="p-5"><div className="flex flex-col"><span className="text-sm font-black text-slate-900 uppercase italic">{r.memberName}</span><span className="text-[10px] font-bold text-primary uppercase">{r.accountNo}</span></div></td>
                   <td className="p-5 text-right font-black text-emerald-600 italic text-lg">{formatCurrency(r.amount)}</td>
+                  <td className="p-5 text-right font-black text-rose-500 text-sm">
+                    {formatCurrency(customers.find(c => c.id === r.accountId)?.balance || 0)}
+                  </td>
                   <td className="p-5 text-right font-black text-orange-500 italic text-sm">{formatCurrency(r.lateFee || 0)}</td>
                   <td className="p-5"><Badge className="bg-slate-100 text-slate-600 border-none font-black text-[9px] uppercase tracking-widest">{r.payMode}</Badge></td>
                    <td className="p-5">
@@ -1370,6 +1641,121 @@ const DailyCollection = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={isAddingExpense} onOpenChange={setIsAddingExpense}>
+        <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-rose-500 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2 text-white">
+              <Banknote size={20} className="text-white" />
+              Expense Entry
+            </DialogTitle>
+            <DialogDescription className="text-white/80 text-xs mt-1">
+              Add operational costs for {lines.find(l => l.id === (userData?.role === 'agent' ? selectedLineId : selectedLineId))?.name || 'this line'}
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-6">
+            <div className="space-y-2 text-slate-900">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Expense Amount</Label>
+              <div className="relative">
+                <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input 
+                  type="number" 
+                  value={expenseAmount} 
+                  onChange={e => setExpenseAmount(e.target.value)} 
+                  placeholder="0.00"
+                  className="pl-9 h-12 finance-input font-black text-lg text-slate-900" 
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2 text-slate-900">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Reason / Note</Label>
+              <Input 
+                type="text" 
+                value={expenseNote} 
+                onChange={e => setExpenseNote(e.target.value)} 
+                placeholder="Fuel, maintenance, etc."
+                className="h-12 finance-input font-bold text-slate-900" 
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={() => setIsAddingExpense(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleAddExpense} 
+                disabled={isSavingSummary}
+                className="flex-1 h-12 rounded-xl bg-rose-600 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-rose-700"
+              >
+                {isSavingSummary ? "Syncing..." : "Add Expense"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showExpenseDetails} onOpenChange={setShowExpenseDetails}>
+        <DialogContent className="max-w-[90vw] sm:max-w-2xl bg-white rounded-3xl border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-slate-900 p-6 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">Daily Audit</p>
+                <h2 className="text-xl font-black italic tracking-tighter uppercase">Expense Registry</h2>
+              </div>
+              <div className="text-right">
+                <p className="text-xl font-black text-rose-400 italic">-{formatCurrency(parseFloat(expense))}</p>
+                <p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Total Outflow</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-6">
+            <div className="max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Time</th>
+                    <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Entry</th>
+                    <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-400 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {dailyExpenseLogs.length > 0 ? (
+                    dailyExpenseLogs.map((log, i) => (
+                      <tr key={i}>
+                        <td className="py-3 text-[9px] font-bold text-slate-400">
+                           {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                        </td>
+                        <td className="py-3">
+                           <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{log.note || 'Expense'}</p>
+                           <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">By {log.userName}</p>
+                        </td>
+                        <td className="py-3 text-right">
+                           <span className="text-[11px] font-black text-rose-500 italic">-{formatCurrency(log.amount)}</span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="py-10 text-center text-slate-400 italic text-[10px] font-black uppercase tracking-widest">
+                        No telemetry found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-6 flex justify-end">
+              <Button 
+                onClick={() => setShowExpenseDetails(false)}
+                className="bg-slate-900 text-white font-black text-[9px] uppercase tracking-widest px-6 rounded-xl h-10 shadow-xl"
+              >
+                Close Audit
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 };

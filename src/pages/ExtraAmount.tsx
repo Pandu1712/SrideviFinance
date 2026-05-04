@@ -101,23 +101,26 @@ const ExtraAmount = () => {
         collectedById: userData?.uid,
         collectedByName: userData?.name,
         collectedByRole: userData?.role,
+        verified: userData?.role !== 'agent',
         createdAt: new Date().toISOString(),
         timestamp: Timestamp.now()
       };
 
       await setDoc(postingRef, postingData);
 
-      // Update Account with totalExtraPaid
-      const accountRef = doc(db, "accounts", selectedAccount.id);
-      await runTransaction(db, async (transaction) => {
-        const accDoc = await transaction.get(accountRef);
-        if (accDoc.exists()) {
-          const currentExtra = accDoc.data().totalExtraPaid || 0;
-          transaction.update(accountRef, {
-            totalExtraPaid: currentExtra + parseFloat(form.amount)
-          });
-        }
-      });
+      if (userData?.role !== 'agent') {
+        // Update Account with totalExtraPaid
+        const accountRef = doc(db, "accounts", selectedAccount.id);
+        await runTransaction(db, async (transaction) => {
+          const accDoc = await transaction.get(accountRef);
+          if (accDoc.exists()) {
+            const currentExtra = accDoc.data().totalExtraPaid || 0;
+            transaction.update(accountRef, {
+              totalExtraPaid: currentExtra + parseFloat(form.amount)
+            });
+          }
+        });
+      }
 
       toast.success(`Extra Amount of ${formatCurrency(form.amount)} recorded for ${selectedAccount.name}`);
       setRecordModalOpen(false);

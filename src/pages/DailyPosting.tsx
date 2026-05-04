@@ -10,11 +10,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer } from "lucide-react";
+import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin } from "lucide-react";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { logActivity } from "@/lib/audit";
+import DailyReconciliation from "@/components/DailyReconciliation";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const DailyPosting = () => {
   const { userData } = useAuth();
@@ -278,6 +281,89 @@ const DailyPosting = () => {
     }
   };
 
+  const handleExportReceipt = () => {
+    if (!accountInfo || !lastPostedAmount) {
+      toast.error("No recent transaction found");
+      return;
+    }
+
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: [100, 150] // Custom small receipt size
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    // Header
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageWidth, 25, 'F');
+    
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text("SRI DEVI FINANCE", pageWidth / 2, 12, { align: "center" });
+    
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text("OFFICIAL PAYMENT RECEIPT", pageWidth / 2, 18, { align: "center" });
+
+    // Body
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(8);
+    doc.text(`Receipt No: #${Math.floor(1000 + Math.random() * 9000)}`, 10, 35);
+    doc.text(`Date: ${formatDate(form.date)}`, pageWidth - 10, 35, { align: "right" });
+
+    doc.setDrawColor(241, 245, 249);
+    doc.line(10, 38, pageWidth - 10, 38);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("MEMBER DETAILS", 10, 45);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Name: ${accountInfo.name.toUpperCase()}`, 10, 50);
+    doc.text(`Account: ${accountInfo.accountNo}`, 10, 54);
+    doc.text(`Village: ${accountInfo.village || 'N/A'}`, 10, 58);
+
+    // Amount Section
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(10, 65, pageWidth - 20, 20, 2, 2, 'F');
+    
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text("AMOUNT COLLECTED", pageWidth / 2, 72, { align: "center" });
+    
+    doc.setFontSize(16);
+    doc.setTextColor(5, 150, 105);
+    doc.text(formatCurrency(lastPostedAmount), pageWidth / 2, 80, { align: "center" });
+
+    // Summary Table
+    autoTable(doc, {
+      body: [
+        ["TOTAL LOAN", formatCurrency(accountInfo.totalAmount)],
+        ["PREVIOUS PAID", formatCurrency(accountInfo.paid - (userData?.role === 'agent' ? 0 : lastPostedAmount))],
+        ["CURRENT BALANCE", formatCurrency(accountInfo.balance)]
+      ],
+      startY: 90,
+      theme: 'plain',
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 15;
+    
+    doc.setFontSize(7);
+    doc.setTextColor(15, 23, 42);
+    doc.text("AUTHORISED SIGNATORY", pageWidth - 10, finalY, { align: "right" });
+    
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Thank you for your prompt payment.", pageWidth / 2, 140, { align: "center" });
+    doc.text("This is an electronically generated receipt.", pageWidth / 2, 144, { align: "center" });
+
+    doc.save(`Receipt_${accountInfo.accountNo}.pdf`);
+    toast.success("Professional Receipt Downloaded");
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -320,6 +406,8 @@ const DailyPosting = () => {
           </button>
         </div>
       </div>
+
+      <DailyReconciliation targetDate={form.date} />
 
       <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
         <AnimatePresence mode="wait">
@@ -373,6 +461,7 @@ const DailyPosting = () => {
                             value={form.date} 
                             onChange={e => handleChange("date", e.target.value)} 
                             className="h-11 finance-input font-bold" 
+                            disabled={userData?.role === 'agent'}
                           />
                         </div>
                       </div>
@@ -530,11 +619,33 @@ const DailyPosting = () => {
                                   )}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                              <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-all">
                                  {m.phone && (
-                                   <a href={`tel:${m.phone}`} onClick={e => e.stopPropagation()} className="p-2 bg-slate-100 rounded-lg hover:bg-emerald-100 text-emerald-600">
-                                     <Zap size={12} />
+                                   <a 
+                                     href={`tel:${m.phone}`} 
+                                     onClick={e => e.stopPropagation()} 
+                                     className="h-8 w-8 bg-slate-100 rounded-xl flex items-center justify-center text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all shadow-sm"
+                                     title="Call Member"
+                                   >
+                                     <Phone size={14} />
                                    </a>
+                                 )}
+                                 {m.customerLocation && (
+                                   <button 
+                                     onClick={(e) => {
+                                       e.stopPropagation();
+                                       const url = m.customerLocation;
+                                       if (url.startsWith('http')) {
+                                          window.open(url, '_blank');
+                                       } else {
+                                          window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(url)}`, '_blank');
+                                       }
+                                     }}
+                                     className="h-8 w-8 bg-slate-100 rounded-xl flex items-center justify-center text-blue-600 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                                     title="Get Directions"
+                                   >
+                                     <MapPin size={14} />
+                                   </button>
                                  )}
                                  <ArrowRight size={14} className={cn("ml-1", accountInfo?.id === m.id ? "text-white" : "text-slate-300")} />
                               </div>
@@ -588,6 +699,7 @@ const DailyPosting = () => {
                   </Button>
                   <Button 
                     variant="outline"
+                    onClick={handleExportReceipt}
                     className="flex-1 h-12 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[10px] tracking-widest"
                   >
                     <Printer size={16} className="mr-2" />

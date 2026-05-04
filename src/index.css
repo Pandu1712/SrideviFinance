@@ -124,6 +124,11 @@
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
   }
+
+  .font-telugu {
+    font-family: 'Inter', sans-serif; /* Fallback but allows specific scaling */
+    line-height: 1.6;
+  }
 }
 
 /* Animations */

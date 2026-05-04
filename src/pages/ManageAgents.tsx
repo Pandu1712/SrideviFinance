@@ -72,7 +72,7 @@ const ManageAgents = () => {
     }
   };
 
-  useEffect(() => { fetchAgents(); }, [userData]);
+  useEffect(() => { fetchAgents(); }, [userData, type]);
 
   const handleEditClick = (agent: DocumentData) => {
     setEditingAgent(agent);
@@ -97,7 +97,7 @@ const ManageAgents = () => {
         phone: editForm.phone,
         lineIds: editForm.lineIds,
       });
-      toast.success("Agent profile updated");
+      toast.success(`${isPartner ? "Partner" : "Agent"} profile updated`);
       setEditOpen(false);
       fetchAgents();
     } catch (err) {
@@ -132,22 +132,22 @@ const ManageAgents = () => {
         createdAt: new Date().toISOString(),
       });
 
-      toast.success(`Field agent ${form.name} successfully deployed`);
+      toast.success(`${isPartner ? "Partner" : "Field agent"} ${form.name} successfully ${isPartner ? "registered" : "deployed"}`);
       setOpen(false);
       setForm({ name: "", email: "", phone: "", password: "", lineIds: [] });
       fetchAgents();
     } catch (err: any) {
-      toast.error(err.message || "Deployment failed");
+      toast.error(err.message || `${isPartner ? "Registration" : "Deployment"} failed`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Deactivate and remove this agent from field operations?")) return;
+    if (!confirm(`Deactivate and remove this ${isPartner ? "partner" : "agent"} from ${isPartner ? "enterprise operations" : "field operations"}?`)) return;
     try {
       await deleteDoc(doc(db, "users", id));
-      toast.success("Agent access revoked");
+      toast.success(`${isPartner ? "Partner" : "Agent"} access revoked`);
       fetchAgents();
     } catch (err) {
       toast.error("Operation failed");
@@ -208,14 +208,14 @@ const ManageAgents = () => {
                 <Smartphone size={32} className="text-accent" />
               </div>
               <DialogTitle className="text-2xl font-black text-primary text-center">Secure Provisioning</DialogTitle>
-              <DialogDescription className="text-center text-slate-500 font-medium">Create enterprise credentials for new field workers.</DialogDescription>
+              <DialogDescription className="text-center text-slate-500 font-medium">Create enterprise credentials for new {isPartner ? "partners" : "field workers"}.</DialogDescription>
             </DialogHeader>
             <div className="space-y-5">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Agent Full Name</Label>
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Full Name</Label>
                 <div className="relative group">
                    <User className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
-                   <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="e.g. Rahul Sharma" />
+                   <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input" placeholder={isPartner ? "e.g. Sridevi Finance" : "e.g. Rahul Sharma"} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -223,7 +223,7 @@ const ManageAgents = () => {
                   <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Email Access</Label>
                   <div className="relative group">
                     <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
-                    <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} className="pl-9 h-11 finance-input text-xs" placeholder="agent@mail.com" />
+                    <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} className="pl-9 h-11 finance-input text-xs" placeholder={isPartner ? "partner@mail.com" : "agent@mail.com"} />
                   </div>
                 </div>
                 <div className="space-y-1.5">
@@ -271,7 +271,7 @@ const ManageAgents = () => {
                   <BadgeCheck size={12} /> Logistic Authority
                 </p>
                 <p className="text-[11px] text-amber-600 font-medium leading-relaxed mt-1">
-                  Creation will log you out. This agent will only have access to the selected operational line.
+                  Creation will log you out. This {isPartner ? "partner" : "agent"} will only have access to the selected operational line.
                 </p>
               </div>
 
@@ -300,10 +300,10 @@ const ManageAgents = () => {
             </DialogHeader>
             <div className="space-y-5">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Agent Full Name</Label>
+                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Full Name</Label>
                 <div className="relative group">
                    <User className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                   <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="e.g. Rahul Sharma" />
+                   <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input" placeholder={isPartner ? "e.g. Sridevi Finance" : "e.g. Rahul Sharma"} />
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -351,7 +351,7 @@ const ManageAgents = () => {
           {agents.length === 0 ? (
             <Card className="col-span-full border-dashed border-2 py-20 flex flex-col items-center justify-center bg-slate-50/50">
                <Smartphone className="h-12 w-12 text-slate-200 mb-4" />
-               <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No Field Agents Assigned</p>
+               <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No {isPartner ? "Partners" : "Field Agents"} Assigned</p>
             </Card>
           ) : agents.map((agent, i) => (
             <motion.div
@@ -367,7 +367,7 @@ const ManageAgents = () => {
                     {agent.name?.charAt(0) || "A"}
                   </div>
                   <Badge className="bg-accent/10 text-accent border-none font-black text-[9px] uppercase tracking-widest">
-                    FIELD FORCE
+                    {agent.userType === 'partner' ? "ENTERPRISE PARTNER" : "FIELD FORCE"}
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-6">
@@ -402,13 +402,13 @@ const ManageAgents = () => {
                   <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-accent">
                       <BadgeCheck size={14} className="text-emerald-500" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Active Duty</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">{agent.userType === 'partner' ? "Verified Partner" : "Active Duty"}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/agent-audit/${agent.uid || agent.id}`)} className="h-8 w-8 p-0 text-slate-300 hover:text-accent hover:bg-accent/10" title="View Agent Audit">
+                      <Button variant="ghost" size="sm" onClick={() => navigate(`/agent-audit/${agent.uid || agent.id}`)} className="h-8 w-8 p-0 text-slate-300 hover:text-accent hover:bg-accent/10" title={`View ${isPartner ? 'Partner' : 'Agent'} Audit`}>
                         <Activity size={16} />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleEditClick(agent)} className="h-8 w-8 p-0 text-slate-300 hover:text-blue-500 hover:bg-blue-500/10" title="Edit Agent Profile">
+                      <Button variant="ghost" size="sm" onClick={() => handleEditClick(agent)} className="h-8 w-8 p-0 text-slate-300 hover:text-blue-500 hover:bg-blue-500/10" title={`Edit ${isPartner ? 'Partner' : 'Agent'} Profile`}>
                         <Edit2 size={16} />
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => handleDelete(agent.id)} className="h-8 w-8 p-0 text-slate-300 hover:text-destructive hover:bg-destructive/10" title="Revoke Access">

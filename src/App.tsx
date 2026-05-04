@@ -42,7 +42,6 @@ import LineSelection from "@/pages/LineSelection";
 import ManageVillages from "@/pages/ManageVillages";
 import PostingVerification from "@/pages/PostingVerification";
 import ExtraAmount from "@/pages/ExtraAmount";
-import DatabaseManager from "@/pages/DatabaseManager";
 
 const queryClient = new QueryClient();
 
@@ -92,7 +91,6 @@ const App = () => (
               <Route path="/manage-agents" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ManageAgents /></ProtectedRoute>} />
               <Route path="/verify-postings" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><PostingVerification /></ProtectedRoute>} />
               <Route path="/agent-audit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><AgentAudit /></ProtectedRoute>} />
-              <Route path="/admin/database" element={<ProtectedRoute allowedRoles={["super_admin"]}><DatabaseManager /></ProtectedRoute>} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

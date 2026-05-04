@@ -395,6 +395,7 @@ const Members = () => {
                         <div className="space-y-1">
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Principal</p>
                           <p className="text-[10px] font-black text-primary">{formatCurrency(m.totalAmount)}</p>
+                          <p className="text-[10px] font-medium text-slate-500">Created {m.creationDate ? formatDate(m.creationDate) : formatDate(m.createdAt)}</p>
                           <p className="text-[10px] font-medium text-slate-600">Starts {formatDate(m.startDate)}</p>
                         </div>
                       </td>

@@ -19,11 +19,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 const PostingVerification = () => {
   const { userData } = useAuth();
-  const { selectedLineId } = useLine();
+  const { lines, selectedLineId } = useLine();
   const [postings, setPostings] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [isBulkApproving, setIsBulkApproving] = useState(false);
+  const [otherLinesCount, setOtherLinesCount] = useState(0);
   
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedPosting, setSelectedPosting] = useState<any>(null);
@@ -43,9 +44,16 @@ const PostingVerification = () => {
       );
       const snap = await getDocs(q);
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Sort by date then by creation
-      list.sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
       setPostings(list);
+
+      // Check other lines
+      const otherQ = query(
+        collection(db, "postings"),
+        where("verified", "==", false)
+      );
+      const otherSnap = await getDocs(otherQ);
+      const otherTotal = otherSnap.docs.filter(d => d.data().lineId !== selectedLineId).length;
+      setOtherLinesCount(otherTotal);
     } catch (err) {
       console.error("Fetch pending fail:", err);
       toast.error("Failed to load pending collections");
@@ -244,10 +252,15 @@ const PostingVerification = () => {
           </div>
           <div>
             <h1 className="text-3xl font-black tracking-tight text-primary">Reconciliation Queue</h1>
-            <p className="text-muted-foreground font-medium uppercase text-[10px] tracking-widest flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
-              Awaiting Admin Approval
-            </p>
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-muted-foreground font-medium uppercase text-[10px] tracking-widest flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
+                Awaiting Admin Approval
+              </p>
+              <Badge className="bg-indigo-50 text-indigo-600 border-indigo-100 font-black text-[9px] uppercase tracking-widest px-3">
+                Line: {lines.find(l => l.id === selectedLineId)?.name || "Default"}
+              </Badge>
+            </div>
           </div>
         </div>
         <div className="flex gap-2">
@@ -291,6 +304,15 @@ const PostingVerification = () => {
             </h2>
           </CardContent>
         </Card>
+        {otherLinesCount > 0 && (
+          <Card className="glass-card border-none shadow-xl border-l-4 border-l-indigo-500 bg-indigo-50/30">
+            <CardContent className="p-6">
+              <p className="text-xs font-bold uppercase tracking-widest text-indigo-500">Other Lines Pending</p>
+              <h2 className="text-4xl font-black text-indigo-600 mt-1">{otherLinesCount}</h2>
+              <p className="text-[9px] font-bold text-indigo-400 uppercase mt-2 italic">* Switch line to approve these</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card className="glass-card border-none shadow-2xl overflow-hidden">

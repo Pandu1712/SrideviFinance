@@ -337,6 +337,7 @@ const Ledger = () => {
             doc.text(`Account Number: ${accountInfo.accountNo}`, 14, 55);
             doc.text(`Village: ${accountInfo.village || "N/A"}`, 14, 60);
             doc.text(`Phone: ${accountInfo.phone || "N/A"}`, 14, 65);
+            doc.text(`A/C Created: ${accountInfo.creationDate || formatDate(accountInfo.createdAt)}`, 14, 70);
             
             doc.text(`Total Principal: ${formatCurrency(accountInfo.totalAmount)}`, 130, 50);
             doc.text(`Amount Paid: ${formatCurrency(accountInfo.paid)}`, 130, 55);
@@ -499,6 +500,11 @@ const Ledger = () => {
                    <div className="space-y-1">
                       <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Loan Timeline</p>
                       <div className="flex items-center gap-4 text-xs font-black text-primary">
+                         <div className="space-y-0.5">
+                            <span className="text-[8px] text-slate-400 block uppercase">Created Date</span>
+                            {accountInfo.creationDate ? formatDate(accountInfo.creationDate) : formatDate(accountInfo.createdAt)}
+                         </div>
+                         <div className="h-8 w-px bg-slate-200" />
                          <div className="space-y-0.5">
                             <span className="text-[8px] text-slate-400 block uppercase">Loan Started</span>
                             {formatDate(accountInfo.startDate)}

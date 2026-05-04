@@ -31,6 +31,7 @@ import { logActivity } from "@/lib/audit";
 const accountSchema = z.object({
   accountNo: z.string().min(1, "Account number is required"),
   name: z.string().min(3, "Name must be at least 3 characters"),
+  nameTelugu: z.string().optional(),
   fatherHusbandName: z.string().optional(),
   phone: z.string().regex(/^[0-9]{10}$/, "Invalid phone number").optional().or(z.literal("")),
   village: z.string().optional(),
@@ -54,6 +55,7 @@ const accountSchema = z.object({
   bankIfsc: z.string().optional(),
   commission: z.string().default("0"),
   initialPaid: z.string().default("0"),
+  creationDate: z.string().min(1, "Creation date is required"),
   lineId: z.string().min(1, "Please select an operational line"),
   documents: z.array(z.object({
     url: z.string(),
@@ -196,6 +198,7 @@ const NewAccount = () => {
       documentsTaken: "",
       documentCharge: "0",
       altPhone: "",
+      creationDate: new Date().toISOString().split("T")[0],
     },
   });
 
@@ -240,6 +243,25 @@ const NewAccount = () => {
       }
     }
   }, [loanAmount, interestAmount, setValue]);
+  
+  // Transliteration logic for Telugu Name
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const nameVal = watch("name");
+      if (nameVal && nameVal.length > 2) {
+        try {
+          const res = await fetch(`https://inputtools.google.com/request?text=${encodeURIComponent(nameVal)}&itc=te-t-i0-und&num=1&cp=0&cs=1&ie=utf-8&oe=utf-8&app=test`);
+          const data = await res.json();
+          if (data && data[0] === "SUCCESS" && data[1][0][1][0]) {
+            setValue("nameTelugu", data[1][0][1][0]);
+          }
+        } catch (err) {
+          console.error("Transliteration failed", err);
+        }
+      }
+    }, 1000); // 1s debounce
+    return () => clearTimeout(timer);
+  }, [watch("name"), setValue]);
 
   // Calculate End Date based on Total Amount, Installment, and Frequency
   useEffect(() => {
@@ -286,6 +308,7 @@ const NewAccount = () => {
             documentCharge: String(data.documentCharge || "0"),
             initialPaid: String(data.initialPaid || "0"),
             customerLocation: data.customerLocation || "",
+            creationDate: data.creationDate || (data.createdAt ? data.createdAt.split("T")[0] : new Date().toISOString().split("T")[0]),
           } as any);
           if (data.documents) {
             setDocuments(data.documents);
@@ -372,6 +395,7 @@ const NewAccount = () => {
       ["Phone Number", data.phone || "N/A"],
       ["Village/Area", data.village || "N/A"],
       ["Occupation", data.occupation || "N/A"],
+      ["Creation Date", data.creationDate || "N/A"],
     ];
 
     const financeInfo = [
@@ -504,6 +528,7 @@ const NewAccount = () => {
           status: (total - initialPaidValue) <= 0 ? "completed" : "active",
           adminId: userData?.uid,
           adminRole: userData?.role,
+          creationDate: data.creationDate,
           createdAt: new Date().toISOString(),
         };
         const accountDocRef = await addDoc(collection(db, "accounts"), newPayload);
@@ -616,6 +641,7 @@ const NewAccount = () => {
           totalAmount: "",
           initialPaid: "0",
           name: "",
+          nameTelugu: "",
           phone: "",
           fatherHusbandName: "",
           occupation: "",
@@ -627,6 +653,7 @@ const NewAccount = () => {
           upiId: "",
           bankAccountNumber: "",
           bankIfsc: "",
+          creationDate: new Date().toISOString().split("T")[0],
         });
         
         // Scroll to top for next entry
@@ -713,6 +740,7 @@ const NewAccount = () => {
                           const snap = await getDocs(q);
                           if (!snap.empty) {
                             const oldData = snap.docs[0].data();
+                            setValue("nameTelugu", oldData.nameTelugu || "");
                             setValue("fatherHusbandName", oldData.fatherHusbandName || "");
                             setValue("phone", oldData.phone || "");
                             setValue("village", oldData.village || "");
@@ -738,6 +766,15 @@ const NewAccount = () => {
                   placeholder="Full Legal Name"
                 />
                 {errors.name && <p className="text-xs text-destructive mt-1">{errors.name.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Customer Name (Telugu)</Label>
+                <Input 
+                  {...register("nameTelugu")} 
+                  className="finance-input font-telugu text-lg"
+                  placeholder="తెలుగులో పేరు"
+                />
               </div>
 
               <div className="space-y-2">
@@ -776,6 +813,7 @@ const NewAccount = () => {
                           if (!snap.empty) {
                             const oldData = snap.docs[0].data();
                             setValue("name", oldData.name || "");
+                            setValue("nameTelugu", oldData.nameTelugu || "");
                             setValue("fatherHusbandName", oldData.fatherHusbandName || "");
                             setValue("village", oldData.village || "");
                             setValue("occupation", oldData.occupation || "");
@@ -1041,11 +1079,21 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Start Date *</Label>
+                  <Label className="text-sm font-semibold text-accent">Account Creation Date *</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-accent/60" />
+                    <Input type="date" {...register("creationDate")} className="pl-9 finance-input border-accent/20 bg-accent/5" />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground px-1 italic">Date of registration</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A]">Loan Start Date *</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input type="date" {...register("startDate")} className="pl-9 finance-input" />
                   </div>
+                  <p className="text-[10px] text-muted-foreground px-1 italic">First installment date</p>
                 </div>
 
                 <div className="space-y-2">
