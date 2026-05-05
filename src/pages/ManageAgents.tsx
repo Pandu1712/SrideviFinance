@@ -202,49 +202,51 @@ const ManageAgents = () => {
                 <Plus className="mr-2 h-5 w-5" /> {buttonLabel}
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[440px] glass-card border-white/20 p-8 shadow-2xl">
-            <DialogHeader className="mb-6 text-center">
-              <div className="h-16 w-16 bg-accent/10 rounded-2xl flex items-center justify-center mb-4 mx-auto">
-                <Smartphone size={32} className="text-accent" />
+            <DialogContent className="sm:max-w-[480px] glass-card border-white/20 p-6 shadow-2xl max-h-[95vh] overflow-y-auto">
+            <DialogHeader className="mb-4 text-center">
+              <div className="h-12 w-12 bg-accent/10 rounded-2xl flex items-center justify-center mb-2 mx-auto">
+                <Smartphone size={24} className="text-accent" />
               </div>
-              <DialogTitle className="text-2xl font-black text-primary text-center">Secure Provisioning</DialogTitle>
-              <DialogDescription className="text-center text-slate-500 font-medium">Create enterprise credentials for new {isPartner ? "partners" : "field workers"}.</DialogDescription>
+              <DialogTitle className="text-xl font-black text-primary text-center">Secure Provisioning</DialogTitle>
+              <DialogDescription className="text-center text-slate-500 text-xs font-medium">Create enterprise credentials for new {isPartner ? "partners" : "field workers"}.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-5">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Full Name</Label>
-                <div className="relative group">
-                   <User className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
-                   <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input" placeholder={isPartner ? "e.g. Sridevi Finance" : "e.g. Rahul Sharma"} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Email Access</Label>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Name</Label>
                   <div className="relative group">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
-                    <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} className="pl-9 h-11 finance-input text-xs" placeholder={isPartner ? "partner@mail.com" : "agent@mail.com"} />
+                     <User className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
+                     <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder={isPartner ? "e.g. Sridevi" : "e.g. Rahul"} />
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Mobile PIN</Label>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Phone Number</Label>
                   <div className="relative group">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
-                    <Input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} className="pl-9 h-11 finance-input text-xs" placeholder="••••••••" />
+                    <Phone className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
+                    <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder="+91 XXXXX" />
                   </div>
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Phone Number</Label>
-                <div className="relative group">
-                  <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
-                  <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="+91 XXXXX XXXXX" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Email Access</Label>
+                  <div className="relative group">
+                    <Mail className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
+                    <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} className="pl-8 h-10 finance-input text-[11px]" placeholder="mail@mail.com" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Mobile PIN</Label>
+                  <div className="relative group">
+                    <Lock className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
+                    <Input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} className="pl-8 h-10 finance-input text-[11px]" placeholder="••••••••" />
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
-                <div className="grid grid-cols-2 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50 max-h-40 overflow-y-auto">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
+                <div className="grid grid-cols-2 gap-2 border border-slate-200 rounded-xl p-2.5 bg-slate-50/50 max-h-32 overflow-y-auto">
                   {lines.map((line) => (
                     <div key={line.id} className="flex items-center space-x-2">
                       <Checkbox 
@@ -258,7 +260,7 @@ const ManageAgents = () => {
                           }
                         }}
                       />
-                      <label htmlFor={`create-${line.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                      <label htmlFor={`create-${line.id}`} className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
                         {line.name}
                       </label>
                     </div>
@@ -266,17 +268,17 @@ const ManageAgents = () => {
                 </div>
               </div>
 
-              <div className="bg-amber-50 rounded-xl p-4 border border-amber-100 mt-4">
-                <p className="text-[10px] text-amber-700 font-black uppercase tracking-widest flex items-center gap-2">
-                  <BadgeCheck size={12} /> Logistic Authority
+              <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                <p className="text-[9px] text-amber-700 font-black uppercase tracking-widest flex items-center gap-2">
+                  <BadgeCheck size={10} /> Logistic Authority
                 </p>
-                <p className="text-[11px] text-amber-600 font-medium leading-relaxed mt-1">
-                  Creation will log you out. This {isPartner ? "partner" : "agent"} will only have access to the selected operational line.
+                <p className="text-[10px] text-amber-600 font-medium leading-relaxed mt-0.5">
+                  Creation will log you out. Access limited to selected lines.
                 </p>
               </div>
 
-              <Button onClick={handleCreate} className="w-full h-12 bg-accent text-accent-foreground font-black text-lg hover:bg-slate-900 mt-2 shadow-xl border-none" disabled={loading}>
-                {loading ? "Syncing with Vault..." : "Establish Credentials"}
+              <Button onClick={handleCreate} className="w-full h-11 bg-accent text-accent-foreground font-black text-base hover:bg-slate-900 mt-1 shadow-xl border-none" disabled={loading}>
+                {loading ? "Syncing..." : "Establish Credentials"}
               </Button>
             </div>
           </DialogContent>
@@ -290,33 +292,35 @@ const ManageAgents = () => {
         </Button>
       </div>
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="sm:max-w-[440px] glass-card border-white/20 p-8 shadow-2xl">
-            <DialogHeader className="mb-6 text-center">
-              <div className="h-16 w-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 mx-auto">
-                <Edit2 size={32} className="text-blue-500" />
+          <DialogContent className="sm:max-w-[480px] glass-card border-white/20 p-6 shadow-2xl max-h-[95vh] overflow-y-auto">
+            <DialogHeader className="mb-4 text-center">
+              <div className="h-12 w-12 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-2 mx-auto">
+                <Edit2 size={24} className="text-blue-500" />
               </div>
-              <DialogTitle className="text-2xl font-black text-primary text-center">Modify Personnel</DialogTitle>
-              <DialogDescription className="text-center text-slate-500 font-medium">Update the operational parameters for this agent.</DialogDescription>
+              <DialogTitle className="text-xl font-black text-primary text-center">Modify Personnel</DialogTitle>
+              <DialogDescription className="text-center text-slate-500 text-xs font-medium">Update the operational parameters for this agent.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-5">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Full Name</Label>
-                <div className="relative group">
-                   <User className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                   <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input" placeholder={isPartner ? "e.g. Sridevi Finance" : "e.g. Rahul Sharma"} />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Name</Label>
+                  <div className="relative group">
+                     <User className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                     <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder={isPartner ? "e.g. Sridevi" : "e.g. Rahul"} />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Phone Number</Label>
-                <div className="relative group">
-                  <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                  <Input value={editForm.phone} onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="+91 XXXXX XXXXX" />
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Phone Number</Label>
+                  <div className="relative group">
+                    <Phone className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                    <Input value={editForm.phone} onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder="+91 XXXXX" />
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-xs font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
-                <div className="grid grid-cols-2 gap-2 border border-blue-200 rounded-xl p-3 bg-blue-50/30 max-h-40 overflow-y-auto">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
+                <div className="grid grid-cols-2 gap-2 border border-blue-200 rounded-xl p-2.5 bg-blue-50/30 max-h-32 overflow-y-auto">
                   {lines.map((line) => (
                     <div key={line.id} className="flex items-center space-x-2">
                       <Checkbox 
@@ -330,7 +334,7 @@ const ManageAgents = () => {
                           }
                         }}
                       />
-                      <label htmlFor={`edit-${line.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                      <label htmlFor={`edit-${line.id}`} className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
                         {line.name}
                       </label>
                     </div>
@@ -338,8 +342,8 @@ const ManageAgents = () => {
                 </div>
               </div>
 
-              <Button onClick={handleUpdate} className="w-full h-12 bg-blue-600 text-white font-black text-lg hover:bg-blue-700 mt-2 shadow-xl border-none" disabled={updating}>
-                {updating ? "Committing Changes..." : "Update Profile"}
+              <Button onClick={handleUpdate} className="w-full h-11 bg-blue-600 text-white font-black text-base hover:bg-blue-700 mt-1 shadow-xl border-none" disabled={updating}>
+                {updating ? "Updating..." : "Update Profile"}
               </Button>
             </div>
           </DialogContent>

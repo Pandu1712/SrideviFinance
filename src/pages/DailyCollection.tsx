@@ -457,7 +457,7 @@ const DailyCollection = () => {
     const tableColumn = ["ID", "MEMBER NAME", "ACCOUNT NO", "CREDIT (₹)", "MODE", "COLLECTED BY"];
     const tableRows = records.map((r, i) => [
       `#${String(i+1).padStart(2, '0')}`,
-      r.memberName.toUpperCase(),
+      `${r.memberName.toUpperCase()}${r.nameTelugu ? ` (${r.nameTelugu})` : ''}`,
       r.accountNo,
       Number(r.amount).toLocaleString('en-IN'),
       r.payMode.toUpperCase(),
@@ -584,6 +584,7 @@ const DailyCollection = () => {
           accountId: targetCell.custId,
           accountNo: targetCell.accountNo,
           memberName: targetCell.custName,
+          nameTelugu: activeCustomer?.nameTelugu || "",
           amount: amountNum,
           principal: principalAmount,
           lateFee: lateFeeNum,
@@ -1292,7 +1293,19 @@ const DailyCollection = () => {
               {records.map((r, i) => (
                 <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                   <td className="p-5 text-xs font-black text-slate-400">#{String(i+1).padStart(2,'0')}</td>
-                  <td className="p-5"><div className="flex flex-col"><span className="text-sm font-black text-slate-900 uppercase italic">{r.memberName}</span><span className="text-[10px] font-bold text-primary uppercase">{r.accountNo}</span></div></td>
+                  <td className="p-5">
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-slate-900 uppercase italic">{r.memberName}</span>
+                        {r.nameTelugu && (
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded italic">
+                            {r.nameTelugu}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-bold text-primary uppercase">{r.accountNo}</span>
+                    </div>
+                  </td>
                   <td className="p-5 text-right font-black text-emerald-600 italic text-lg">{formatCurrency(r.amount)}</td>
                   <td className="p-5 text-right font-black text-rose-500 text-sm">
                     {formatCurrency(customers.find(c => c.id === r.accountId)?.balance || 0)}

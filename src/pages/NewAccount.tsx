@@ -391,7 +391,7 @@ const NewAccount = () => {
     // Data for Tables
     const basicInfo = [
       ["Account Number", data.accountNo],
-      ["Customer Name", data.name],
+      ["Customer Name", `${data.name}${data.nameTelugu ? ` (${data.nameTelugu})` : ''}`],
       ["Phone Number", data.phone || "N/A"],
       ["Village/Area", data.village || "N/A"],
       ["Occupation", data.occupation || "N/A"],
@@ -543,6 +543,7 @@ const NewAccount = () => {
           payMode: data.paymentType,
           lineId: data.lineId,
           memberName: data.name,
+          nameTelugu: data.nameTelugu || "",
           collectedByRole: userData?.role,
           collectedById: userData?.uid,
           collectedByName: userData?.name,
@@ -562,6 +563,7 @@ const NewAccount = () => {
             payMode: "cash", // Usually cash
             lineId: data.lineId,
             memberName: data.name,
+            nameTelugu: data.nameTelugu || "",
             collectedByRole: userData?.role,
             collectedById: userData?.uid,
             collectedByName: userData?.name,
@@ -581,6 +583,7 @@ const NewAccount = () => {
             payMode: data.paymentType,
             lineId: data.lineId,
             memberName: data.name,
+            nameTelugu: data.nameTelugu || "",
             collectedByRole: userData?.role,
             collectedById: userData?.uid,
             collectedByName: userData?.name,

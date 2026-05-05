@@ -223,6 +223,7 @@ const DailyPosting = () => {
           lineId: accountInfo.lineId,
           adminId: accountInfo.adminId || "", // Pass through adminId so admins can see this in their collections
           memberName: accountInfo.name,
+          nameTelugu: accountInfo.nameTelugu || "",
           collectedByRole: userData?.role,
           collectedById: userData?.uid,
           collectedByName: userData?.name,
@@ -607,7 +608,17 @@ const DailyPosting = () => {
                                 {m.accountNo}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className={cn("text-[13px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>{m.name}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className={cn("text-[13px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>{m.name}</p>
+                                  {m.nameTelugu && (
+                                    <span className={cn(
+                                      "text-[9px] px-1.5 py-0.5 rounded-full border italic",
+                                      accountInfo?.id === m.id ? "bg-white/20 border-white/30 text-white" : "bg-slate-100 border-slate-200 text-slate-400"
+                                    )}>
+                                      {m.nameTelugu}
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="flex items-center gap-2">
                                   <span className={cn("text-[9px] font-bold opacity-60", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
                                     # {m.accountNo}
@@ -674,7 +685,10 @@ const DailyPosting = () => {
                <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-xl border border-emerald-100 space-y-4 mb-8">
                   <div className="flex justify-between items-center pb-4 border-b border-slate-50">
                     <span className="text-[10px] font-black uppercase text-slate-400">Subscriber</span>
-                    <span className="font-black text-primary uppercase">{accountInfo?.name}</span>
+                    <div className="flex flex-col items-end text-right">
+                      <span className="font-black text-primary uppercase">{accountInfo?.name}</span>
+                      {accountInfo?.nameTelugu && <span className="text-[10px] font-bold text-slate-400 italic">{accountInfo?.nameTelugu}</span>}
+                    </div>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] font-black uppercase text-slate-400">Amount Collected</span>
@@ -734,7 +748,12 @@ const DailyPosting = () => {
                       <div className="p-6 space-y-5">
                         <div className="space-y-1">
                           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Subscriber Name</p>
-                          <p className="text-xl font-black text-primary leading-tight">{accountInfo.name}</p>
+                          <p className="text-xl font-black text-primary leading-tight">
+                            {accountInfo.name}
+                            {accountInfo.nameTelugu && (
+                              <span className="block text-xs font-bold text-accent mt-1 italic">{accountInfo.nameTelugu}</span>
+                            )}
+                          </p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Village / Area</p>

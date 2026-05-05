@@ -333,7 +333,7 @@ const Ledger = () => {
             
             doc.setFontSize(10);
             doc.setTextColor(15, 23, 42);
-            doc.text(`Member Name: ${accountInfo.name}`, 14, 50);
+            doc.text(`Member Name: ${accountInfo.name}${accountInfo.nameTelugu ? ` (${accountInfo.nameTelugu})` : ''}`, 14, 50);
             doc.text(`Account Number: ${accountInfo.accountNo}`, 14, 55);
             doc.text(`Village: ${accountInfo.village || "N/A"}`, 14, 60);
             doc.text(`Phone: ${accountInfo.phone || "N/A"}`, 14, 65);
@@ -429,7 +429,12 @@ const Ledger = () => {
               <Card className="bg-primary/5 border-primary/10">
                 <CardContent className="p-4">
                   <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">Subscriber & ID</p>
-                  <p className="text-lg font-black text-primary truncate leading-tight">{accountInfo.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-lg font-black text-primary truncate leading-tight">{accountInfo.name}</p>
+                    {accountInfo.nameTelugu && (
+                      <span className="text-[10px] font-bold text-slate-400 italic">({accountInfo.nameTelugu})</span>
+                    )}
+                  </div>
                   <p className="text-[10px] font-bold text-accent">{accountInfo.accountNo}</p>
                 </CardContent>
               </Card>

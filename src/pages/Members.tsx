@@ -111,6 +111,7 @@ const Members = () => {
 
   const filtered = members.filter(m => {
     const matchSearch = m.name?.toLowerCase().includes(search.toLowerCase()) ||
+                        m.nameTelugu?.toLowerCase().includes(search.toLowerCase()) ||
                         m.accountNo?.toLowerCase().includes(search.toLowerCase()) ||
                         m.village?.toLowerCase().includes(search.toLowerCase());
     
@@ -203,34 +204,55 @@ const Members = () => {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-xl bg-premium-gradient flex items-center justify-center shadow-lg transform rotate-3">
-            <Users className="text-white h-6 w-6" />
+      <div className="bg-white p-6 sm:p-10 rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/50 space-y-10 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-accent/5 rounded-full -mr-32 -mt-32 blur-3xl" />
+        
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="flex items-center gap-5">
+            <div className="h-16 w-16 rounded-3xl bg-premium-gradient flex items-center justify-center shadow-2xl transform -rotate-3 transition-transform hover:rotate-0">
+              <Users className="text-white h-8 w-8" />
+            </div>
+            <div>
+              <h1 className="text-4xl font-black tracking-tight text-slate-900">Member Registry</h1>
+              <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1 opacity-80">Portfolio Intelligence & Monitoring</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-primary">Member Registry</h1>
-            <p className="text-muted-foreground font-medium">Manage and monitor all finance subscribers in one place.</p>
+
+          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+             <Button 
+               variant="outline" 
+               className="h-12 px-6 bg-white border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+               onClick={exportToPDF}
+             >
+               <Download size={16} className="text-accent" /> PDF
+             </Button>
+             <Button 
+               variant="outline" 
+               className="h-12 px-6 bg-white border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-emerald-50 hover:text-emerald-600 transition-all flex items-center gap-2"
+               onClick={handleExportExcel}
+             >
+               <FileSpreadsheet size={16} className="text-emerald-500" /> Excel
+             </Button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
-          <div className="relative group flex-1 md:flex-none">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground group-focus-within:text-accent transition-colors" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+          <div className="relative group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-accent transition-colors" />
             <Input 
-              placeholder="Search members..." 
+              placeholder="Search identity..." 
               value={search} 
               onChange={e => setSearch(e.target.value)} 
-              className="pl-9 h-10 w-full md:w-64 glass-card border-none shadow-sm" 
+              className="pl-12 h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-accent/20 transition-all shadow-inner" 
             />
           </div>
           
           <Select value={villageFilter} onValueChange={setVillageFilter}>
-            <SelectTrigger className="h-10 w-[140px] glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-              <SelectValue placeholder="Village" />
+            <SelectTrigger className="h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-600 text-[11px] uppercase tracking-widest shadow-inner">
+              <SelectValue placeholder="Village Filter" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Villages</SelectItem>
+            <SelectContent className="rounded-2xl border-none shadow-2xl">
+              <SelectItem value="all">Global Territory</SelectItem>
               {availableVillages.map(v => (
                 <SelectItem key={v} value={v}>{v}</SelectItem>
               ))}
@@ -238,31 +260,24 @@ const Members = () => {
           </Select>
 
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-10 w-[140px] glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-              <SelectValue placeholder="Status" />
+            <SelectTrigger className="h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-600 text-[11px] uppercase tracking-widest shadow-inner">
+              <SelectValue placeholder="Status State" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="expired">Expired</SelectItem>
+            <SelectContent className="rounded-2xl border-none shadow-2xl">
+              <SelectItem value="all">All States</SelectItem>
+              <SelectItem value="active">Active Recovery</SelectItem>
+              <SelectItem value="completed">Fully Reconciled</SelectItem>
+              <SelectItem value="expired">Term Expired</SelectItem>
             </SelectContent>
           </Select>
-          
-          <Button 
-            variant="outline" 
-            className="h-10 px-4 glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest gap-2 flex-1 md:flex-none hover:bg-slate-50 hover:text-accent transition-all"
-            onClick={exportToPDF}
-          >
-            <Download size={14} /> PDF
-          </Button>
-          <Button 
-            variant="outline" 
-            className="h-10 px-4 glass-card border-none shadow-sm text-[10px] font-bold text-slate-600 uppercase tracking-widest gap-2 flex-1 md:flex-none hover:bg-emerald-50 hover:text-emerald-600 transition-all"
-            onClick={handleExportExcel}
-          >
-            <FileSpreadsheet size={14} /> Excel
-          </Button>
+
+          <div className="bg-accent/10 rounded-2xl p-4 flex items-center justify-between border border-accent/10">
+             <div className="flex flex-col">
+                <span className="text-[10px] font-black text-accent uppercase tracking-widest">Active Members</span>
+                <span className="text-2xl font-black text-primary leading-none mt-1">{filtered.length}</span>
+             </div>
+             <Filter size={20} className="text-accent opacity-40" />
+          </div>
         </div>
       </div>
 
@@ -361,12 +376,19 @@ const Members = () => {
                           </div>
                           <div>
                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Account # {m.accountNo}</p>
-                            <button 
-                              onClick={() => navigate(`/ledger?acc=${m.accountNo}`)}
-                              className="text-sm font-black text-primary hover:text-accent transition-colors text-left"
-                            >
-                              {m.name}
-                            </button>
+                            <div className="flex items-center gap-2">
+                               <button 
+                                 onClick={() => navigate(`/ledger?acc=${m.accountNo}`)}
+                                 className="text-sm font-black text-slate-900 hover:text-accent transition-colors text-left"
+                               >
+                                 {m.name}
+                               </button>
+                               {m.nameTelugu && (
+                                 <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100 italic">
+                                   {m.nameTelugu}
+                                 </span>
+                               )}
+                            </div>
                             <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-400 font-medium font-mono uppercase tracking-tight">
                               <span className="flex items-center gap-1">
                                 <MapPin size={10} className={m.customerLocation ? "text-accent" : "text-slate-300"} /> 

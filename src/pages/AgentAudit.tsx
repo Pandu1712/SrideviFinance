@@ -221,7 +221,10 @@ const AgentAudit = () => {
                             </td>
                             <td className="p-4">
                                <div className="flex flex-col">
-                                  <span className="font-black text-primary uppercase text-xs">{c.name}</span>
+                                   <div className="flex items-center gap-2">
+                                      <span className="font-black text-primary uppercase text-xs">{c.name}</span>
+                                      {c.nameTelugu && <span className="text-[9px] font-bold text-slate-400 italic">({c.nameTelugu})</span>}
+                                   </div>
                                   <span className="text-[9px] font-bold text-slate-400">{c.phone || 'No Mobile'}</span>
                                </div>
                             </td>
@@ -280,7 +283,10 @@ const AgentAudit = () => {
                             </td>
                             <td className="p-4">
                                <div className="flex flex-col">
-                                  <span className="font-black text-primary uppercase text-xs">{p.memberName}</span>
+                                   <div className="flex items-center gap-2">
+                                      <span className="font-black text-primary uppercase text-xs">{p.memberName}</span>
+                                      {p.nameTelugu && <span className="text-[9px] font-bold text-slate-400 italic">({p.nameTelugu})</span>}
+                                   </div>
                                   <span className="text-[9px] font-bold text-slate-400">{p.accountNo}</span>
                                </div>
                             </td>

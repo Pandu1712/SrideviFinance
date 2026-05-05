@@ -67,6 +67,7 @@ const PostingSearch = () => {
         const term = searchTerm.toLowerCase();
         list = list.filter(r => 
           r.memberName?.toLowerCase().includes(term) || 
+          r.nameTelugu?.toLowerCase().includes(term) || 
           r.accountNo?.toLowerCase().includes(term)
         );
 
@@ -231,42 +232,65 @@ const PostingSearch = () => {
       animate={{ opacity: 1, scale: 1 }}
       className="space-y-6"
     >
-      <div className="bg-slate-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-2xl bg-accent-gradient flex items-center justify-center shadow-lg">
-            <Search className="text-white h-6 w-6" />
+      <div className="bg-white p-4 sm:p-8 rounded-[2.5rem] border border-slate-100 shadow-2xl shadow-slate-200/50 space-y-8 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full -mr-16 -mt-16 blur-3xl" />
+        
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-center gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-slate-900 flex items-center justify-center shadow-xl shadow-slate-900/20 transform -rotate-3 transition-transform hover:rotate-0">
+              <Search className="text-white h-7 w-7" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-slate-900">Master Audit</h1>
+              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1 opacity-80">Collection Integrity & Verification</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-primary">Master Audit Portal</h1>
-            <p className="text-muted-foreground font-medium text-xs uppercase tracking-widest opacity-70">Track collections by customer or timeline.</p>
+          
+          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
+             <Badge variant="outline" className="bg-white border-slate-200 text-slate-500 font-bold text-[9px] uppercase px-3 py-1 rounded-xl">
+               Real-time Sync
+             </Badge>
+             <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse mr-1" />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Member Name / Acc No</Label>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end relative z-10">
+          <div className="md:col-span-5 space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Subscriber Identity</Label>
             <div className="relative group">
-              <Target className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
+              <Target className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-accent transition-colors" />
               <Input 
                 value={searchTerm} 
                 onChange={e => setSearchTerm(e.target.value)} 
-                placeholder="Search member..." 
-                className="pl-9 h-11 finance-input" 
+                placeholder="Search name, account, or Telugu name..." 
+                className="pl-11 h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-accent/20 transition-all shadow-inner" 
               />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Filter Date (Optional)</Label>
+          <div className="md:col-span-4 space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Audit Timeline</Label>
             <div className="relative group">
-              <Calendar className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
-              <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="pl-9 h-11 finance-input" />
+              <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-accent transition-colors" />
+              <Input 
+                type="date" 
+                value={date} 
+                onChange={e => setDate(e.target.value)} 
+                className="pl-11 h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-accent/20 transition-all shadow-inner" 
+              />
             </div>
           </div>
 
-          <Button onClick={handleSearch} className="h-11 bg-accent text-accent-foreground hover:bg-slate-900 font-black shadow-xl border-none transition-all hover:scale-[1.02]" disabled={loading}>
-            {loading ? "Syncing..." : "Execute Audit"}
-          </Button>
+          <div className="md:col-span-3">
+            <Button 
+              onClick={handleSearch} 
+              className="w-full h-14 bg-accent text-accent-foreground hover:bg-slate-900 font-black rounded-2xl shadow-xl shadow-accent/20 border-none transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2" 
+              disabled={loading}
+            >
+              {loading ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Filter className="h-5 w-5" />}
+              <span>{loading ? "SEARCHING..." : "EXECUTE"}</span>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -468,10 +492,17 @@ const PostingSearch = () => {
                       <td className="p-4 text-center font-bold text-slate-300 text-xs">{String(i + 1).padStart(2, '0')}</td>
                       <td className="p-4 text-center text-xs font-bold text-slate-500">{formatDate(r.date)}</td>
                       <td className="p-4 text-left">
-                         <div className="flex flex-col">
-                            <span className="font-bold text-primary group-hover:text-accent transition-colors">{r.memberName}</span>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">{r.accountNo}</span>
-                         </div>
+                          <div className="flex flex-col">
+                             <div className="flex items-center gap-2">
+                                <span className="font-bold text-primary group-hover:text-accent transition-colors">{r.memberName}</span>
+                                {r.nameTelugu && (
+                                  <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded italic">
+                                    {r.nameTelugu}
+                                  </span>
+                                )}
+                             </div>
+                             <span className="text-[10px] font-bold text-slate-400 uppercase">{r.accountNo}</span>
+                          </div>
                       </td>
                       <td className="p-4 text-left">
                         <div className="flex items-center gap-2">

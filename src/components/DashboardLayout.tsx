@@ -368,8 +368,14 @@ const DashboardLayout = () => {
             <Zap size={20} />
             <span className="text-[8px] font-black uppercase tracking-tighter">Post</span>
           </button>
-          <div className="h-12 w-12 rounded-2xl bg-slate-900 flex items-center justify-center -mt-8 shadow-xl border-4 border-white">
-            <Search size={20} className="text-white" onClick={() => navigate("/posting-search")} />
+          <div 
+            onClick={() => navigate("/posting-search")}
+            className={cn(
+              "h-14 w-14 rounded-[1.25rem] flex items-center justify-center -mt-10 shadow-[0_10px_20px_rgba(0,0,0,0.15)] border-4 border-white transition-all active:scale-90 cursor-pointer",
+              location.pathname === "/posting-search" ? "bg-accent" : "bg-slate-900"
+            )}
+          >
+            <Search size={22} className="text-white" />
           </div>
           <button
             onClick={() => navigate("/ledger")}
@@ -391,6 +397,55 @@ const DashboardLayout = () => {
             <Wallet size={20} />
             <span className="text-[8px] font-black uppercase tracking-tighter">Field</span>
           </button>
+
+          {(userData?.role === "super_admin" || userData?.role === "admin") && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={cn(
+                    "flex flex-col items-center gap-1 transition-all",
+                    location.pathname.includes("manage") ? "text-accent scale-110" : "text-slate-400"
+                  )}
+                >
+                  <Settings size={20} />
+                  <span className="text-[8px] font-black uppercase tracking-tighter">Controls</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end" className="w-56 glass-card border-slate-200 p-2 shadow-2xl mb-2 z-[100]">
+                <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 px-3 py-2">System Controls</DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-slate-100 mx-1" />
+
+                <DropdownMenuItem
+                  onClick={() => navigate("/manage-agents?type=partner")}
+                  className="rounded-lg gap-3 py-2.5 cursor-pointer focus:bg-slate-50"
+                >
+                  <UserCog size={16} className="text-slate-400" />
+                  <span className="text-xs font-bold text-slate-600">Manage Partner</span>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => navigate("/manage-agents?type=agent")}
+                  className="rounded-lg gap-3 py-2.5 cursor-pointer focus:bg-slate-50"
+                >
+                  <Users size={16} className="text-slate-400" />
+                  <span className="text-xs font-bold text-slate-600">Manage Agents</span>
+                </DropdownMenuItem>
+
+                {userData?.role === "super_admin" && (
+                  <>
+                    <DropdownMenuSeparator className="bg-slate-100 mx-1" />
+                    <DropdownMenuItem
+                      onClick={() => navigate("/manage-admins")}
+                      className="rounded-lg gap-3 py-2.5 cursor-pointer focus:bg-slate-50"
+                    >
+                      <ShieldCheck size={16} className="text-indigo-500" />
+                      <span className="text-xs font-black text-slate-700">Admin Control</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
     </div>
