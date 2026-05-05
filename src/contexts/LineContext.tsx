@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { useAuth } from "./AuthContext";
+
 
 interface Line {
   id: string;
@@ -33,7 +35,15 @@ export const LineProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loadingLines, setLoadingLines] = useState(true);
   const [hasSelectedOnce, setHasSelectedOnce] = useState(!!localStorage.getItem("lineSelectedOnce"));
 
+  const { user } = useAuth();
+
   useEffect(() => {
+    if (!user) {
+      setLines([]);
+      setLoadingLines(false);
+      return;
+    }
+
     const q = query(collection(db, "lines"), orderBy("name"));
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Line));
@@ -41,10 +51,11 @@ export const LineProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoadingLines(false);
     }, (error) => {
       console.error("Line fetch failed:", error);
-      setLoadingLines(false); // Stop loading even if it fails
+      setLoadingLines(false);
     });
     return unsub;
-  }, []);
+  }, [user]);
+
 
   const setSelectedLineId = (id: string | null) => {
     setSelectedLineIdState(id);

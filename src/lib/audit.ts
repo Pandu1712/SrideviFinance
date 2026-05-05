@@ -11,10 +11,12 @@ export type AuditAction =
   | "LINE_CREATE" 
   | "LINE_DELETE" 
   | "LINE_UPDATE"
+  | "EXPENSE_ADD"
   | "EXPENSE_UPDATE"
   | "ACCOUNT_SHIFT"
   | "BATCH_DATE_CHANGE"
   | "POSTING_VERIFY_BATCH";
+
 
 export const logActivity = async (
   userId: string,

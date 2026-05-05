@@ -46,7 +46,7 @@ const Reports = () => {
     try {
       if (!selectedLineId) {
         setData([]);
-        setStats({ total: 0, cash: 0, online: 0, principal: 0, interest: 0, docCharges: 0, disbursed: 0, expenses: 0, penalties: 0, extraCol: 0, byAgent: {} });
+        setStats({ total: 0, cash: 0, online: 0, principal: 0, interest: 0, docCharges: 0, disbursed: 0, expenses: 0, penalties: 0, extraCol: 0, agentCol: 0, adminCol: 0, byAgent: {} });
         setLoading(false);
         return;
       }
@@ -120,7 +120,7 @@ const Reports = () => {
       const combinedData = [
         ...docs.filter((d: any) => ["collection", "penalty", "extra_collection", "extra_transfer_out"].includes(d.status?.toLowerCase())),
         ...newAccounts
-      ].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+      ].sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
       setData(combinedData);
 
@@ -188,10 +188,11 @@ const Reports = () => {
       item.memberName || item.name,
       !item.isDisbursement ? formatCurrency(item.amount + (item.extraAmount || 0)) : "—",
       item.isDisbursement ? formatCurrency(item.amount) : "—",
-      item.payMode.toUpperCase(),
-      item.status.toUpperCase(),
+      item.payMode?.toUpperCase() || "—",
+      item.status?.toUpperCase() || "—",
       item.purpose || "—"
     ]);
+
 
     doc.text(`Total Expenses: ${formatCurrency(stats.expenses)}`, 14, 42);
 
