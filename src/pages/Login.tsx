@@ -169,7 +169,7 @@ const Login = () => {
               >
                 <Button 
                   type="submit" 
-                  className="group w-full h-12 bg-accent text-accent-foreground font-bold text-lg hover:bg-accent/90 shadow-[0_0_20px_rgba(212,175,55,0.3)] transition-all" 
+                  className="group w-full h-12 bg-accent text-accent-foreground font-bold text-lg hover:bg-accent/90 shadow-[0_0_20px_rgba(212,175,55,0.3)] transition-all active-scale" 
                   disabled={loading}
                 >
                   {loading ? (

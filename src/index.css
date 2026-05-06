@@ -83,6 +83,25 @@
     padding-top: env(safe-area-inset-top);
   }
 
+  .safe-area-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  /* App-like overscroll */
+  .overscroll-none {
+    overscroll-behavior: none;
+  }
+
+  /* Native-feel active states */
+  .active-scale:active {
+    transform: scale(0.96);
+  }
+
+  /* High-end text selection */
+  ::selection {
+    @apply bg-accent/20 text-accent;
+  }
+
   /* Responsive & Premium Table System */
   .finance-table-container {
     @apply w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm;

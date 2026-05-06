@@ -536,7 +536,7 @@ const DailyPosting = () => {
 
                       <Button 
                         type="submit" 
-                        className="w-full h-16 md:h-14 bg-primary text-white font-black uppercase tracking-widest shadow-2xl hover:bg-slate-900 transition-all active:scale-95" 
+                        className="w-full h-16 md:h-14 bg-primary text-white font-black uppercase tracking-widest shadow-2xl hover:bg-slate-900 transition-all active-scale" 
                         disabled={loading || !accountInfo}
                       >
                         {loading ? "Authorizing..." : "Submit Collection"}
@@ -649,7 +649,7 @@ const DailyPosting = () => {
                                         "h-10 w-10 rounded-xl flex items-center justify-center transition-all shadow-sm border",
                                         accountInfo?.id === m.id 
                                           ? "bg-white/20 text-white border-white/30" 
-                                          : "bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-500 hover:text-white"
+                                          : "bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-500 hover:text-white active-scale"
                                       )}
                                       title="Call Member"
                                     >
@@ -672,7 +672,7 @@ const DailyPosting = () => {
                                         "h-10 w-10 rounded-xl flex items-center justify-center transition-all shadow-sm border",
                                         accountInfo?.id === m.id 
                                           ? "bg-white/20 text-white border-white/30" 
-                                          : "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-500 hover:text-white"
+                                          : "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-500 hover:text-white active-scale"
                                       )}
                                       title="Get Directions"
                                     >

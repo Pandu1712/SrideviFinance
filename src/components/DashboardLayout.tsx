@@ -10,17 +10,36 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import { useLine } from "@/contexts/LineContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { collection, getDocs, query, where, DocumentData, onSnapshot, orderBy, limit, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn, formatCurrency } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 
 const DashboardLayout = () => {
   const location = useLocation();
   const { userData, logout } = useAuth();
   const { selectedLineId, lines, hasSelectedOnce } = useLine();
   const navigate = useNavigate();
+
+  const triggerHaptic = () => {
+    if (window.navigator && window.navigator.vibrate) {
+      window.navigator.vibrate(5);
+    }
+  };
+
+  const navTo = (path: string) => {
+    triggerHaptic();
+    navigate(path);
+  };
 
   const [globalSearch, setGlobalSearch] = useState("");
   const [searchResults, setSearchResults] = useState<DocumentData[]>([]);
@@ -339,112 +358,166 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        {/* Main Content Area (Scrollable) */}
-        <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/30 pb-20 lg:pb-0">
-          <div className="w-full p-4 lg:p-6">
+      {/* Main Content with Page Transitions */}
+      <main className="flex-1 lg:ml-64 p-4 lg:p-8 pb-24 lg:pb-8 overflow-x-hidden min-h-screen bg-slate-50/30">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="w-full h-full"
+          >
             <Outlet />
-          </div>
-        </main>
+          </motion.div>
+        </AnimatePresence>
+      </main>
 
-        {/* Mobile Smart Bar */}
-        <div className="lg:hidden mobile-bottom-nav">
+      {/* Mobile Bottom Nav - REIMAGINED FOR NATIVE FEEL */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[100] safe-area-bottom">
+        <div className="absolute inset-0 bg-white/80 backdrop-blur-2xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]" />
+        <div className="relative flex items-center justify-around h-16 px-2">
           <button
-            onClick={() => navigate("/dashboard")}
+            onClick={() => navTo("/dashboard")}
             className={cn(
-              "flex flex-col items-center gap-1 transition-all",
-              location.pathname === "/dashboard" ? "text-accent scale-110" : "text-slate-400"
+              "relative flex flex-col items-center gap-1.5 transition-all w-16",
+              location.pathname === "/dashboard" ? "text-accent" : "text-slate-400"
             )}
           >
-            <LayoutDashboard size={20} />
-            <span className="text-[8px] font-black uppercase tracking-tighter">Stats</span>
-          </button>
-          <button
-            onClick={() => navigate("/daily-posting")}
-            className={cn(
-              "flex flex-col items-center gap-1 transition-all",
-              location.pathname === "/daily-posting" ? "text-accent scale-110" : "text-slate-400"
+            <div className={cn("p-1.5 rounded-xl transition-all", location.pathname === "/dashboard" && "bg-accent/10")}>
+              <LayoutDashboard size={20} />
+            </div>
+            <span className="text-[7px] font-black uppercase tracking-widest">Stats</span>
+            {location.pathname === "/dashboard" && (
+              <motion.div layoutId="activeDot" className="absolute -bottom-1 h-1 w-1 bg-accent rounded-full" />
             )}
-          >
-            <Zap size={20} />
-            <span className="text-[8px] font-black uppercase tracking-tighter">Post</span>
-          </button>
-          <div 
-            onClick={() => navigate("/posting-search")}
-            className={cn(
-              "h-14 w-14 rounded-[1.25rem] flex items-center justify-center -mt-10 shadow-[0_10px_20px_rgba(0,0,0,0.15)] border-4 border-white transition-all active:scale-90 cursor-pointer",
-              location.pathname === "/posting-search" ? "bg-accent" : "bg-slate-900"
-            )}
-          >
-            <Search size={22} className="text-white" />
-          </div>
-          <button
-            onClick={() => navigate("/ledger")}
-            className={cn(
-              "flex flex-col items-center gap-1 transition-all",
-              location.pathname === "/ledger" ? "text-accent scale-110" : "text-slate-400"
-            )}
-          >
-            <BookOpen size={20} />
-            <span className="text-[8px] font-black uppercase tracking-tighter">Ledger</span>
-          </button>
-          <button
-            onClick={() => navigate("/daily-collection")}
-            className={cn(
-              "flex flex-col items-center gap-1 transition-all",
-              location.pathname === "/daily-collection" ? "text-accent scale-110" : "text-slate-400"
-            )}
-          >
-            <Wallet size={20} />
-            <span className="text-[8px] font-black uppercase tracking-tighter">Field</span>
           </button>
 
-          {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+          <button
+            onClick={() => navTo("/daily-posting")}
+            className={cn(
+              "relative flex flex-col items-center gap-1.5 transition-all w-16",
+              location.pathname === "/daily-posting" ? "text-accent" : "text-slate-400"
+            )}
+          >
+            <div className={cn("p-1.5 rounded-xl transition-all", location.pathname === "/daily-posting" && "bg-accent/10")}>
+              <Zap size={20} />
+            </div>
+            <span className="text-[7px] font-black uppercase tracking-widest">Post</span>
+            {location.pathname === "/daily-posting" && (
+              <motion.div layoutId="activeDot" className="absolute -bottom-1 h-1 w-1 bg-accent rounded-full" />
+            )}
+          </button>
+
+          <div className="relative w-16 flex justify-center">
+            <motion.div 
+              whileTap={{ scale: 0.9 }}
+              onClick={() => navTo("/posting-search")}
+              className={cn(
+                "h-14 w-14 rounded-2xl flex items-center justify-center -mt-10 shadow-2xl border-4 border-white transition-all cursor-pointer relative z-10",
+                location.pathname === "/posting-search" ? "bg-accent" : "bg-slate-900"
+              )}
+            >
+              <Search size={22} className="text-white" />
+              <div className="absolute inset-0 rounded-2xl bg-white/10 animate-pulse" />
+            </motion.div>
+          </div>
+
+          <button
+            onClick={() => navTo("/ledger")}
+            className={cn(
+              "relative flex flex-col items-center gap-1.5 transition-all w-16",
+              location.pathname === "/ledger" ? "text-accent" : "text-slate-400"
+            )}
+          >
+            <div className={cn("p-1.5 rounded-xl transition-all", location.pathname === "/ledger" && "bg-accent/10")}>
+              <BookOpen size={20} />
+            </div>
+            <span className="text-[7px] font-black uppercase tracking-widest">Ledger</span>
+            {location.pathname === "/ledger" && (
+              <motion.div layoutId="activeDot" className="absolute -bottom-1 h-1 w-1 bg-accent rounded-full" />
+            )}
+          </button>
+
+          {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") ? (
+            <Drawer>
+              <DrawerTrigger asChild>
                 <button
+                  onClick={triggerHaptic}
                   className={cn(
-                    "flex flex-col items-center gap-1 transition-all",
-                    location.pathname.includes("manage") ? "text-accent scale-110" : "text-slate-400"
+                    "relative flex flex-col items-center gap-1.5 transition-all w-16",
+                    location.pathname.includes("manage") ? "text-accent" : "text-slate-400"
                   )}
                 >
-                  <Settings size={20} />
-                  <span className="text-[8px] font-black uppercase tracking-tighter">Controls</span>
+                  <div className={cn("p-1.5 rounded-xl transition-all", location.pathname.includes("manage") && "bg-accent/10")}>
+                    <Settings size={20} />
+                  </div>
+                  <span className="text-[7px] font-black uppercase tracking-widest">System</span>
                 </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="end" className="w-56 glass-card border-slate-200 p-2 shadow-2xl mb-2 z-[100]">
-                <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 px-3 py-2">System Controls</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-slate-100 mx-1" />
+              </DrawerTrigger>
+              <DrawerContent className="rounded-t-[2.5rem] border-none bg-white/95 backdrop-blur-xl">
+                <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full my-4" />
+                <DrawerHeader className="text-left px-8">
+                  <DrawerTitle className="text-2xl font-black italic tracking-tighter text-slate-900 uppercase">System Controls</DrawerTitle>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Operational Matrix Controls</p>
+                </DrawerHeader>
+                <div className="p-8 space-y-4 pb-12">
+                   <div className="grid grid-cols-1 gap-3">
+                      <button 
+                        onClick={() => { navTo("/manage-agents?type=partner"); }}
+                        className="flex items-center gap-4 p-4 rounded-3xl bg-slate-50 active:bg-slate-100 transition-all border border-slate-100"
+                      >
+                         <div className="h-12 w-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-accent"><UserCog size={20} /></div>
+                         <div className="text-left">
+                            <p className="text-xs font-black uppercase tracking-tight text-slate-800">Manage Partner</p>
+                            <p className="text-[9px] font-bold text-slate-400">Enterprise stakeholder control</p>
+                         </div>
+                      </button>
 
-                <DropdownMenuItem
-                  onClick={() => navigate("/manage-agents?type=partner")}
-                  className="rounded-lg gap-3 py-2.5 cursor-pointer focus:bg-slate-50"
-                >
-                  <UserCog size={16} className="text-slate-400" />
-                  <span className="text-xs font-bold text-slate-600">Manage Partner</span>
-                </DropdownMenuItem>
+                      <button 
+                        onClick={() => { navTo("/manage-agents?type=agent"); }}
+                        className="flex items-center gap-4 p-4 rounded-3xl bg-slate-50 active:bg-slate-100 transition-all border border-slate-100"
+                      >
+                         <div className="h-12 w-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-accent"><Users size={20} /></div>
+                         <div className="text-left">
+                            <p className="text-xs font-black uppercase tracking-tight text-slate-800">Manage Agents</p>
+                            <p className="text-[9px] font-bold text-slate-400">Field force provisioning</p>
+                         </div>
+                      </button>
 
-                <DropdownMenuItem
-                  onClick={() => navigate("/manage-agents?type=agent")}
-                  className="rounded-lg gap-3 py-2.5 cursor-pointer focus:bg-slate-50"
-                >
-                  <Users size={16} className="text-slate-400" />
-                  <span className="text-xs font-bold text-slate-600">Manage Agents</span>
-                </DropdownMenuItem>
-
-                {userData?.role === "super_admin" && (
-                  <>
-                    <DropdownMenuSeparator className="bg-slate-100 mx-1" />
-                    <DropdownMenuItem
-                      onClick={() => navigate("/manage-admins")}
-                      className="rounded-lg gap-3 py-2.5 cursor-pointer focus:bg-slate-50"
-                    >
-                      <ShieldCheck size={16} className="text-indigo-500" />
-                      <span className="text-xs font-black text-slate-700">Admin Control</span>
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      {userData?.role === "super_admin" && (
+                        <button 
+                          onClick={() => { navTo("/manage-admins"); }}
+                          className="flex items-center gap-4 p-4 rounded-3xl bg-indigo-50 active:bg-indigo-100 transition-all border border-indigo-100"
+                        >
+                           <div className="h-12 w-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-indigo-500"><ShieldCheck size={20} /></div>
+                           <div className="text-left">
+                              <p className="text-xs font-black uppercase tracking-tight text-indigo-900">Admin Control</p>
+                              <p className="text-[9px] font-bold text-indigo-400">Master system configuration</p>
+                           </div>
+                        </button>
+                      )}
+                   </div>
+                </div>
+              </DrawerContent>
+            </Drawer>
+          ) : (
+            <button
+              onClick={() => navTo("/daily-collection")}
+              className={cn(
+                "relative flex flex-col items-center gap-1.5 transition-all w-16",
+                location.pathname === "/daily-collection" ? "text-accent" : "text-slate-400"
+              )}
+            >
+              <div className={cn("p-1.5 rounded-xl transition-all", location.pathname === "/daily-collection" && "bg-accent/10")}>
+                <Wallet size={20} />
+              </div>
+              <span className="text-[7px] font-black uppercase tracking-widest">Field</span>
+              {location.pathname === "/daily-collection" && (
+                <motion.div layoutId="activeDot" className="absolute -bottom-1 h-1 w-1 bg-accent rounded-full" />
+              )}
+            </button>
           )}
         </div>
       </div>
