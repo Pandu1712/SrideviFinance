@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
@@ -20,9 +20,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { 
   Wallet, UserPlus, Calendar, Info, Calculator, UserCheck, IndianRupee, TrendingUp, Download, CreditCard, MapPin, Check, ChevronsUpDown, Plus, CheckCircle2,
-  FileText, Upload, X, File, Image as ImageIcon
+  FileText, Upload, X, File, Image as ImageIcon, Search, RefreshCw
 } from "lucide-react";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatCurrencyPDF } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { uploadToCloudinary } from "@/lib/cloudinary";
@@ -89,7 +89,98 @@ const NewAccount = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [docDescription, setDocDescription] = useState("");
   const [docType, setDocType] = useState("Aadhar Card");
+  
+  const [memberSearchId, setMemberSearchId] = useState("");
+  const [isSearchingMember, setIsSearchingMember] = useState(false);
 
+  const handleMemberSearchById = async () => {
+    if (!memberSearchId) {
+      toast.error("Please enter a Member ID (Account No) to search");
+      return;
+    }
+    
+    setIsSearchingMember(true);
+    try {
+      const q = query(
+        collection(db, "accounts"), 
+        where("accountNo", "==", memberSearchId), 
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        setValue("accountNo", data.accountNo || memberSearchId);
+        setValue("name", data.name || "");
+        setValue("nameTelugu", data.nameTelugu || "");
+        setValue("fatherHusbandName", data.fatherHusbandName || "");
+        setValue("phone", data.phone || "");
+        setValue("village", data.village || "");
+        setValue("occupation", data.occupation || "");
+        setValue("altPhone", data.altPhone || "");
+        setValue("customerLocation", data.customerLocation || "");
+        setValue("guarantorName", data.guarantorName || "");
+        setValue("guarantorPhone", data.guarantorPhone || "");
+        
+        // Extended Financial Details
+        if (data.loanAmount) setValue("loanAmount", String(data.loanAmount));
+        if (data.interestAmount) setValue("interestAmount", String(data.interestAmount));
+        if (data.totalAmount) setValue("totalAmount", String(data.totalAmount));
+        if (data.paymentFrequency) setValue("paymentFrequency", data.paymentFrequency);
+        if (data.paymentType) setValue("paymentType", data.paymentType);
+        if (data.installmentAmount) setValue("installmentAmount", String(data.installmentAmount));
+        if (data.documentCharge) setValue("documentCharge", String(data.documentCharge));
+        if (data.commission) setValue("commission", String(data.commission));
+        if (data.upiId) setValue("upiId", data.upiId);
+        if (data.bankAccountNumber) setValue("bankAccountNumber", data.bankAccountNumber);
+        if (data.bankIfsc) setValue("bankIfsc", data.bankIfsc);
+        if (data.documentsTaken) setValue("documentsTaken", data.documentsTaken);
+
+        toast.success(`Complete profile for ${data.name} retrieved! All financial details auto-filled.`);
+      } else {
+        toast.error("No record found with this ID.");
+      }
+    } catch (err) {
+      toast.error("Search failed. Please check connection.");
+    } finally {
+      setIsSearchingMember(false);
+    }
+  };
+
+
+  const handleClearSearch = () => {
+    setMemberSearchId("");
+    reset({
+      lineId: selectedLineId || "",
+      paymentFrequency: "daily",
+      paymentType: "cash",
+      loanAmount: "",
+      interestAmount: "",
+      totalAmount: "",
+      installmentAmount: "",
+      commission: "0",
+      initialPaid: "0",
+      documentCharge: "0",
+      creationDate: new Date().toISOString().split("T")[0],
+      name: "",
+      nameTelugu: "",
+      phone: "",
+      village: "",
+      occupation: "",
+      altPhone: "",
+      customerLocation: "",
+      guarantorName: "",
+      guarantorPhone: "",
+      documents: []
+    });
+    
+    // Explicitly re-trigger next account number generation
+    if (selectedLineId) {
+      generateNextAccountNo(selectedLineId);
+    }
+    
+    toast.info("Search cleared and form reset.");
+  };
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -229,8 +320,15 @@ const NewAccount = () => {
   const paymentFrequency = watch("paymentFrequency");
   const installmentAmount = watch("installmentAmount");
   const totalAmount = watch("totalAmount");
-  const startDate = watch("startDate");
+  const creationDate = watch("creationDate");
   const paymentType = watch("paymentType");
+
+  // Sync startDate with creationDate automatically
+  useEffect(() => {
+    if (creationDate) {
+      setValue("startDate", creationDate);
+    }
+  }, [creationDate, setValue]);
 
   // Calculate Total Amount based on Principal and Direct Interest
   useEffect(() => {
@@ -265,12 +363,12 @@ const NewAccount = () => {
 
   // Calculate End Date based on Total Amount, Installment, and Frequency
   useEffect(() => {
-    if (installmentAmount && totalAmount && startDate && paymentFrequency) {
+    if (installmentAmount && totalAmount && creationDate && paymentFrequency) {
       const inst = parseFloat(installmentAmount);
       const total = parseFloat(totalAmount);
       if (inst > 0 && total > 0) {
         const tenureUnits = Math.ceil(total / inst);
-        const start = new Date(startDate);
+        const start = new Date(creationDate);
         const end = new Date(start);
         
         if (paymentFrequency === "daily") {
@@ -284,7 +382,7 @@ const NewAccount = () => {
         setValue("endDate", end.toISOString().split("T")[0]);
       }
     }
-  }, [installmentAmount, totalAmount, startDate, paymentFrequency, setValue]);
+  }, [installmentAmount, totalAmount, creationDate, paymentFrequency, setValue]);
 
   useEffect(() => {
     const fetchExisting = async () => {
@@ -322,38 +420,35 @@ const NewAccount = () => {
   }, [id, isEdit, reset]);
 
   const currentLineId = watch("lineId");
-  useEffect(() => {
-    const generateNextAccountNo = async () => {
-      if (isEdit || !currentLineId) return;
-      try {
-        const q = query(collection(db, "accounts"), where("lineId", "==", currentLineId));
-        const snap = await getDocs(q);
-        
-        if (snap.empty) {
-          setValue("accountNo", "1");
-        } else {
-          const existingNumbers = new Set(
-            snap.docs
-              .map(d => parseInt(d.data().accountNo, 10))
-              .filter(n => !isNaN(n) && n > 0)
-          );
-          let nextAccNo = 1;
-          while (existingNumbers.has(nextAccNo) && nextAccNo <= 999) {
-            nextAccNo++;
-          }
-          if (nextAccNo > 999) {
-            toast.warning("Warning: Reached Account #999 limit for this line.");
-          }
-          setValue("accountNo", String(nextAccNo));
-        }
-      } catch (err) {
-        console.error("Error generating account number:", err);
-        setValue("accountNo", "1"); // Safe default
-      }
-    };
 
-    generateNextAccountNo();
-  }, [userData, isEdit, setValue, currentLineId]);
+  const generateNextAccountNo = useCallback(async (lineId: string) => {
+    if (isEdit || !lineId) return;
+    try {
+      const q = query(collection(db, "accounts"), where("lineId", "==", lineId));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        setValue("accountNo", "1");
+      } else {
+        const existingNumbers = new Set(
+          snap.docs
+            .map(d => parseInt(d.data().accountNo, 10))
+            .filter(n => !isNaN(n) && n > 0)
+        );
+        let nextAccNo = 1;
+        while (existingNumbers.has(nextAccNo) && nextAccNo <= 999) {
+          nextAccNo++;
+        }
+        setValue("accountNo", String(nextAccNo));
+      }
+    } catch (err) {
+      console.error("Error generating account number:", err);
+    }
+  }, [isEdit, setValue]);
+
+  useEffect(() => {
+    generateNextAccountNo(currentLineId);
+  }, [currentLineId, generateNextAccountNo]);
 
   // Set default lineId if selectedLineId is present and form doesn't have one
   useEffect(() => {
@@ -399,9 +494,9 @@ const NewAccount = () => {
     ];
 
     const financeInfo = [
-      ["Principal Amount", formatCurrency(data.loanAmount)],
-      ["Interest Amount", formatCurrency(data.interestAmount)],
-      ["Total Payable", formatCurrency(data.totalAmount)],
+      ["Principal Amount", `Rs. ${formatCurrencyPDF(data.loanAmount)}`],
+      ["Interest Amount", `Rs. ${formatCurrencyPDF(data.interestAmount)}`],
+      ["Total Payable", `Rs. ${formatCurrencyPDF(data.totalAmount)}`],
       ["Payment Type", data.paymentType?.toUpperCase()],
       ["Direction/Location", data.customerLocation || "N/A"],
     ];
@@ -415,7 +510,7 @@ const NewAccount = () => {
 
     financeInfo.push(
       ["Frequency", data.paymentFrequency?.toUpperCase()],
-      ["Installment", formatCurrency(data.installmentAmount)],
+      ["Installment", `Rs. ${formatCurrencyPDF(data.installmentAmount)}`],
       ["Start Date", data.startDate],
       ["Tentative End Date", data.endDate],
     );
@@ -528,6 +623,7 @@ const NewAccount = () => {
           status: (total - initialPaidValue) <= 0 ? "completed" : "active",
           adminId: userData?.uid,
           adminRole: userData?.role,
+          adminName: userData?.name,
           creationDate: data.creationDate,
           createdAt: new Date().toISOString(),
         };
@@ -699,6 +795,45 @@ const NewAccount = () => {
         </CardHeader>
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+            {/* ID Search Option */}
+            {!isEdit && (
+              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 mb-8 flex flex-col md:flex-row items-end gap-4">
+                <div className="flex-1 space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Profile Identity Search (ID)</Label>
+                  <div className="relative group">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-primary transition-colors" />
+                    <Input 
+                      placeholder="Enter Existing Account No (e.g. 101)" 
+                      value={memberSearchId}
+                      onChange={(e) => setMemberSearchId(e.target.value)}
+                      className="pl-11 h-12 finance-input bg-white border-none shadow-sm font-bold text-primary"
+                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleMemberSearchById())}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    type="button"
+                    disabled={isSearchingMember || !memberSearchId}
+                    onClick={handleMemberSearchById}
+                    className="h-12 px-8 bg-slate-900 text-white font-black uppercase tracking-widest text-[10px] shadow-lg active:scale-95 transition-all gap-2"
+                  >
+                    {isSearchingMember ? <RefreshCw className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
+                    Search Profile
+                  </Button>
+                  <Button 
+                    type="button"
+                    variant="outline"
+                    onClick={handleClearSearch}
+                    className="h-12 px-6 border-slate-200 text-slate-500 font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-all gap-2"
+                  >
+                    <X className="h-4 w-4" />
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -1090,14 +1225,6 @@ const NewAccount = () => {
                   <p className="text-[10px] text-muted-foreground px-1 italic">Date of registration</p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Loan Start Date *</Label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
-                    <Input type="date" {...register("startDate")} className="pl-9 finance-input" />
-                  </div>
-                  <p className="text-[10px] text-muted-foreground px-1 italic">First installment date</p>
-                </div>
 
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-[#0F172A]">End Date</Label>

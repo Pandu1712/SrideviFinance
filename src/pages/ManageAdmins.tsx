@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Trash2, Plus, ShieldCheck, Mail, Phone, Lock, User, ShieldAlert, ArrowRight, Activity, BadgeCheck } from "lucide-react";
+import { Trash2, Plus, ShieldCheck, Mail, Phone, Lock, User, ShieldAlert, ArrowRight, Activity, BadgeCheck, MapPin } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -215,9 +215,32 @@ const ManageAdmins = () => {
                       <BadgeCheck size={14} className="text-emerald-500" />
                       <span className="text-[10px] font-black uppercase tracking-widest">Role Verified</span>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(admin.id)} className="h-8 w-8 p-0 text-slate-300 hover:text-destructive hover:bg-destructive/10">
-                      <Trash2 size={16} />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {admin.phone && (
+                        <a 
+                          href={`tel:${admin.phone}`} 
+                          className="h-8 w-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all shadow-sm"
+                          title="Call Admin"
+                        >
+                          <Phone size={14} />
+                        </a>
+                      )}
+                      {(admin.location || admin.address) && (
+                        <button 
+                          onClick={() => {
+                            const query = admin.location || admin.address;
+                            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                          }}
+                          className="h-8 w-8 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                          title="Get Directions"
+                        >
+                          <MapPin size={14} />
+                        </button>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(admin.id)} className="h-8 w-8 p-0 text-slate-300 hover:text-destructive hover:bg-destructive/10">
+                        <Trash2 size={16} />
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

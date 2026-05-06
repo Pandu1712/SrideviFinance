@@ -6,12 +6,13 @@ import { collection, getDocs, query, where, Timestamp, orderBy } from "firebase/
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
-import { motion } from "framer-motion";
-import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download, FileSpreadsheet, PlusCircle, ShieldCheck } from "lucide-react";
+import { cn, formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
+import { FileText, TrendingUp, PieChart as PieIcon, Users, Calendar, Download, FileSpreadsheet, PlusCircle, ShieldCheck, Info, ArrowUpRight, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -21,10 +22,12 @@ const COLORS = ["#0F172A", "#D4AF37", "#64748B", "#F59E0B", "#10B981"];
 
 const Reports = () => {
   const { userData } = useAuth();
-  const { selectedLineId } = useLine();
+  const { selectedLineId, lines } = useLine();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expenseLogs, setExpenseLogs] = useState<any[]>([]);
+  const [showExpenseDialog, setShowExpenseDialog] = useState(false);
   const [stats, setStats] = useState({
     total: 0,
     cash: 0,
@@ -54,14 +57,12 @@ const Reports = () => {
       const adminUsersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["super_admin", "admin"])));
       const adminIdsSet = new Set(adminUsersSnap.docs.map(d => d.id));
 
-      // 1. Current Day Postings
       const baseQ = query(collection(db, "postings"), where("date", "==", selectedDate));
       const baseSnap = await getDocs(baseQ);
       const docs = baseSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter((d: any) => d.lineId === selectedLineId && (userData?.role === "admin" ? d.adminId === userData.uid : true));
+        .filter((d: any) => d.lineId === selectedLineId && ((userData?.role === "admin" || userData?.role === "partner") ? d.adminId === userData.uid : true));
 
-      // 2. Fetch Accounts created today for Principal/Interest Stats
       const accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
       const accSnap = await getDocs(accQ);
       
@@ -70,7 +71,7 @@ const Reports = () => {
       let newDocCharges = 0;
       
       const newAccounts = accSnap.docs
-        .filter(d => d.data().startDate === selectedDate) // Matching on startDate for "opened today"
+        .filter(d => d.data().creationDate === selectedDate) 
         .map(d => {
           const a = d.data();
           const p = parseFloat(a.loanAmount || "0");
@@ -78,6 +79,9 @@ const Reports = () => {
           newPrincipal += p;
           newInterest += i;
           newDocCharges += parseFloat(a.documentCharge || "0");
+          if (a.creationDate && a.paymentFrequency) {
+            const start = new Date(a.creationDate);
+          }
           return {
             ...a, id: d.id, isNewAccount: true,
             amount: p,
@@ -88,46 +92,72 @@ const Reports = () => {
           };
         });
 
-      // 3. Stats Calculation
       let totalInflow = 0; let cashIn = 0; let onlineIn = 0; let penalties = 0; let extraCol = 0;
       let agentCol = 0; let adminCol = 0;
+      let docChargesTotal = 0;
       const byAgent: Record<string, number> = {};
 
-      docs.forEach((item: any) => {
-        const amt = item.amount || 0;
-        if (item.status === "disbursement") return;
-
-        totalInflow += amt;
-        if (item.payMode?.toLowerCase() === "cash") cashIn += amt;
-        else onlineIn += amt;
-        
-        const pAmt = item.penaltyAmount || 0;
-        const eAmt = item.extraAmount || 0;
-        penalties += pAmt;
-        extraCol += eAmt;
-        totalInflow += (pAmt + eAmt);
-
-        const agentName = item.collectedByName || "Unknown";
-        byAgent[agentName] = (byAgent[agentName] || 0) + (amt + eAmt);
-
-        if (item.status === "collection") {
-          if (adminIdsSet.has(item.collectedById)) adminCol += amt;
-          else agentCol += amt;
+      newAccounts.forEach((acc: any) => {
+        const dc = parseFloat(acc.documentCharge || "0");
+        if (dc > 0) {
+          docChargesTotal += dc;
         }
       });
 
-      // 4. Combine Postings and New Accounts for the Registry
+      docs.forEach((item: any) => {
+        const amt = item.amount || 0;
+        const pAmt = item.penaltyAmount || 0;
+        const eAmt = item.extraAmount || 0;
+        const itemTotal = amt + pAmt + eAmt;
+        const status = item.status?.toLowerCase();
+        
+        if (status === "disbursement" || status === "charge") return;
+
+        if (status === "extra_transfer_out") {
+          if (item.payMode?.toLowerCase() === "online" || item.payMode?.toLowerCase() === "upi") {
+            onlineIn -= amt;
+          } else {
+            cashIn -= amt;
+          }
+          
+          if (adminIdsSet.has(item.collectedById)) adminCol -= amt;
+          else agentCol -= amt;
+          return;
+        }
+
+        if (["collection", "extra_collection", "penalty"].includes(status)) {
+          if (item.payMode?.toLowerCase() === "online" || item.payMode?.toLowerCase() === "upi") {
+            onlineIn += itemTotal;
+          } else {
+            cashIn += itemTotal;
+          }
+          
+          penalties += pAmt;
+          extraCol += eAmt;
+
+          const agentName = item.collectedByName || "Unknown";
+          byAgent[agentName] = (byAgent[agentName] || 0) + itemTotal;
+
+          if (adminIdsSet.has(item.collectedById)) adminCol += itemTotal;
+          else agentCol += itemTotal;
+        }
+      });
+
+      totalInflow = cashIn + onlineIn;
+
       const combinedData = [
         ...docs.filter((d: any) => ["collection", "penalty", "extra_collection", "extra_transfer_out"].includes(d.status?.toLowerCase())),
         ...newAccounts
       ].sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-
       setData(combinedData);
 
-      // 5. Fetch Expenses
-      let expenses = 0;
+      let expensesValue = 0;
       const expSnap = await getDocs(query(collection(db, "day_summaries"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId)));
-      expSnap.forEach(d => expenses += (d.data().expenses || 0));
+      expSnap.forEach(d => expensesValue += (d.data().expenses || 0));
+
+      const logSnap = await getDocs(query(collection(db, "expenses_log"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId)));
+      const logs = logSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setExpenseLogs(logs);
 
       setStats({ 
         total: totalInflow, 
@@ -135,9 +165,9 @@ const Reports = () => {
         online: onlineIn, 
         principal: newPrincipal, 
         interest: newInterest, 
-        docCharges: newDocCharges, 
+        docCharges: docChargesTotal, 
         disbursed: newPrincipal, 
-        expenses, 
+        expenses: expensesValue, 
         penalties, 
         extraCol, 
         byAgent,
@@ -169,37 +199,39 @@ const Reports = () => {
       return;
     }
 
-    const doc = new jsPDF();
+    const activeLine = lines.find(l => l.id === selectedLineId);
+    const lineName = activeLine?.name || "Consolidated Portfolio";
 
-    // Header
-    doc.setFontSize(20);
-    doc.setTextColor(15, 23, 42); // slate-900
-    doc.text("Sridevi Finance Hub - Audit Report", 14, 22);
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42); 
+    doc.text("Sridevi Finance Hub", 14, 22);
+
+    doc.setFontSize(14);
+    doc.text(`Audit Report: ${lineName}`, 14, 30);
 
     doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
-    doc.text(`Report Date: ${formatDate(date)}`, 14, 35);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 38);
+    doc.text(`Report Date: ${formatDate(date)}`, 14, 43);
 
     const tableColumn = ["S.No", "Account No", "Member Name", "Collection", "Payment", "Mode", "Category"];
     const tableRows = data.map((item, idx) => [
       String(idx + 1).padStart(2, '0'),
       item.accountNo,
-      item.memberName || item.name,
-      !item.isDisbursement ? formatCurrency(item.amount + (item.extraAmount || 0)) : "—",
-      item.isDisbursement ? formatCurrency(item.amount) : "—",
+      item.memberName || item.name || "N/A",
+      !item.isDisbursement ? formatCurrencyPDF(item.amount + (item.extraAmount || 0)) : "—",
+      item.isDisbursement ? formatCurrencyPDF(item.amount) : "—",
       item.payMode?.toUpperCase() || "—",
-      item.status?.toUpperCase() || "—",
-      item.purpose || "—"
+      `${item.collectedByRole === 'agent' ? 'AGENT' : 'ADMIN'} ${item.status?.toUpperCase() || "COLLECTION"}`,
     ]);
 
-
-    doc.text(`Total Expenses: ${formatCurrency(stats.expenses)}`, 14, 42);
+    doc.text(`Total Expenses: ${formatCurrencyPDF(stats.expenses)}`, 14, 50);
 
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 48,
+      startY: 55,
       theme: 'striped',
       headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
@@ -220,12 +252,16 @@ const Reports = () => {
       "S.No": idx + 1,
       "Account No": item.accountNo,
       "Member Name": item.memberName || item.name,
+      "Telugu Name": item.nameTelugu || "",
       "Collection": !item.isDisbursement ? item.amount : 0,
       "Disbursement": item.isDisbursement ? item.amount : 0,
+      "Penalty": item.penaltyAmount || 0,
+      "Extra": item.extraAmount || 0,
       "Doc Charges": item.documentCharge || 0,
       "Daily Expenses": stats.expenses,
       "Mode": (item.payMode || "").toUpperCase(),
-      "Category": (item.status || "").toUpperCase()
+      "Category": (item.status || "").toUpperCase(),
+      "Creation Date": item.creationDate || ""
     }));
 
     exportToExcel(excelData, `Financial_Report_${date}`, "Report");
@@ -249,19 +285,34 @@ const Reports = () => {
           </div>
         </div>
         <div className="flex gap-2">
-          <div className="relative">
-            <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <div className="relative group">
+            <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors z-10" />
             <Input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="pl-9 h-10 w-40 glass-card"
+              className="absolute inset-0 opacity-0 cursor-pointer z-20"
             />
+            <div className="pl-9 h-10 w-40 glass-card flex items-center text-[10px] font-black text-slate-700 bg-white shadow-sm border border-slate-200 rounded-xl">
+              {(() => {
+                const [y, m, d] = date.split('-');
+                return `${d}/${m}/${y}`;
+              })()}
+            </div>
           </div>
-          <Button
-            variant="outline"
-            className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-slate-700 hover:bg-slate-100 font-bold"
-            onClick={handleExportPDF}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => window.print()} 
+            className="h-10 rounded-xl gap-2 border-slate-200 font-bold hover:bg-slate-50 transition-all print:hidden"
+          >
+            <Printer className="h-4 w-4" /> Print / Save PDF (Telugu)
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleExportPDF} 
+            className="h-10 rounded-xl gap-2 border-slate-200 font-bold hover:bg-slate-50 transition-all print:hidden"
           >
             <Download className="h-4 w-4" /> PDF
           </Button>
@@ -274,7 +325,6 @@ const Reports = () => {
           </Button>
         </div>
       </div>
-
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <Card className="glass-card shadow-lg border-none border-t-4 border-rose-500 bg-white">
@@ -337,14 +387,17 @@ const Reports = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-card shadow-lg border-none border-t-4 border-purple-500 bg-white">
+        <Card 
+          onClick={() => setShowExpenseDialog(true)} 
+          className="glass-card shadow-lg border-none border-t-4 border-purple-500 bg-white cursor-pointer hover:scale-105 transition-all duration-300 group"
+        >
           <CardHeader className="pb-2 p-4">
             <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Expenses</p>
             <CardTitle className="text-2xl font-black text-rose-500 tracking-tighter">{formatCurrency(stats.expenses)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest text-rose-300">
-              <Download className="h-3 w-3 text-rose-400" /> Outflow
+            <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-400 uppercase tracking-widest text-rose-300 group-hover:text-rose-500 transition-colors">
+              <Download className="h-3 w-3 text-rose-400" /> View Details
             </div>
           </CardContent>
         </Card>
@@ -453,7 +506,7 @@ const Reports = () => {
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Outflow (Loan)</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-center">Mode</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Details/Interest</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Category</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Collector</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -474,7 +527,10 @@ const Reports = () => {
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold text-slate-700">{item.memberName || item.name}</span>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{item.village || 'N/A'}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{item.village || 'N/A'}</span>
+                            {item.nameTelugu && <span className="text-[11px] font-bold text-slate-500 font-telugu">{item.nameTelugu}</span>}
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -511,7 +567,6 @@ const Reports = () => {
                           <p className="text-[10px] font-bold text-slate-500 truncate max-w-[150px]">
                             {item.isDisbursement ? `Int: ${formatCurrency(item.interestAmount || 0)}` : (item.purpose || "Regular Posting")}
                           </p>
-                          {item.nameTelugu && <span className="text-[10px] font-medium text-slate-400 font-telugu">{item.nameTelugu}</span>}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -519,7 +574,7 @@ const Reports = () => {
                           "text-[9px] font-black uppercase tracking-widest",
                           item.isDisbursement ? "bg-rose-100 text-rose-700 hover:bg-rose-100" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
                         )}>
-                          {item.status || 'Active'}
+                          {item.isDisbursement ? 'Disbursement' : `${(item.collectedByRole || 'Admin').replace('_', ' ')} ${item.status || 'Collection'}`}
                         </Badge>
                       </td>
                     </motion.tr>
@@ -537,6 +592,44 @@ const Reports = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showExpenseDialog} onOpenChange={setShowExpenseDialog}>
+        <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden border-none shadow-2xl glass-card">
+          <div className="bg-slate-900 p-6 text-white">
+             <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+                <FileText size={20} className="text-accent" />
+                Expense Registry
+             </DialogTitle>
+             <DialogDescription className="text-slate-400 text-xs mt-1">
+                Detailed expenditure logs for {formatDate(date)}
+             </DialogDescription>
+          </div>
+          <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+             {expenseLogs.length === 0 ? (
+               <div className="py-10 text-center space-y-3">
+                  <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-300">
+                     <Info size={24} />
+                  </div>
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No expenses recorded for this day</p>
+               </div>
+             ) : expenseLogs.map((log: any) => (
+               <div key={log.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex justify-between items-start group hover:bg-white hover:shadow-md transition-all">
+                  <div className="space-y-1">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{log.collectedByName || "System"}</p>
+                     <h4 className="font-black text-slate-900 uppercase text-xs">{log.note || "Daily Expense"}</h4>
+                     <p className="text-[8px] font-bold text-slate-400">{log.createdAt ? new Date(log.createdAt).toLocaleTimeString() : ""}</p>
+                  </div>
+                  <div className="text-right">
+                     <p className="text-md font-black text-rose-500">-{formatCurrency(log.amount)}</p>
+                     <Badge className="text-[8px] bg-slate-200 text-slate-600 border-none font-black uppercase mt-1">
+                        {log.userRole === 'super_admin' || log.userRole === 'admin' ? 'Admin' : 'Agent'}
+                     </Badge>
+                  </div>
+               </div>
+             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 };

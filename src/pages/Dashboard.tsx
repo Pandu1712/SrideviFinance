@@ -65,6 +65,7 @@ const Dashboard = () => {
   const [chartData, setChartData] = useState<any[]>([]);
   const [recentPostings, setRecentPostings] = useState<any[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [streamDate, setStreamDate] = useState(new Date().toISOString().split("T")[0]);
 
   useEffect(() => {
     if (!userData) return;
@@ -100,23 +101,27 @@ const Dashboard = () => {
 
         snapshot.forEach(d => {
           const data = d.data();
+          const amt = data.amount || 0;
+          const pAmt = data.penaltyAmount || 0;
+          const eAmt = data.extraAmount || 0;
+          const itemTotal = amt + pAmt + eAmt;
+
           const isMatch = timeFilter === "all" || (timeFilter === "month" && data.date >= startOfMonth) || (timeFilter === "year" && data.date >= startOfYear);
-          if (isMatch) totalCol += (data.amount || 0);
+          if (isMatch) totalCol += itemTotal;
 
           if (data.date === todayStr) {
-            const amt = data.amount || 0;
-            if (data.status === "collection") {
-               if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adCol += amt;
-               else if (data.collectedByRole === 'agent') agCol += amt;
+            if (data.status === "collection" || data.status === "extra_collection") {
+               if (data.collectedByRole === 'super_admin' || data.collectedByRole === 'admin') adCol += itemTotal;
+               else if (data.collectedByRole === 'agent') agCol += itemTotal;
                else {
-                 if (adminIdsSet.has(data.collectedById)) adCol += amt;
-                 else agCol += amt;
+                 if (adminIdsSet.has(data.collectedById)) adCol += itemTotal;
+                 else agCol += itemTotal;
                }
             }
           }
           
           const monthKey = data.date?.substring(0, 7) || "Unknown";
-          chartCol[monthKey] = (chartCol[monthKey] || 0) + (data.amount || 0);
+          chartCol[monthKey] = (chartCol[monthKey] || 0) + itemTotal;
         });
 
         const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any as any })).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 200);
@@ -212,7 +217,7 @@ const Dashboard = () => {
         </div>
         
         <div className="flex items-center gap-3">
-          {(userData?.role === "super_admin" || userData?.role === "admin") && (
+          {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
             <Button 
               variant="outline" 
               onClick={() => {
@@ -309,19 +314,30 @@ const Dashboard = () => {
               </Card>
 
               <Card className="glass-card border-none shadow-2xl overflow-hidden flex flex-col">
-                <CardHeader className="border-b border-slate-100 bg-slate-50/30">
-                  <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-widest italic">
+                <CardHeader className="border-b border-slate-100 bg-slate-50/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-widest italic whitespace-nowrap">
                     <Database size={16} className="text-accent" />
                     Recovery Stream
                   </CardTitle>
+                  <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm w-full sm:w-auto">
+                    <Calendar className="h-3 w-3 text-slate-400 shrink-0" />
+                    <input 
+                      type="date" 
+                      value={streamDate}
+                      onChange={(e) => setStreamDate(e.target.value)}
+                      className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 w-full sm:w-[110px] p-0"
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent className="p-0 flex-1 overflow-y-auto">
                    <div className="divide-y divide-slate-100">
-                      {recentPostings.length === 0 ? (
+                      {recentPostings.filter(p => p.date === streamDate).length === 0 ? (
                         <div className="p-10 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
-                          No recent transactions
+                          No transactions for this date
                         </div>
-                      ) : recentPostings.map((p: any) => (
+                      ) : recentPostings
+                          .filter(p => p.date === streamDate)
+                          .map((p: any) => (
                         <div key={p.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center group">
                            <div>
                               <p className="text-[10px] font-black text-slate-900 uppercase">{p.memberName}</p>
@@ -330,7 +346,7 @@ const Dashboard = () => {
                            <div className="text-right">
                               <p className="text-xs font-black text-emerald-600">+{formatCurrency(p.amount)}</p>
                               <Badge className="text-[7px] h-4 bg-slate-100 text-slate-500 border-none font-black uppercase">
-                                {p.payMode}
+                                {(p.collectedByRole || 'Agent').replace('_', ' ')} {p.status || 'Collection'}
                               </Badge>
                            </div>
                         </div>

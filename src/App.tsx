@@ -60,19 +60,19 @@ const App = () => (
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/accounts/new" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "agent"]}><NewAccount /></ProtectedRoute>} />
-              <Route path="/accounts/edit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><NewAccount /></ProtectedRoute>} />
+              <Route path="/accounts/new" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><NewAccount /></ProtectedRoute>} />
+              <Route path="/accounts/edit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><NewAccount /></ProtectedRoute>} />
               <Route path="/daily-posting" element={<DailyPosting />} />
-              <Route path="/extra-amount" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ExtraAmount /></ProtectedRoute>} />
+              <Route path="/extra-amount" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><ExtraAmount /></ProtectedRoute>} />
               <Route path="/members" element={<Members />} />
               <Route path="/posting-search" element={<PostingSearch />} />
               <Route path="/collection-excess" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><CollectionExcess /></ProtectedRoute>} />
               <Route path="/daily-collection" element={<DailyCollection />} />
               <Route path="/book-print" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><BookPrint /></ProtectedRoute>} />
-              <Route path="/ledger" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><Ledger /></ProtectedRoute>} />
-              <Route path="/reports" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><Reports /></ProtectedRoute>} />
+              <Route path="/ledger" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><Ledger /></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><Reports /></ProtectedRoute>} />
               <Route path="/advanced-lists" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><AdvancedLists /></ProtectedRoute>} />
-              <Route path="/dwm-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><DWMBook /></ProtectedRoute>} />
+              <Route path="/dwm-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><DWMBook /></ProtectedRoute>} />
               <Route path="/weekly-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><WeeklyBook /></ProtectedRoute>} />
               <Route path="/weekly-line-a4" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><WeeklyLineA4 /></ProtectedRoute>} />
               <Route path="/monthly-chart" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><MonthlyChartDWM /></ProtectedRoute>} />
@@ -87,9 +87,9 @@ const App = () => (
               <Route path="/export" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ExportPage /></ProtectedRoute>} />
               <Route path="/admin/seed" element={<SeedData />} />
               <Route path="/manage-admins" element={<ProtectedRoute allowedRoles={["super_admin"]}><ManageAdmins /></ProtectedRoute>} />
-              <Route path="/manage-villages" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ManageVillages /></ProtectedRoute>} />
-              <Route path="/manage-agents" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><ManageAgents /></ProtectedRoute>} />
-              <Route path="/verify-postings" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><PostingVerification /></ProtectedRoute>} />
+              <Route path="/manage-villages" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><ManageVillages /></ProtectedRoute>} />
+              <Route path="/manage-agents" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><ManageAgents /></ProtectedRoute>} />
+              <Route path="/verify-postings" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><PostingVerification /></ProtectedRoute>} />
               <Route path="/agent-audit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><AgentAudit /></ProtectedRoute>} />
             </Route>
             <Route path="*" element={<NotFound />} />

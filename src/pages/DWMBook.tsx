@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BookOpen, IndianRupee, Printer, Activity, Calendar as CalendarIcon, User, Search, Filter, MapPin, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatCurrencyPDF } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLine } from "@/contexts/LineContext";
@@ -70,8 +70,8 @@ const DWMBook = () => {
         
         const defs = allActs.filter(a => {
            if (!a.balance || a.balance <= 0) return false;
-           if (a.startDate && a.paymentFrequency) {
-              const start = new Date(a.startDate);
+           if (a.creationDate && a.paymentFrequency) {
+              const start = new Date(a.creationDate);
               const totalDays = a.paymentFrequency === "daily" ? 100 : 30;
               start.setDate(start.getDate() + totalDays);
               const expectedEnd = start.toISOString().split("T")[0];
@@ -162,15 +162,15 @@ const DWMBook = () => {
     doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 48);
 
     const tableColumn = activeTab === "defaulters" 
-      ? ["Date", "Member Name", "Account No", "Village", "Balance Due"]
-      : ["Date", "Member Name", "Account No", "Village", "Amount"];
+      ? ["Date", "Member Name", "Account No", "Village", "Balance Due (Rs.)"]
+      : ["Date", "Member Name", "Account No", "Village", "Amount (Rs.)"];
 
     const tableRows = dataToExport.map(p => [
       activeTab === "defaulters" ? p.startDate : p.date,
-      p.memberName || p.name,
+      p.memberName || p.name || "N/A",
       p.accountNo,
       p.village || "N/A",
-      formatCurrency(activeTab === "defaulters" ? p.balance : p.amount)
+      formatCurrencyPDF(activeTab === "defaulters" ? p.balance : p.amount)
     ]);
 
     autoTable(doc, {
@@ -190,7 +190,7 @@ const DWMBook = () => {
     
     doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
-    doc.text(`Total ${activeTab === "defaulters" ? "Overdue" : "Value"}: ${formatCurrency(total)}`, 14, finalY);
+    doc.text(`Total ${activeTab === "defaulters" ? "Overdue" : "Value"}: ${formatCurrencyPDF(total)}`, 14, finalY);
 
     doc.save(`Book_${activeTab}_${activeLineName}_${dateFilter}.pdf`);
     toast.success(`${activeTab.toUpperCase()} Book Exported`);
@@ -255,19 +255,18 @@ const DWMBook = () => {
               Sync Records
             </Button>
             <Button 
-              onClick={handleExportPDF}
-              variant="outline"
-              className="h-12 px-6 border-slate-200 text-[#5f259f] rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 shadow-sm transition-all"
-            >
-              <Download className="mr-2 h-4 w-4" /> Download PDF
-            </Button>
-
-            <Button 
               onClick={() => window.print()}
               variant="outline"
-              className="h-12 px-6 border-slate-200 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 shadow-sm transition-all"
+              className="h-12 px-6 border-slate-200 text-slate-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 shadow-sm transition-all print:hidden"
             >
-              <Printer size={16} className="mr-2" /> Print
+              <Printer size={16} className="mr-2" /> Print / Save PDF (Telugu)
+            </Button>
+            <Button 
+              onClick={handleExportPDF}
+              variant="outline"
+              className="h-12 px-6 border-slate-200 text-[#5f259f] rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 shadow-sm transition-all print:hidden"
+            >
+              <Download className="mr-2 h-4 w-4" /> PDF
             </Button>
           </div>
         </div>
@@ -387,7 +386,10 @@ const DWMBook = () => {
                                 {p.memberName?.charAt(0) || p.name?.charAt(0)}
                              </div>
                              <div className="flex flex-col">
-                                <span className="font-black text-slate-900 text-sm uppercase">{p.memberName || p.name}</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                   <span className="font-black text-slate-900 text-sm uppercase leading-tight">{p.memberName || p.name}</span>
+                                   {p.nameTelugu && <span className="text-[10px] font-bold text-slate-500 font-telugu whitespace-nowrap">({p.nameTelugu})</span>}
+                                </div>
                                 <span className="text-[8px] text-rose-500 font-black uppercase tracking-widest mt-0.5">{p.village || 'N/A'}</span>
                              </div>
                           </div>
@@ -424,7 +426,10 @@ const DWMBook = () => {
                                 {p.memberName?.charAt(0)}
                              </div>
                              <div className="flex flex-col">
-                                <span className="font-black text-slate-900 text-sm uppercase">{p.memberName}</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                   <span className="font-black text-slate-900 text-sm uppercase leading-tight">{p.memberName}</span>
+                                   {p.nameTelugu && <span className="text-[10px] font-bold text-slate-500 font-telugu whitespace-nowrap">({p.nameTelugu})</span>}
+                                </div>
                                 <span className="text-[8px] text-emerald-600 font-black uppercase tracking-widest mt-0.5">{p.village || 'N/A'}</span>
                              </div>
                           </div>

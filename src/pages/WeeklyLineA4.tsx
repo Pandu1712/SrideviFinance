@@ -127,8 +127,11 @@ const WeeklyLineA4 = () => {
                       <td className="text-center font-bold text-slate-300">{i + 1}</td>
                       <td className="font-bold text-slate-900 tracking-tighter uppercase">{acc.accountNo}</td>
                       <td>
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-900 group-hover:text-accent transition-colors">{acc.name}</span>
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="font-bold text-slate-900 group-hover:text-accent transition-colors leading-tight">{acc.name}</span>
+                            {acc.nameTelugu && <span className="text-[10px] font-bold text-slate-500 font-telugu whitespace-nowrap">({acc.nameTelugu})</span>}
+                          </div>
                           <span className="text-[10px] text-slate-400 uppercase font-black tracking-tighter">{acc.village || 'N/A'}</span>
                         </div>
                       </td>
@@ -138,7 +141,7 @@ const WeeklyLineA4 = () => {
                         return (
                           <td key={d} className="text-center">
                             {dayAmt > 0 ? (
-                              <span className="px-2 py-1 rounded bg-accent/10 text-accent font-black text-xs">₹{dayAmt}</span>
+                              <span className="px-2 py-1 rounded bg-accent/10 text-accent font-black text-xs">Rs. {dayAmt}</span>
                             ) : (
                               <span className="text-slate-200 text-xs">-</span>
                             )}
@@ -146,7 +149,7 @@ const WeeklyLineA4 = () => {
                         );
                       })}
                       <td className="text-right pr-8">
-                        <span className="text-sm font-black text-primary">₹{rowTotal.toLocaleString("en-IN")}</span>
+                        <span className="text-sm font-black text-primary">Rs. {rowTotal.toLocaleString("en-IN")}</span>
                       </td>
                     </motion.tr>
                   );

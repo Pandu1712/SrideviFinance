@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File, FileSpreadsheet, Edit, IndianRupee, Calendar, ArrowRightLeft, MoveRight } from "lucide-react";
+import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File, FileSpreadsheet, Edit, IndianRupee, Calendar, ArrowRightLeft, MoveRight, Printer } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -307,7 +307,10 @@ const Ledger = () => {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-slate-700 font-bold" onClick={() => {
+          <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all print:hidden" onClick={() => window.print()}>
+            <Printer className="h-4 w-4" /> Print / Save PDF (Telugu)
+          </Button>
+          <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-slate-700 font-bold print:hidden" onClick={() => {
             if (!accountInfo) {
               toast.error("Please search and load an account first");
               return;
@@ -317,38 +320,37 @@ const Ledger = () => {
             
             // Header Section
             doc.setFontSize(22);
-            doc.setTextColor(15, 23, 42); // slate-900
+            doc.setTextColor(15, 23, 42); 
             doc.text("SRIDEVI FINANCE HUB", 14, 22);
             
             doc.setFontSize(14);
             doc.text("Official Account Statement", 14, 30);
             
-            doc.setFontSize(10);
-            doc.setTextColor(100, 116, 139); // slate-500
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139); 
             doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 38);
 
             // Member Info Box
-            doc.setDrawColor(226, 232, 240); // slate-200
+            doc.setDrawColor(226, 232, 240); 
             doc.line(14, 42, 196, 42);
             
-            doc.setFontSize(10);
+            doc.setFontSize(9);
             doc.setTextColor(15, 23, 42);
-            doc.text(`Member Name: ${accountInfo.name}${accountInfo.nameTelugu ? ` (${accountInfo.nameTelugu})` : ''}`, 14, 50);
-            doc.text(`Account Number: ${accountInfo.accountNo}`, 14, 55);
-            doc.text(`Village: ${accountInfo.village || "N/A"}`, 14, 60);
-            doc.text(`Phone: ${accountInfo.phone || "N/A"}`, 14, 65);
-            doc.text(`A/C Created: ${accountInfo.creationDate || formatDate(accountInfo.createdAt)}`, 14, 70);
+            doc.text(`Subscriber: ${accountInfo.name.toUpperCase()}`, 14, 50);
+            doc.text(`Account No: ${accountInfo.accountNo}`, 14, 56);
+            doc.text(`Village: ${accountInfo.village || "N/A"}`, 14, 62);
+            doc.text(`Registered: ${accountInfo.creationDate || formatDate(accountInfo.createdAt)}`, 14, 68);
             
-            doc.text(`Total Principal: ${formatCurrency(accountInfo.totalAmount)}`, 130, 50);
-            doc.text(`Amount Paid: ${formatCurrency(accountInfo.paid)}`, 130, 55);
-            doc.text(`Outstanding: ${formatCurrency(accountInfo.balance)}`, 130, 60);
-            doc.text(`Status: ${accountInfo.status.toUpperCase()}`, 130, 65);
+            doc.text(`Total Loan: ${formatCurrencyPDF(accountInfo.totalAmount)}`, 120, 50);
+            doc.text(`Total Paid: ${formatCurrencyPDF(accountInfo.paid)}`, 120, 56);
+            doc.text(`Net Balance: ${formatCurrencyPDF(accountInfo.balance)}`, 120, 62);
+            doc.text(`Current Status: ${accountInfo.status.toUpperCase()}`, 120, 68);
 
             const tableColumn = ["Sl No", "Date", "Amount", "Mode", "Collected By"];
             const tableRows = postings.map((p, i) => [
               i + 1, 
               formatDate(p.date), 
-              formatCurrency(p.amount), 
+              formatCurrencyPDF(p.amount), 
               p.payMode.toUpperCase(), 
               p.collectedByName || "System"
             ]);
@@ -359,9 +361,9 @@ const Ledger = () => {
               startY: 75,
               theme: 'striped',
               headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-              styles: { fontSize: 9, cellPadding: 4 },
+              styles: { fontSize: 8, cellPadding: 3 },
               columnStyles: {
-                2: { halign: 'right', fontStyle: 'bold' } // Amount column
+                2: { halign: 'right', fontStyle: 'bold' } 
               }
             });
 
@@ -665,7 +667,7 @@ const Ledger = () => {
                                    p.status === 'extra_transfer_out' ? 'bg-rose-100 text-rose-700' : 
                                    'bg-blue-100 text-blue-700'
                                  }`}>
-                                   {p.status?.replace('_', ' ')}
+                                   {(p.collectedByRole || 'Agent').replace('_', ' ')} {p.status?.replace('_', ' ')}
                                  </span>
                                  {p.purpose && <span className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{p.purpose}</span>}
                                </div>

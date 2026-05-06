@@ -230,7 +230,7 @@ const PostingVerification = () => {
       "Agent ID": p.collectedById || "N/A",
       "Amount": p.amount || 0,
       "Mode": (p.payMode || "CASH").toUpperCase(),
-      "Category": (p.status || "COLLECTION").toUpperCase()
+      "Category": `${(p.collectedByRole || 'Agent').replace('_', ' ')} ${p.status || 'Collection'}`.toUpperCase()
     }));
 
     exportToExcel(data, `Verification_Queue_${new Date().toISOString().split('T')[0]}`, "Pending Postings");

@@ -15,6 +15,14 @@ export function formatCurrency(amount: number | string | undefined | null) {
   }).format(num || 0);
 }
 
+export function formatCurrencyPDF(amount: number | string | undefined | null) {
+  if (amount === undefined || amount === null) return "Rs 0";
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  const val = Math.round(num || 0);
+  const formatted = val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `Rs ${formatted}`;
+}
+
 export function formatDate(date: any) {
   if (!date) return "-";
   

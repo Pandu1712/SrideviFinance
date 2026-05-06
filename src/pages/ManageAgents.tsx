@@ -409,6 +409,27 @@ const ManageAgents = () => {
                       <span className="text-[10px] font-black uppercase tracking-widest">{agent.userType === 'partner' ? "Verified Partner" : "Active Duty"}</span>
                     </div>
                     <div className="flex items-center gap-1">
+                      {agent.phone && (
+                        <a 
+                          href={`tel:${agent.phone}`} 
+                          className="h-8 w-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all shadow-sm"
+                          title="Call Agent"
+                        >
+                          <Phone size={14} />
+                        </a>
+                      )}
+                      {(agent.location || agent.address) && (
+                        <button 
+                          onClick={() => {
+                            const query = agent.location || agent.address;
+                            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                          }}
+                          className="h-8 w-8 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                          title="Get Directions"
+                        >
+                          <MapPin size={14} />
+                        </button>
+                      )}
                       <Button variant="ghost" size="sm" onClick={() => navigate(`/agent-audit/${agent.uid || agent.id}`)} className="h-8 w-8 p-0 text-slate-300 hover:text-accent hover:bg-accent/10" title={`View ${isPartner ? 'Partner' : 'Agent'} Audit`}>
                         <Activity size={16} />
                       </Button>

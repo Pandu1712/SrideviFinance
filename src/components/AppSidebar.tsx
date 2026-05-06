@@ -28,31 +28,31 @@ const menuSections: MenuSection[] = [
     title: "Analytics & Reporting",
     items: [
       { label: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Reports Engine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin"] },
+      { label: "Reports Engine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
     ]
   },
   {
     title: "Loan Operations",
     items: [
       { label: "Daily Posting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Master Ledger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin"] },
-      { label: "New Account", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Extra Amount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Members Registry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "Master Ledger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "New Account", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Extra Amount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Members Registry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
     ]
   },
   {
     title: "Recovery Management",
     items: [
-      { label: "Collection Portal", path: "/daily-collection", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Posting Approval", path: "/verify-postings", icon: <ShieldCheck size={18} />, roles: ["super_admin", "admin"] },
+      { label: "Collection Portal", path: "/daily-collection", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Posting Approval", path: "/verify-postings", icon: <ShieldCheck size={18} />, roles: ["super_admin", "admin", "partner"] },
       { label: "Search Archives", path: "/posting-search", icon: <Search size={18} />, roles: ["super_admin", "admin", "agent"] },
     ]
   },
   {
     title: "System Management",
     items: [
-      { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin"] },
+      { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin", "partner"] },
     ]
   }
 ];

@@ -46,7 +46,7 @@ const ManageVillages = () => {
   };
 
   useEffect(() => {
-    if ((userData?.role === "super_admin" || userData?.role === "admin") && selectedLineId) {
+    if ((userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && selectedLineId) {
       fetchVillages();
     } else {
       setVillages([]);
@@ -181,7 +181,7 @@ const ManageVillages = () => {
           </div>
         </div>
 
-        {selectedLineId && (userData?.role === "super_admin" || userData?.role === "admin") && (
+        {selectedLineId && (userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
           <Card className="glass-card border-none shadow-lg p-4 flex items-center gap-4 bg-white/50 backdrop-blur-sm">
              <div className="flex-1">
                 <p className="text-[10px] font-black text-slate-400 leading-none mb-1">Active Line</p>

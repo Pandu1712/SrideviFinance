@@ -142,12 +142,15 @@ const BookPrint = () => {
                   >
                     <td className="px-8 py-5 font-black text-slate-300 text-[10px]">{i + 1}</td>
                     <td className="px-8 py-5 font-black text-xs text-primary/60 tracking-widest uppercase">{a.accountNo}</td>
-                    <td className="px-8 py-5">
-                       <div className="flex flex-col">
-                          <span className="font-black text-slate-900 text-sm uppercase">{a.name}</span>
-                          <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{a.fatherHusbandName || 'Personal Profile'}</span>
-                       </div>
-                    </td>
+                     <td className="px-8 py-5">
+                        <div className="flex flex-col">
+                           <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-black text-slate-900 text-sm uppercase leading-tight">{a.name}</span>
+                              {a.nameTelugu && <span className="text-[10px] font-bold text-slate-500 font-telugu whitespace-nowrap">({a.nameTelugu})</span>}
+                           </div>
+                           <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{a.fatherHusbandName || 'Personal Profile'}</span>
+                        </div>
+                     </td>
                     <td className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">{a.phone || "-"}</td>
                     <td className="px-8 py-5 text-right font-black text-slate-900 text-sm">{formatCurrency(a.totalAmount)}</td>
                     <td className="px-8 py-5 text-right font-black text-emerald-600 text-sm">{formatCurrency(a.paid)}</td>

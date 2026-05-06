@@ -30,8 +30,6 @@ const DailyPosting = () => {
   const [villageFilter, setVillageFilter] = useState("all");
   const [timelineFilter, setTimelineFilter] = useState("all");
   const [availableVillages, setAvailableVillages] = useState<string[]>([]);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [lastPostedAmount, setLastPostedAmount] = useState(0);
   const [todayPostings, setTodayPostings] = useState<Set<string>>(new Set());
   const [mobileView, setMobileView] = useState<"list" | "form">("list");
   const [form, setForm] = useState({ 
@@ -269,8 +267,14 @@ const DailyPosting = () => {
         } : null);
       }
       
-      setIsSuccess(true);
-      setLastPostedAmount(totalCollection);
+      // Clear form for next entry immediately
+      setAccountInfo(null);
+      setForm(prev => ({ 
+        ...prev, 
+        accountNo: "", 
+        amount: "", 
+        penaltyAmount: "" 
+      }));
       
       // Update local state for immediate feedback (Greening the list)
       setTodayPostings(prev => new Set([...Array.from(prev), accountInfo.id]));
@@ -408,23 +412,21 @@ const DailyPosting = () => {
         </div>
       </div>
 
-      <DailyReconciliation targetDate={form.date} />
 
       <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
         <AnimatePresence mode="wait">
-          {!isSuccess ? (
-            <>
-              {/* Entry Portal - Conditional on Mobile */}
-              <motion.div
-                key="posting-form"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                className={cn(
-                  "lg:col-span-4 space-y-6",
-                  mobileView === "list" ? "hidden lg:block" : "block"
-                )}
-              >
+          <>
+            {/* Entry Portal - Conditional on Mobile */}
+            <motion.div
+              key="posting-form"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className={cn(
+                "lg:col-span-4 space-y-6",
+                mobileView === "list" ? "hidden lg:block" : "block"
+              )}
+            >
                 <Card className="glass-card border-none shadow-2xl overflow-hidden">
                   <CardHeader className="bg-slate-900 text-white py-4">
                     <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-[0.2em]">
@@ -457,13 +459,22 @@ const DailyPosting = () => {
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Posting Date</Label>
-                          <Input 
-                            type="date" 
-                            value={form.date} 
-                            onChange={e => handleChange("date", e.target.value)} 
-                            className="h-11 finance-input font-bold" 
-                            disabled={userData?.role === 'agent'}
-                          />
+                          <div className="relative group">
+                            <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors z-10" />
+                            <Input 
+                              type="date" 
+                              value={form.date} 
+                              onChange={e => handleChange("date", e.target.value)} 
+                              className="absolute inset-0 opacity-0 cursor-pointer z-20"
+                              disabled={userData?.role === 'agent'}
+                            />
+                            <div className="pl-9 h-11 finance-input flex items-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded-xl">
+                              {(() => {
+                                const [y, m, d] = form.date.split('-');
+                                return `${d}/${m}/${y}`;
+                              })()}
+                            </div>
+                          </div>
                         </div>
                       </div>
 
@@ -599,68 +610,78 @@ const DailyPosting = () => {
                                   : "hover:bg-slate-50 hover:border-slate-100"
                             )}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className={cn(
-                                "h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-black transition-all",
-                                accountInfo?.id === m.id ? "bg-white text-accent" : 
-                                todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
-                              )}>
-                                {m.accountNo}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className={cn("text-[13px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>{m.name}</p>
-                                  {m.nameTelugu && (
-                                    <span className={cn(
-                                      "text-[9px] px-1.5 py-0.5 rounded-full border italic",
-                                      accountInfo?.id === m.id ? "bg-white/20 border-white/30 text-white" : "bg-slate-100 border-slate-200 text-slate-400"
-                                    )}>
-                                      {m.nameTelugu}
-                                    </span>
+                             <div className="flex items-center justify-between gap-2 w-full">
+                               <div className="flex items-center gap-3 min-w-0">
+                                 <div className={cn(
+                                   "h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[11px] font-black transition-all shadow-sm",
+                                   accountInfo?.id === m.id ? "bg-white text-accent" : 
+                                   todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
+                                 )}>
+                                   {m.accountNo}
+                                 </div>
+                                 <div className="min-w-0">
+                                   <p className={cn("text-[13px] sm:text-[14px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>
+                                     {m.name}
+                                   </p>
+                                   <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
+                                     {m.nameTelugu && (
+                                       <span className={cn("text-[9px] sm:text-[10px] font-black truncate", accountInfo?.id === m.id ? "text-white/90" : "text-slate-600")}>
+                                         {m.nameTelugu}
+                                       </span>
+                                     )}
+                                     <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-60 shrink-0", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                       #{m.accountNo}
+                                     </span>
+                                     {m.village && (
+                                       <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                         • {m.village}
+                                       </span>
+                                     )}
+                                   </div>
+                                 </div>
+                               </div>
+                               <div className="flex items-center gap-2 shrink-0 ml-auto transition-all">
+                                  {m.phone && (
+                                    <a 
+                                      href={`tel:${m.phone}`} 
+                                      onClick={e => e.stopPropagation()} 
+                                      className={cn(
+                                        "h-10 w-10 rounded-xl flex items-center justify-center transition-all shadow-sm border",
+                                        accountInfo?.id === m.id 
+                                          ? "bg-white/20 text-white border-white/30" 
+                                          : "bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-500 hover:text-white"
+                                      )}
+                                      title="Call Member"
+                                    >
+                                      <Phone size={16} />
+                                    </a>
                                   )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className={cn("text-[9px] font-bold opacity-60", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                    # {m.accountNo}
-                                  </span>
-                                  {m.village && (
-                                    <span className={cn("text-[8px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                      • {m.village}
-                                    </span>
+                                  {(m.customerLocation || m.village) && (
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const loc = m.customerLocation;
+                                        const query = loc || m.village;
+                                        if (loc && loc.startsWith('http')) {
+                                           window.open(loc, '_blank');
+                                        } else {
+                                           window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                                        }
+                                      }}
+                                      className={cn(
+                                        "h-10 w-10 rounded-xl flex items-center justify-center transition-all shadow-sm border",
+                                        accountInfo?.id === m.id 
+                                          ? "bg-white/20 text-white border-white/30" 
+                                          : "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-500 hover:text-white"
+                                      )}
+                                      title="Get Directions"
+                                    >
+                                      <MapPin size={16} />
+                                    </button>
                                   )}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-all">
-                                 {m.phone && (
-                                   <a 
-                                     href={`tel:${m.phone}`} 
-                                     onClick={e => e.stopPropagation()} 
-                                     className="h-8 w-8 bg-slate-100 rounded-xl flex items-center justify-center text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all shadow-sm"
-                                     title="Call Member"
-                                   >
-                                     <Phone size={14} />
-                                   </a>
-                                 )}
-                                 {m.customerLocation && (
-                                   <button 
-                                     onClick={(e) => {
-                                       e.stopPropagation();
-                                       const url = m.customerLocation;
-                                       if (url.startsWith('http')) {
-                                          window.open(url, '_blank');
-                                       } else {
-                                          window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(url)}`, '_blank');
-                                       }
-                                     }}
-                                     className="h-8 w-8 bg-slate-100 rounded-xl flex items-center justify-center text-blue-600 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
-                                     title="Get Directions"
-                                   >
-                                     <MapPin size={14} />
-                                   </button>
-                                 )}
-                                 <ArrowRight size={14} className={cn("ml-1", accountInfo?.id === m.id ? "text-white" : "text-slate-300")} />
-                              </div>
-                            </div>
+                                  <ArrowRight size={14} className={cn("ml-1", accountInfo?.id === m.id ? "text-white" : "text-slate-300")} />
+                               </div>
+                             </div>
                           </button>
                         ))}
                       </div>
@@ -669,59 +690,6 @@ const DailyPosting = () => {
                 </Card>
               </motion.div>
             </>
-          ) : (
-            <motion.div
-              key="success-receipt"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="lg:col-span-4 flex flex-col items-center justify-center p-8 bg-emerald-50 rounded-3xl border-2 border-dashed border-emerald-200"
-            >
-               <div className="h-24 w-24 bg-emerald-500 rounded-full flex items-center justify-center shadow-2xl mb-6 text-white animate-bounce">
-                  <CheckCircle2 size={48} />
-               </div>
-               <h2 className="text-4xl font-black text-emerald-900 tracking-tighter mb-2">Payment Posted!</h2>
-               <p className="text-emerald-700 font-bold mb-8 uppercase tracking-widest text-xs">Authorization Successful • Receipt Generated</p>
-               
-               <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-xl border border-emerald-100 space-y-4 mb-8">
-                  <div className="flex justify-between items-center pb-4 border-b border-slate-50">
-                    <span className="text-[10px] font-black uppercase text-slate-400">Subscriber</span>
-                    <div className="flex flex-col items-end text-right">
-                      <span className="font-black text-primary uppercase">{accountInfo?.name}</span>
-                      {accountInfo?.nameTelugu && <span className="text-[10px] font-bold text-slate-400 italic">{accountInfo?.nameTelugu}</span>}
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase text-slate-400">Amount Collected</span>
-                    <span className="text-2xl font-black text-emerald-600 tracking-tighter">{formatCurrency(lastPostedAmount)}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-[10px] font-black uppercase text-slate-400">Remaining Balance</span>
-                    <span className="font-black text-rose-500">{formatCurrency(accountInfo?.balance)}</span>
-                  </div>
-               </div>
-
-               <div className="flex gap-4 w-full max-w-xs">
-                  <Button 
-                    onClick={() => {
-                      setIsSuccess(false);
-                      setAccountInfo(null);
-                      setForm(prev => ({ ...prev, accountNo: "" }));
-                    }}
-                    className="flex-1 h-12 bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest shadow-lg hover:bg-emerald-700"
-                  >
-                    Next Member
-                  </Button>
-                  <Button 
-                    variant="outline"
-                    onClick={handleExportReceipt}
-                    className="flex-1 h-12 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[10px] tracking-widest"
-                  >
-                    <Printer size={16} className="mr-2" />
-                    Receipt
-                  </Button>
-               </div>
-            </motion.div>
-          )}
         </AnimatePresence>
 
         <div className="lg:col-span-3" ref={profileRef}>
@@ -869,6 +837,10 @@ const DailyPosting = () => {
             )}
           </AnimatePresence>
         </div>
+      </div>
+
+      <div className="pt-10 border-t border-slate-100 mt-10">
+        <DailyReconciliation targetDate={form.date} />
       </div>
     </motion.div>
   );

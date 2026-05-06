@@ -9,7 +9,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 
-export type UserRole = "super_admin" | "admin" | "agent";
+export type UserRole = "super_admin" | "admin" | "partner" | "agent";
 
 interface UserData {
   uid: string;

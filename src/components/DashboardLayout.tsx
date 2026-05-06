@@ -103,7 +103,7 @@ const DashboardLayout = () => {
         const term = globalSearch.toLowerCase();
 
         const results = snap.docs
-          .map(d => ({ id: d.id, ...d.data() as DocumentData }))
+          .map(d => ({ id: d.id, ...(d.data() as any) }))
           .filter(a =>
             a.name?.toLowerCase().includes(term) ||
             a.accountNo?.toLowerCase().includes(term) ||
@@ -200,7 +200,7 @@ const DashboardLayout = () => {
                       <span className="text-xs font-bold">No members found.</span>
                     </div>
                   ) : (
-                    searchResults.map(acc => (
+                    searchResults.map((acc: any) => (
                       <div
                         key={acc.id}
                         onClick={() => {
@@ -285,7 +285,7 @@ const DashboardLayout = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {(userData?.role === "super_admin" || userData?.role === "admin") && (
+              {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button className="h-10 w-10 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400 hover:text-primary transition-all">
@@ -398,7 +398,7 @@ const DashboardLayout = () => {
             <span className="text-[8px] font-black uppercase tracking-tighter">Field</span>
           </button>
 
-          {(userData?.role === "super_admin" || userData?.role === "admin") && (
+          {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button

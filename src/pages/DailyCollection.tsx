@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
 import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Scale, ShieldCheck, FileSpreadsheet } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -451,15 +451,15 @@ const DailyCollection = () => {
     doc.text("NET CASH FLOW", pageWidth - 70, 60);
     doc.setTextColor(5, 150, 105); // emerald-600
     doc.setFontSize(14);
-    doc.text(formatCurrency(total - parseFloat(expense)), pageWidth - 70, 70);
+    doc.text(formatCurrencyPDF(total - parseFloat(expense)), pageWidth - 70, 70);
 
     // 3. Transactions Table
-    const tableColumn = ["ID", "MEMBER NAME", "ACCOUNT NO", "CREDIT (₹)", "MODE", "COLLECTED BY"];
+    const tableColumn = ["ID", "MEMBER NAME", "ACCOUNT NO", "CREDIT (Rs.)", "MODE", "COLLECTED BY"];
     const tableRows = records.map((r, i) => [
       `#${String(i+1).padStart(2, '0')}`,
       `${r.memberName.toUpperCase()}${r.nameTelugu ? ` (${r.nameTelugu})` : ''}`,
       r.accountNo,
-      Number(r.amount).toLocaleString('en-IN'),
+      formatCurrencyPDF(r.amount),
       r.payMode.toUpperCase(),
       `${r.collectedByName.toUpperCase()} (${r.collectedByRole === 'super_admin' ? 'ADMIN' : 'AGENT'})`
     ]);
@@ -523,6 +523,7 @@ const DailyCollection = () => {
     const data = records.map((r, i) => ({
       "Sl No": i + 1,
       "Member Name": r.memberName,
+      "Telugu Name": r.nameTelugu || "",
       "Account No": r.accountNo,
       "Recovery Amount": r.amount || 0,
       "Principal Component": r.principal || 0,
@@ -1245,7 +1246,7 @@ const DailyCollection = () => {
           <div><h1 className="text-3xl font-extrabold tracking-tight text-[#5f259f] uppercase italic">Recovery Intelligence</h1><p className="text-muted-foreground font-medium">Global session auditing matrix.</p></div>
         </div>
         <div className="flex items-center gap-3">
-          {(userData?.role === "super_admin" || userData?.role === "admin") && (
+          {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
              <>
                <Button 
                  onClick={() => setBulkMoveOpen(true)} 
@@ -1321,8 +1322,12 @@ const DailyCollection = () => {
                       </div>
                    </td>
                    <td className="p-5"><span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">{r.digiPayer || '—'}</span></td>
-                  <td className="p-5 text-center"><Badge variant="outline" className="text-slate-400 text-[9px] font-black uppercase">{r.status}</Badge></td>
-                  {(userData?.role === "super_admin" || userData?.role === "admin") && (
+                  <td className="p-5 text-center">
+                    <Badge variant="outline" className="text-slate-400 text-[9px] font-black uppercase whitespace-nowrap">
+                      {(r.collectedByRole || 'Agent').replace('_', ' ')} {r.status}
+                    </Badge>
+                  </td>
+                  {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
                     <>
                       <td className="p-5 text-right">
                         <Button 
@@ -1354,7 +1359,7 @@ const DailyCollection = () => {
       </Card>
       
       {/* Day-End Account Summary (Point 7.2) */}
-      {(userData?.role === "super_admin" || userData?.role === "admin") && (
+      {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
            <Card className="glass-card border-none shadow-2xl bg-[#0F172A] text-white rounded-3xl overflow-hidden">
               <CardHeader className="border-b border-white/5 bg-white/5">

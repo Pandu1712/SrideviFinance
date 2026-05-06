@@ -7,8 +7,8 @@ import { collection, getDocs, query, where, DocumentData } from "firebase/firest
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2, Download, FileSpreadsheet } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2, Download, FileSpreadsheet, Printer } from "lucide-react";
+import { formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -22,7 +22,7 @@ import { exportToExcel } from "@/lib/excel";
 
 const Members = () => {
   const { userData } = useAuth();
-  const { selectedLineId } = useLine();
+  const { selectedLineId, lines } = useLine();
   const navigate = useNavigate();
   const [members, setMembers] = useState<DocumentData[]>([]);
   const [search, setSearch] = useState("");
@@ -137,35 +137,50 @@ const Members = () => {
     
     const doc = new jsPDF();
     
-    doc.setFontSize(20);
+    const activeLine = lines.find(l => l.id === selectedLineId);
+    const lineName = activeLine?.name || "Consolidated Portfolio";
+
+    doc.setFontSize(22);
     doc.setTextColor(15, 23, 42);
-    doc.text("Members Registry Report", 14, 22);
+    doc.text("Sridevi Finance Hub", 14, 22);
     
-    doc.setFontSize(10);
+    doc.setFontSize(14);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
-    doc.text(`Total Records: ${filtered.length}`, 14, 35);
+    doc.text(`Members Registry: ${lineName}`, 14, 30);
     
-    const tableColumn = ["Acc No", "Name", "Village", "Phone", "Principal", "Balance", "Extra Paid", "Status"];
+    doc.setFontSize(8);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 38);
+    doc.text(`Total Records: ${filtered.length}`, 14, 43);
+    
+    const tableColumn = ["Acc No", "Name", "Village", "Phone", "Principal", "Balance", "Extra", "Status", "Creator"];
     const tableRows = filtered.map(m => [
       m.accountNo || "N/A",
       m.name || "N/A",
       m.village || "N/A",
       m.phone || "N/A",
-      formatCurrency(m.totalAmount || 0),
-      formatCurrency(m.balance || 0),
-      formatCurrency((m.totalExtraPaid || 0) + Math.max(0, (m.paid || 0) - (m.totalAmount || 0))),
-      m.status.toUpperCase()
+      formatCurrencyPDF(m.totalAmount || 0),
+      formatCurrencyPDF(m.balance || 0),
+      formatCurrencyPDF((m.totalExtraPaid || 0) + Math.max(0, (m.paid || 0) - (m.totalAmount || 0))),
+      m.status.toUpperCase(),
+      `${m.adminRole?.toUpperCase() || "ADMIN"}`
     ]);
 
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 45,
+      startY: 50,
       theme: 'striped',
-      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      styles: { fontSize: 8, cellPadding: 3 }
+      styles: { fontSize: 6, cellPadding: 2, textColor: [51, 65, 85] },
+      columnStyles: {
+        0: { cellWidth: 15 },
+        1: { cellWidth: 45 },
+        4: { halign: 'right' },
+        5: { halign: 'right' },
+        6: { halign: 'right' },
+        8: { fontStyle: 'bold', textColor: [15, 23, 42] }
+      }
     });
 
     doc.save(`Members_Registry_${new Date().getTime()}.pdf`);
@@ -181,6 +196,7 @@ const Members = () => {
     const data = filtered.map(m => ({
       "Account No": m.accountNo,
       "Name": m.name,
+      "Name (Telugu)": m.nameTelugu || "",
       "Village": m.village || "N/A",
       "Phone": m.phone || "N/A",
       "Total Amount": m.totalAmount || 0,
@@ -190,7 +206,7 @@ const Members = () => {
       "Installment": m.installmentAmount || 0,
       "Frequency": m.paymentFrequency?.toUpperCase(),
       "Status": m.status?.toUpperCase(),
-      "Start Date": m.startDate || "N/A",
+      "Start Date": m.creationDate || m.startDate || "N/A",
       "End Date": m.endDate || "N/A",
     }));
 
@@ -219,6 +235,13 @@ const Members = () => {
           </div>
 
           <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+             <Button 
+               variant="outline" 
+               className="h-12 px-6 bg-white border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+               onClick={() => window.print()}
+             >
+               <Printer size={16} className="text-slate-600" /> Print / Save PDF (Telugu)
+             </Button>
              <Button 
                variant="outline" 
                className="h-12 px-6 bg-white border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
@@ -410,15 +433,22 @@ const Members = () => {
                               </span>
                               <span className="flex items-center gap-1"><Phone size={10} className="text-slate-300" /> {m.phone || 'N/A'}</span>
                             </div>
+                            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-50/50">
+                              <Badge variant="outline" className="h-4 text-[7px] font-black px-1.5 border-slate-200 text-slate-400 uppercase tracking-widest bg-slate-50">
+                                {m.adminRole || "SYSTEM"}
+                              </Badge>
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">
+                                By: {m.adminName || "Administrator"}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </td>
                       <td className="p-5">
                         <div className="space-y-1">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Principal</p>
-                          <p className="text-[10px] font-black text-primary">{formatCurrency(m.totalAmount)}</p>
-                          <p className="text-[10px] font-medium text-slate-500">Created {m.creationDate ? formatDate(m.creationDate) : formatDate(m.createdAt)}</p>
-                          <p className="text-[10px] font-medium text-slate-600">Starts {formatDate(m.startDate)}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Account History</p>
+                          <p className="text-[10px] font-black text-indigo-600">Registered {m.creationDate ? formatDate(m.creationDate) : formatDate(m.createdAt)}</p>
+                          <p className="text-[10px] font-medium text-slate-500 italic">Expires {formatDate(m.endDate)}</p>
                         </div>
                       </td>
                       <td className="p-5">
@@ -467,7 +497,7 @@ const Members = () => {
                           >
                             <Eye size={14} />
                           </Button>
-                          {(userData?.role === "super_admin" || userData?.role === "admin") && (
+                          {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
                             <>
                               <Button 
                                 variant="ghost" 

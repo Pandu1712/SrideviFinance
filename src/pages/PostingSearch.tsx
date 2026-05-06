@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, Calendar, FileText, IndianRupee, Printer, Download, Filter, Target, FileSpreadsheet, Edit, Save, X, ArrowRightLeft, MoveRight } from "lucide-react";
+import { Search, Calendar, FileText, IndianRupee, Printer, Download, Filter, Target, FileSpreadsheet, Edit, Save, X, ArrowRightLeft, MoveRight, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -516,8 +516,8 @@ const PostingSearch = () => {
                       </td>
                       <td className="p-4 text-right font-black text-emerald-600">{formatCurrency(r.amount)}</td>
                       <td className="p-4 text-center">
-                        <Badge className={`${r.status === 'penalty' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'} border-none font-bold text-[9px] uppercase`}>
-                          {r.status}
+                        <Badge className={`${r.status === 'penalty' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'} border-none font-bold text-[9px] uppercase whitespace-nowrap`}>
+                          {(r.collectedByRole || 'Agent').replace('_', ' ')} {r.status}
                         </Badge>
                       </td>
                       <td className="p-4 text-center">
