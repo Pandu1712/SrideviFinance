@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData } from "firebase/firestore";
+import { collection, getDocs, query, where, DocumentData, limit } from "firebase/firestore";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
@@ -35,18 +35,21 @@ const Members = () => {
     const fetchData = async () => {
       if (!userData) return;
       try {
+        const accountsRef = collection(db, "accounts");
         let q;
-        let accountsRef: any = collection(db, "accounts");
         
-        if (!selectedLineId) {
+        if (selectedLineId) {
+          q = query(accountsRef, where("lineId", "==", selectedLineId), limit(1000));
+        } else if (userData.role === "super_admin") {
+          // Allow super_admin to see full portfolio if no line selected
+          q = query(accountsRef, limit(1000));
+        } else {
           setMembers([]);
           setLoading(false);
           return;
         }
 
-        q = query(accountsRef, where("lineId", "==", selectedLineId), limit(1000));
-        
-        if (userData.role === "admin") {
+        if (userData.role === "admin" || userData.role === "partner") {
           q = query(q, where("adminId", "==", userData.uid));
         }
         
@@ -309,7 +312,7 @@ const Members = () => {
           <CardContent className="p-6">
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Total Customers</p>
             <div className="flex items-end justify-between mt-2">
-              <h2 className="text-4xl font-black text-primary">{members.length}</h2>
+              <h2 className="text-4xl font-black text-primary">{loading ? "..." : members.length}</h2>
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary transition-transform hover:scale-110">
                 <Users size={18} />
               </div>
@@ -322,7 +325,7 @@ const Members = () => {
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Customers</p>
             <div className="flex items-end justify-between mt-2">
               <h2 className="text-4xl font-black text-emerald-600">
-                {members.filter(m => m.status === 'active').length}
+                {loading ? "..." : members.filter(m => m.status === 'active').length}
               </h2>
               <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 transition-transform hover:scale-110">
                 <ArrowUpRight size={18} />
@@ -336,7 +339,7 @@ const Members = () => {
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Complete Customers</p>
             <div className="flex items-end justify-between mt-2">
               <h2 className="text-4xl font-black text-accent">
-                {members.filter(m => m.status === 'completed').length}
+                {loading ? "..." : members.filter(m => m.status === 'completed').length}
               </h2>
               <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center text-accent transition-transform hover:scale-110">
                 <Calendar size={18} />
@@ -368,7 +371,7 @@ const Members = () => {
             <tbody className="divide-y divide-slate-50">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="p-20 text-center">
+                  <td colSpan={6} className="p-20 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="h-8 w-8 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
                       <p className="text-sm font-bold text-slate-400">Fetching members...</p>
@@ -377,21 +380,17 @@ const Members = () => {
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-32 text-center text-muted-foreground italic">
+                  <td colSpan={6} className="p-32 text-center text-muted-foreground italic">
                     <Users className="h-16 w-16 mx-auto mb-4 opacity-10" />
                     No members matching your criteria were found.
                   </td>
                 </tr>
               ) : (
-                <AnimatePresence>
-                  {filtered.map((m, i) => (
-                    <motion.tr 
-                      key={m.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.02 }}
-                      className="group hover:bg-slate-50/80 transition-all cursor-default"
-                    >
+                filtered.map((m, i) => (
+                  <tr 
+                    key={m.id}
+                    className="group hover:bg-slate-50/80 transition-all cursor-default"
+                  >
                       <td className="p-5">
                         <div className="flex items-center gap-4">
                           <div className="h-12 w-12 rounded-xl bg-slate-900 flex items-center justify-center text-lg font-black text-white shadow-xl group-hover:bg-accent transition-all duration-300">
@@ -518,12 +517,11 @@ const Members = () => {
                             </>
                           )}
                         </div>
-                      </td>
-                    </motion.tr>
-                  ))}
-                </AnimatePresence>
-              )}
-            </tbody>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
           </table>
         </CardContent>
       </Card>

@@ -73,6 +73,8 @@ const Dashboard = () => {
     let unsubscribeAccounts: (() => void) | null = null;
     let unsubscribePostings: (() => void) | null = null;
     let unsubscribeLogs: (() => void) | null = null;
+    let unsubscribeAgents: (() => void) | null = null;
+    let unsubscribeAdmins: (() => void) | null = null;
 
     const dateObj = new Date(currentDate);
     const startOfMonth = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1).toISOString().split("T")[0];
@@ -175,16 +177,22 @@ const Dashboard = () => {
           });
           setStats(prev => ({ ...prev, totalAccounts: totalAcc, totalSpent: spent, totalBalance: balance, projectedProfit: expected - spent }));
         });
-      } else if (userData.role === "admin") {
-        let accountsRef: any = query(collection(db, "accounts"), where("adminId", "==", userData.uid));
+
+        // Fetch total agents and admins for super_admin
+        unsubscribeAgents = onSnapshot(query(collection(db, "users"), where("role", "==", "agent")), (s) => setStats(prev => ({ ...prev, totalAgents: s.size })));
+        unsubscribeAdmins = onSnapshot(query(collection(db, "users"), where("role", "==", "admin")), (s) => setStats(prev => ({ ...prev, totalAdmins: s.size })));
+      } else if (userData.role === "admin" || userData.role === "partner") {
+        let accountsRef: any = collection(db, "accounts");
+        accountsRef = query(accountsRef, where("adminId", "==", userData.uid));
         if (activeLineId) accountsRef = query(accountsRef, where("lineId", "==", activeLineId));
+
+        const agentsQ = query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", userData.uid));
+        unsubscribeAgents = onSnapshot(agentsQ, (s) => setStats(prev => ({ ...prev, totalAgents: s.size })));
 
         unsubscribeAccounts = onSnapshot(accountsRef, (snapshot) => {
           let pending = 0;
           snapshot.forEach(d => pending += d.data().balance || 0);
-          getDocs(query(collection(db, "users"), where("role", "==", "agent"), where("adminId", "==", userData.uid))).then(ags => {
-            setStats(prev => ({ ...prev, totalAgents: ags.size, totalAccounts: snapshot.size, pendingAmount: pending }));
-          });
+          setStats(prev => ({ ...prev, totalAccounts: snapshot.size, pendingAmount: pending }));
         });
       } else if (userData.role === "agent") {
         let assignedLineIds = userData.lineIds || (userData.lineId ? [userData.lineId] : []);
@@ -203,6 +211,8 @@ const Dashboard = () => {
       if (unsubscribeAccounts) unsubscribeAccounts();
       if (unsubscribePostings) unsubscribePostings();
       if (unsubscribeLogs) unsubscribeLogs();
+      if (unsubscribeAgents) unsubscribeAgents();
+      if (unsubscribeAdmins) unsubscribeAdmins();
     };
   }, [userData, timeFilter, selectedLineId, currentDate]);
 
