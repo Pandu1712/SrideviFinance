@@ -359,7 +359,7 @@ const DashboardLayout = () => {
         </header>
 
       {/* Main Content with Page Transitions */}
-      <main className="flex-1 lg:ml-64 p-4 lg:p-8 pb-24 lg:pb-8 overflow-x-hidden min-h-screen bg-slate-50/30">
+      <main className="flex-1 p-4 lg:p-8 pb-24 lg:pb-8 overflow-x-hidden min-h-screen bg-slate-50/30">
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
