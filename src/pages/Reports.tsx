@@ -284,7 +284,7 @@ const Reports = () => {
             <p className="text-muted-foreground">Deep dive into collection trends and performance metrics.</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
           <div className="relative group">
             <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors z-10" />
             <Input
@@ -306,7 +306,7 @@ const Reports = () => {
             onClick={() => window.print()} 
             className="h-10 rounded-xl gap-2 border-slate-200 font-bold hover:bg-slate-50 transition-all print:hidden"
           >
-            <Printer className="h-4 w-4" /> Print / Save PDF (Telugu)
+            <Printer className="h-4 w-4" /> <span className="hidden xs:inline">Print / Save PDF (Telugu)</span><span className="xs:hidden">Print</span>
           </Button>
           <Button 
             variant="outline" 
@@ -318,7 +318,7 @@ const Reports = () => {
           </Button>
           <Button
             variant="outline"
-            className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-emerald-600 hover:bg-emerald-50 font-bold"
+            className="h-10 rounded-xl gap-2 bg-white/50 backdrop-blur-sm border-slate-200 text-emerald-600 hover:bg-emerald-50 font-bold"
             onClick={handleExportExcel}
           >
             <FileSpreadsheet className="h-4 w-4" /> Excel

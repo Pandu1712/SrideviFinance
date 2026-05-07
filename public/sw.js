@@ -64,6 +64,8 @@ self.addEventListener('fetch', event => {
       if (event.request.destination === 'image') {
         return caches.match('/placeholder.svg');
       }
+      // Ensure we always return a Response object to avoid TypeError
+      return new Response('Network error occurred', { status: 408, statusText: 'Network Error' });
     })
   );
 });

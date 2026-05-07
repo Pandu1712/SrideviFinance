@@ -234,24 +234,24 @@ const Members = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
              <Button 
                variant="outline" 
-               className="h-12 px-6 bg-white border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+               className="h-12 px-4 sm:px-6 bg-white border-slate-200 text-slate-600 font-black text-[9px] sm:text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
                onClick={() => window.print()}
              >
-               <Printer size={16} className="text-slate-600" /> Print / Save PDF (Telugu)
+               <Printer size={16} className="text-slate-600" /> <span className="hidden xs:inline">Print / Save PDF (Telugu)</span><span className="xs:hidden">Print</span>
              </Button>
              <Button 
                variant="outline" 
-               className="h-12 px-6 bg-white border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+               className="h-12 px-4 sm:px-6 bg-white border-slate-200 text-slate-600 font-black text-[9px] sm:text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
                onClick={exportToPDF}
              >
                <Download size={16} className="text-accent" /> PDF
              </Button>
              <Button 
                variant="outline" 
-               className="h-12 px-6 bg-white border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-emerald-50 hover:text-emerald-600 transition-all flex items-center gap-2"
+               className="h-12 px-4 sm:px-6 bg-white border-slate-200 text-slate-600 font-black text-[9px] sm:text-[10px] uppercase tracking-widest rounded-xl shadow-sm hover:bg-emerald-50 hover:text-emerald-600 transition-all flex items-center gap-2"
                onClick={handleExportExcel}
              >
                <FileSpreadsheet size={16} className="text-emerald-500" /> Excel

@@ -4,6 +4,8 @@ import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, DocumentData } from "firebase/firestore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { FileSpreadsheet } from "lucide-react";
+import { exportToExcel } from "@/lib/excel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -78,6 +80,28 @@ const MobileExport = () => {
     toast.success("Mobile Audit exported as PDF");
   };
 
+  const exportExcel = () => {
+    if (accounts.length === 0) {
+      toast.error("No accounts to export");
+      return;
+    }
+
+    const excelData = accounts.map((a, i) => ({
+      "S.No": i + 1,
+      "Account No": a.accountNo,
+      "Name": a.name,
+      "Phone": a.phone || "N/A",
+      "Village": a.village || "N/A",
+      "Total Amount": a.totalAmount || 0,
+      "Paid": a.paid || 0,
+      "Balance": a.balance || 0,
+      "Status": (a.status || "active").toUpperCase()
+    }));
+
+    exportToExcel(excelData, `Mobile_Audit_${date}`, "Accounts");
+    toast.success("Mobile Audit exported as Excel");
+  };
+
 
 
   return (
@@ -86,7 +110,10 @@ const MobileExport = () => {
       <div className="mb-4 flex flex-wrap gap-4">
         <div className="space-y-1"><Label>Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-48" /></div>
         <div className="flex items-end gap-2">
-          <Button onClick={exportPDF} className="bg-accent text-accent-foreground hover:bg-accent/90">Export PDF</Button>
+          <Button onClick={exportPDF} className="bg-slate-900 text-white hover:bg-slate-800">Export PDF</Button>
+          <Button onClick={exportExcel} className="bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2">
+            <FileSpreadsheet size={16} /> Export Excel
+          </Button>
         </div>
       </div>
       <Card>

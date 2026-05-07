@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { BookOpen, IndianRupee, Printer, Activity, Calendar as CalendarIcon, User, Search, Filter, MapPin, Download } from "lucide-react";
+import { BookOpen, IndianRupee, Printer, Activity, Calendar as CalendarIcon, User, Search, Filter, MapPin, Download, FileSpreadsheet } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatCurrency, formatCurrencyPDF } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import { useLine } from "@/contexts/LineContext";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
+import { exportToExcel } from "@/lib/excel";
 
 
 const DWMBook = () => {
@@ -196,6 +197,46 @@ const DWMBook = () => {
     toast.success(`${activeTab.toUpperCase()} Book Exported`);
   };
 
+  const handleExportExcel = () => {
+    const dataToExport = activeTab === "defaulters" ? filteredDefaulters : filteredPostings;
+    if (dataToExport.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+
+    const excelData = dataToExport.map((p, i) => {
+      if (activeTab === "defaulters") {
+        return {
+          "Sl No": i + 1,
+          "Start Date": p.startDate || "N/A",
+          "Member Name": p.memberName || p.name || "N/A",
+          "Telugu Name": p.nameTelugu || "",
+          "Account No": p.accountNo,
+          "Village": p.village || "N/A",
+          "Phone": p.phone || "N/A",
+          "Balance Due": p.balance || 0,
+          "Status": "DEFAULTER"
+        };
+      } else {
+        return {
+          "Sl No": i + 1,
+          "Date": p.date || "N/A",
+          "Member Name": p.memberName || "N/A",
+          "Telugu Name": p.nameTelugu || "",
+          "Account No": p.accountNo,
+          "Village": p.village || "N/A",
+          "Amount Recovered": p.amount || 0,
+          "Payment Mode": (p.payMode || "CASH").toUpperCase(),
+          "Status": "RECOVERED"
+        };
+      }
+    });
+
+    const activeLineName = lines.find(l => l.id === selectedLineId)?.name || "Portfolio";
+    exportToExcel(excelData, `Book_${activeTab}_${activeLineName.replace(/\s+/g, '_')}_${dateFilter}`, "Book Data");
+    toast.success(`${activeTab.toUpperCase()} Excel Exported`);
+  };
+
 
 
   return (
@@ -267,6 +308,13 @@ const DWMBook = () => {
               className="h-12 px-6 border-slate-200 text-[#5f259f] rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 shadow-sm transition-all print:hidden"
             >
               <Download className="mr-2 h-4 w-4" /> PDF
+            </Button>
+            <Button 
+              onClick={handleExportExcel}
+              variant="outline"
+              className="h-12 px-6 border-slate-200 text-emerald-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-emerald-50 shadow-sm transition-all print:hidden"
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Excel
             </Button>
           </div>
         </div>

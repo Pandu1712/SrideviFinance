@@ -521,6 +521,7 @@ const DashboardLayout = () => {
           )}
         </div>
       </div>
+      </div>
     </div>
   );
 };
