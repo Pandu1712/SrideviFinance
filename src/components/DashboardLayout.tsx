@@ -35,9 +35,11 @@ const DashboardLayout = () => {
       window.navigator.vibrate(5);
     }
   };
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const navTo = (path: string) => {
     triggerHaptic();
+    setIsDrawerOpen(false);
     navigate(path);
   };
 
@@ -442,10 +444,16 @@ const DashboardLayout = () => {
           </button>
 
           {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") ? (
-            <Drawer>
+            <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
               <DrawerTrigger asChild>
                 <button
-                  onClick={triggerHaptic}
+                  onClick={(e) => {
+                    triggerHaptic();
+                    if (isDrawerOpen) {
+                      e.preventDefault();
+                      setIsDrawerOpen(false);
+                    }
+                  }}
                   className={cn(
                     "relative flex flex-col items-center gap-1.5 transition-all w-16",
                     location.pathname.includes("manage") ? "text-accent" : "text-slate-400"
