@@ -115,7 +115,9 @@ const DashboardLayout = () => {
       try {
         let accountsRef: any = collection(db, "accounts");
         if (selectedLineId) {
-          accountsRef = query(accountsRef, where("lineId", "==", selectedLineId));
+          accountsRef = query(accountsRef, where("lineId", "==", selectedLineId), limit(100));
+        } else {
+          accountsRef = query(accountsRef, limit(100));
         }
 
         const snap = await getDocs(accountsRef);
@@ -127,8 +129,7 @@ const DashboardLayout = () => {
             a.name?.toLowerCase().includes(term) ||
             a.accountNo?.toLowerCase().includes(term) ||
             a.village?.toLowerCase().includes(term)
-          )
-          .slice(0, 8);
+          );
 
         setSearchResults(results);
         setShowDropdown(true);
@@ -360,7 +361,7 @@ const DashboardLayout = () => {
 
       {/* Main Content with Page Transitions */}
       <main className="flex-1 p-4 lg:p-8 pb-24 lg:pb-8 overflow-x-hidden min-h-screen bg-slate-50/30">
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           <motion.div
             key={location.pathname}
             initial={{ opacity: 0, y: 10 }}

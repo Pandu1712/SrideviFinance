@@ -63,7 +63,7 @@ const Reports = () => {
         .map(d => ({ id: d.id, ...d.data() }))
         .filter((d: any) => d.lineId === selectedLineId && ((userData?.role === "admin" || userData?.role === "partner") ? d.adminId === userData.uid : true));
 
-      const accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId));
+      const accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId), where("creationDate", "==", selectedDate));
       const accSnap = await getDocs(accQ);
       
       let newPrincipal = 0;

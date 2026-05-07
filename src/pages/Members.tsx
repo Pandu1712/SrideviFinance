@@ -44,7 +44,7 @@ const Members = () => {
           return;
         }
 
-        q = query(accountsRef, where("lineId", "==", selectedLineId));
+        q = query(accountsRef, where("lineId", "==", selectedLineId), limit(1000));
         
         if (userData.role === "admin") {
           q = query(q, where("adminId", "==", userData.uid));

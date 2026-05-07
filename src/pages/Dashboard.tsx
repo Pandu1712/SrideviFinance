@@ -91,9 +91,17 @@ const Dashboard = () => {
       
       const adminIdsSet = await fetchAdmins();
 
-      // 1. GLOBAL POSTINGS
+      // 1. GLOBAL POSTINGS (Bounded for performance)
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      const sixMonthsAgoStr = sixMonthsAgo.toISOString().split('T')[0];
+
       let postRef: any = collection(db, "postings");
-      if (activeLineId) postRef = query(postRef, where("lineId", "==", activeLineId));
+      if (activeLineId) {
+        postRef = query(postRef, where("lineId", "==", activeLineId), where("date", ">=", sixMonthsAgoStr));
+      } else {
+        postRef = query(postRef, where("date", ">=", sixMonthsAgoStr));
+      }
 
       unsubscribePostings = onSnapshot(postRef, (snapshot) => {
         let totalCol = 0; let agCol = 0; let adCol = 0;
@@ -124,7 +132,12 @@ const Dashboard = () => {
           chartCol[monthKey] = (chartCol[monthKey] || 0) + itemTotal;
         });
 
-        const recent = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any as any })).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 200);
+        // Use a separate sorted list for the recent stream, limited to 100 items
+        const recent = snapshot.docs
+          .map(d => ({ id: d.id, ...d.data() as any }))
+          .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))
+          .slice(0, 100);
+        
         setRecentPostings(recent);
         
         if (userData.role === 'super_admin') {
@@ -133,9 +146,9 @@ const Dashboard = () => {
           setChartData(formatted);
           setStats(prev => ({ ...prev, totalCollection: totalCol }));
         } else if (userData.role === 'agent') {
-           setStats(prev => ({ ...prev, todayCollection: agCol }));
+          setStats(prev => ({ ...prev, todayCollection: agCol }));
         } else {
-           setStats(prev => ({ ...prev, dailyCollection: totalCol }));
+          setStats(prev => ({ ...prev, dailyCollection: totalCol }));
         }
         setLoading(false);
       }, (err) => {

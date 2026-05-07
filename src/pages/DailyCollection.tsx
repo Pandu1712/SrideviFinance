@@ -101,17 +101,15 @@ const DailyCollection = () => {
       });
       setCustomers(custData);
       
-      const postQuery = query(collection(db, "postings"), where("lineId", "==", targetLine));
+      const minDate = gridDates[0];
+      const postQuery = query(collection(db, "postings"), where("lineId", "==", targetLine), where("date", ">=", minDate));
       const postSnap = await getDocs(postQuery);
       const postMap = {};
       
-      const minDate = gridDates[0];
       postSnap.forEach(d => {
         const data = d.data();
-        if (data.date >= minDate) {
-          if (!postMap[data.accountId]) postMap[data.accountId] = {};
-          postMap[data.accountId][data.date] = data;
-        }
+        if (!postMap[data.accountId]) postMap[data.accountId] = {};
+        postMap[data.accountId][data.date] = data;
       });
       setPostings(postMap);
 
