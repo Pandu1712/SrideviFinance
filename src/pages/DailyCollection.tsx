@@ -60,6 +60,13 @@ const DailyCollection = () => {
   const [adminCustomerSearch, setAdminCustomerSearch] = useState("");
   const [allAccounts, setAllAccounts] = useState<any[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+
+  // Clear cached accounts when line changes to prevent leakage
+  useEffect(() => {
+    setAllAccounts([]);
+    setAdminCustomerSearch("");
+    setSelectedAdminCustomer(null);
+  }, [selectedLineId]);
   const [selectedAdminCustomer, setSelectedAdminCustomer] = useState<any>(null);
 
   // Bulk Date Change States
@@ -212,14 +219,14 @@ const DailyCollection = () => {
         return;
       }
 
-      // Fetch ALL postings for this date and filter in-memory to avoid composite index requirements
-      const q = query(collection(db, "postings"), where("date", "==", date));
+      // Fetch postings for this date and line
+      const q = query(collection(db, "postings"), where("date", "==", date), where("lineId", "==", selectedLineId));
       const snap = await getDocs(q);
       const list: DocumentData[] = [];
       
       snap.forEach(d => {
         const data = d.data();
-        const matchesLine = data.lineId === selectedLineId;
+        const matchesLine = true; // Already filtered by query
         const matchesAdmin = userData.role === "admin" 
           ? (data.adminId === userData.uid || data.collectedById === userData.uid) 
           : true;
@@ -644,18 +651,14 @@ const DailyCollection = () => {
 
   const openOverrideModal = async () => {
     setOverrideModalOpen(true);
-    setPayDate(new Date().toISOString().split("T")[0]);
-    if (allAccounts.length === 0) {
-      setLoadingAccounts(true);
-      try {
-        const snap = await getDocs(query(collection(db, "accounts"), where("status", "==", "active")));
-        setAllAccounts(snap.docs.map(d => ({id: d.id, ...d.data()})));
-      } catch (err) {
-        toast.error("Failed to fetch accounts");
-      } finally {
-        setLoadingAccounts(false);
-      }
-    }
+    setAdminCustomerSearch("");
+    setLoadingAccounts(true);
+    try {
+      const snap = await getDocs(query(collection(db, "accounts"), where("status", "==", "active"), where("lineId", "==", selectedLineId)));
+      setAllAccounts(snap.docs.map(d => ({id: d.id, ...d.data()})));
+    } catch (err) {
+      toast.error("Failed to fetch accounts");
+    } finally { setLoadingAccounts(false); }
   };
 
   const adminSubmitOverride = async () => {

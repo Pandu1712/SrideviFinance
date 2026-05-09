@@ -365,7 +365,7 @@ const DashboardLayout = () => {
         </header>
 
         {/* Main Content with Page Transitions */}
-        <main className="flex-1 p-4 lg:p-8 pb-24 lg:pb-8 overflow-x-hidden min-h-screen bg-slate-50/30">
+        <main className="flex-1 p-4 lg:p-8 pb-32 lg:pb-16 overflow-x-hidden overflow-y-auto bg-slate-50/30">
           <AnimatePresence>
             <motion.div
               key={location.pathname}
@@ -373,7 +373,7 @@ const DashboardLayout = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="w-full h-full"
+              className="w-full"
             >
               <Outlet />
             </motion.div>

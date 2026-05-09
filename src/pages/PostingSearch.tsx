@@ -73,7 +73,7 @@ const PostingSearch = () => {
 
         if (list.length > 0) {
           const accNo = list[0].accountNo;
-          const accSnap = await getDocs(query(collection(db, "accounts"), where("accountNo", "==", accNo)));
+          const accSnap = await getDocs(query(collection(db, "accounts"), where("accountNo", "==", accNo), where("lineId", "==", selectedLineId)));
           if (!accSnap.empty) {
             setMemberSummary({ id: accSnap.docs[0].id, ...accSnap.docs[0].data() as any });
           }
@@ -164,7 +164,7 @@ const PostingSearch = () => {
       }
       const sourceData = sourceSnap.data();
 
-      const destQuery = query(collection(db, "accounts"), where("accountNo", "==", destAccountNo));
+      const destQuery = query(collection(db, "accounts"), where("accountNo", "==", destAccountNo), where("lineId", "==", selectedLineId));
       const destSnap = await getDocs(destQuery);
       if (destSnap.empty) {
         toast.error("Destination account not found");

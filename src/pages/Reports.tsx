@@ -57,11 +57,11 @@ const Reports = () => {
       const adminUsersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["super_admin", "admin"])));
       const adminIdsSet = new Set(adminUsersSnap.docs.map(d => d.id));
 
-      const baseQ = query(collection(db, "postings"), where("date", "==", selectedDate));
+      const baseQ = query(collection(db, "postings"), where("date", "==", selectedDate), where("lineId", "==", selectedLineId));
       const baseSnap = await getDocs(baseQ);
       const docs = baseSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter((d: any) => d.lineId === selectedLineId && ((userData?.role === "admin" || userData?.role === "partner") ? d.adminId === userData.uid : true));
+        .filter((d: any) => ((userData?.role === "admin" || userData?.role === "partner") ? d.adminId === userData.uid : true));
 
       const accQ = query(collection(db, "accounts"), where("lineId", "==", selectedLineId), where("creationDate", "==", selectedDate));
       const accSnap = await getDocs(accQ);

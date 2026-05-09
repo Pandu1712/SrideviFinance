@@ -104,6 +104,7 @@ const NewAccount = () => {
       const q = query(
         collection(db, "accounts"), 
         where("accountNo", "==", memberSearchId), 
+        where("lineId", "==", selectedLineId),
         limit(1)
       );
       const snap = await getDocs(q);
