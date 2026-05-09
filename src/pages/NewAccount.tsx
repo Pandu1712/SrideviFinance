@@ -468,7 +468,7 @@ const NewAccount = () => {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(24);
     doc.setFont("helvetica", "bold");
-    doc.text("SRI FINANCE HUB", 105, 20, { align: "center" });
+    doc.text("SRIDEVIGROUPS OF FINANCE", 105, 20, { align: "center" });
     
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");

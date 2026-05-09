@@ -151,7 +151,7 @@ const DWMBook = () => {
     // Title
     doc.setFontSize(22);
     doc.setTextColor(15, 23, 42);
-    doc.text("SRIDEVI FINANCE HUB", 14, 22);
+    doc.text("SRIDEVIGROUPS OF FINANCE", 14, 22);
     
     doc.setFontSize(14);
     doc.text(`Book Production: ${activeTab.toUpperCase()}`, 14, 30);

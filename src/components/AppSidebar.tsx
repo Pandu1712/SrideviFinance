@@ -81,7 +81,7 @@ const AppSidebar = () => {
             <IndianRupee className="h-6 w-6 text-white" />
           </div>
           <div className="flex flex-col">
-            <h1 className="text-xl font-black tracking-tighter text-white leading-none">Sridevi Finance</h1>
+            <h1 className="text-xl font-black tracking-tighter text-white leading-none">SriDeviGroups Of Finance</h1>
             <span className="text-[10px] font-bold text-accent mt-1">Enterprise Hub</span>
           </div>
         </div>
@@ -185,7 +185,7 @@ const AppSidebar = () => {
             <div className="h-8 w-8 rounded-lg bg-accent-gradient flex items-center justify-center shadow-lg">
               <IndianRupee className="h-4 w-4 text-white" />
             </div>
-            <span className="font-black text-white text-md tracking-tighter">Sridevi Finance</span>
+            <span className="font-black text-white text-md tracking-tighter">SriDeviGroups Of Finance</span>
           </div>
         </div>
         

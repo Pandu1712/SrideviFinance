@@ -205,7 +205,7 @@ const Reports = () => {
     const doc = new jsPDF();
     doc.setFontSize(22);
     doc.setTextColor(15, 23, 42); 
-    doc.text("Sridevi Finance Hub", 14, 22);
+    doc.text("SriDeviGroups Of Finance", 14, 22);
 
     doc.setFontSize(14);
     doc.text(`Audit Report: ${lineName}`, 14, 30);

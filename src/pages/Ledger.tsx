@@ -321,7 +321,7 @@ const Ledger = () => {
             // Header Section
             doc.setFontSize(22);
             doc.setTextColor(15, 23, 42); 
-            doc.text("SRIDEVI FINANCE HUB", 14, 22);
+            doc.text("SRIDEVIGROUPS OF FINANCE", 14, 22);
             
             doc.setFontSize(14);
             doc.text("Official Account Statement", 14, 30);

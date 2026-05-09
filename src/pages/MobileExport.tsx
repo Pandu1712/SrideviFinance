@@ -41,7 +41,7 @@ const MobileExport = () => {
     const doc = new jsPDF();
     doc.setFontSize(22);
     doc.setTextColor(15, 23, 42);
-    doc.text("SRIDEVI FINANCE HUB", 14, 22);
+    doc.text("SRIDEVIGROUPS OF FINANCE", 14, 22);
     
     doc.setFontSize(14);
     doc.text(`Mobile Account Audit - ${date}`, 14, 30);
