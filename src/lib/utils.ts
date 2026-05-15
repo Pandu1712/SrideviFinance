@@ -58,3 +58,4 @@ export function formatDate(date: any) {
 export function formatPercent(value: number) {
   return `${value}%`;
 }
+

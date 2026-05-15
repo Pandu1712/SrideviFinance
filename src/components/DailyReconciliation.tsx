@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { 
-  Calculator, IndianRupee, Banknote, Search, Scale, FileText, Info
+  Calculator, IndianRupee, Banknote, Search, Scale, FileText, Info, Edit2, Trash2, X, Check
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -42,6 +42,8 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [openingInput, setOpeningInput] = useState("");
   const [expenseInput, setExpenseInput] = useState({ amount: "", note: "" });
+  const [editingExpense, setEditingExpense] = useState<any>(null);
+  const [editInput, setEditInput] = useState({ amount: "", note: "" });
 
   const effectiveDate = targetDate || new Date().toISOString().split("T")[0];
 
@@ -223,6 +225,67 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
     }
   };
 
+  const handleUpdateExpense = async () => {
+    if (!editingExpense || !editInput.amount || isNaN(parseFloat(editInput.amount))) return;
+    try {
+      const newAmount = parseFloat(editInput.amount);
+      const diff = newAmount - (editingExpense.amount || 0);
+      const lineId = editingExpense.lineId || 'global';
+      
+      await updateDoc(doc(db, "expenses_log", editingExpense.id), {
+        amount: newAmount,
+        note: editInput.note
+      });
+
+      const summaryId = `${editingExpense.date}_${lineId}`;
+      const summaryRef = doc(db, "day_summaries", summaryId);
+      const summSnap = await getDoc(summaryRef);
+      
+      if (summSnap.exists()) {
+        await updateDoc(summaryRef, { expenses: (summSnap.data().expenses || 0) + diff });
+      }
+
+      if (userData) {
+        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_UPDATE", `Updated expense from ${formatCurrency(editingExpense.amount)} to ${formatCurrency(newAmount)}: ${editInput.note}`, lineId);
+      }
+
+      sonnerToast.success("Expense Updated");
+      setEditingExpense(null);
+    } catch (err) {
+      console.error("Update expense error:", err);
+      sonnerToast.error("Update failed");
+    }
+  };
+
+  const handleDeleteExpense = async (log: any) => {
+    if (!window.confirm("Are you sure you want to delete this expense record?")) return;
+    try {
+      const lineId = log.lineId || 'global';
+      await updateDoc(doc(db, "expenses_log", log.id), { amount: 0, deleted: true }); // Soft delete or just delete?
+      await updateDoc(doc(db, "expenses_log", log.id), { status: 'deleted' }); // Let's actually delete it if we want it gone from total.
+      // Wait, if I delete the doc, onSnapshot will pick it up.
+      
+      await deleteDoc(doc(db, "expenses_log", log.id));
+
+      const summaryId = `${log.date}_${lineId}`;
+      const summaryRef = doc(db, "day_summaries", summaryId);
+      const summSnap = await getDoc(summaryRef);
+      
+      if (summSnap.exists()) {
+        await updateDoc(summaryRef, { expenses: Math.max(0, (summSnap.data().expenses || 0) - (log.amount || 0)) });
+      }
+
+      if (userData) {
+        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_DELETE", `Deleted expense of ${formatCurrency(log.amount)}: ${log.note}`, lineId);
+      }
+
+      sonnerToast.success("Expense Deleted");
+    } catch (err) {
+      console.error("Delete expense error:", err);
+      sonnerToast.error("Deletion failed");
+    }
+  };
+
   const netFlow = (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses);
   const closingCash = closureStats.openingBalance + netFlow;
 
@@ -398,17 +461,69 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
                </div>
              ) : dailyExpenseLogs.map((log: any) => (
                <div key={log.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex justify-between items-start group hover:bg-white hover:shadow-md transition-all">
-                  <div className="space-y-1">
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{log.collectedByName || "System"}</p>
-                     <h4 className="font-black text-slate-900 uppercase text-xs">{log.note}</h4>
-                     <p className="text-[8px] font-bold text-slate-400">{new Date(log.createdAt).toLocaleTimeString()}</p>
-                  </div>
-                  <div className="text-right">
-                     <p className="text-md font-black text-rose-500">-{formatCurrency(log.amount)}</p>
-                     <Badge className="text-[8px] bg-slate-200 text-slate-600 border-none font-black uppercase mt-1">
-                        {log.userRole === 'super_admin' ? 'Admin' : 'Agent'}
-                     </Badge>
-                  </div>
+                  {editingExpense?.id === log.id ? (
+                    <div className="flex-1 space-y-3">
+                      <div className="flex gap-2">
+                        <Input 
+                          type="text"
+                          inputMode="decimal"
+                          value={editInput.amount}
+                          onChange={e => setEditInput(p => ({ ...p, amount: e.target.value }))}
+                          className="h-8 w-24 text-xs font-bold"
+                          placeholder="Amount"
+                        />
+                        <Input 
+                          value={editInput.note}
+                          onChange={e => setEditInput(p => ({ ...p, note: e.target.value }))}
+                          className="h-8 flex-1 text-xs font-bold"
+                          placeholder="Note"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button onClick={() => setEditingExpense(null)} variant="ghost" size="sm" className="h-7 text-[9px] uppercase">Cancel</Button>
+                        <Button onClick={handleUpdateExpense} size="sm" className="h-7 bg-emerald-500 text-white text-[9px] uppercase font-black"><Check size={12} className="mr-1" /> Update</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1">
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{log.collectedByName || "System"}</p>
+                         <h4 className="font-black text-slate-900 uppercase text-xs">{log.note}</h4>
+                         <p className="text-[8px] font-bold text-slate-400">{new Date(log.createdAt).toLocaleTimeString()}</p>
+                      </div>
+                      <div className="text-right">
+                         <div className="flex items-center gap-2 justify-end mb-1">
+                            {(userData?.role === 'super_admin' || userData?.role === 'admin') && (
+                              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-6 w-6 text-slate-400 hover:text-indigo-600"
+                                  onClick={() => {
+                                    setEditingExpense(log);
+                                    setEditInput({ amount: String(log.amount), note: log.note });
+                                  }}
+                                >
+                                  <Edit2 size={12} />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-6 w-6 text-slate-400 hover:text-rose-600"
+                                  onClick={() => handleDeleteExpense(log)}
+                                >
+                                  <Trash2 size={12} />
+                                </Button>
+                              </div>
+                            )}
+                            <p className="text-md font-black text-rose-500">-{formatCurrency(log.amount)}</p>
+                         </div>
+                         <Badge className="text-[8px] bg-slate-200 text-slate-600 border-none font-black uppercase">
+                            {log.userRole === 'super_admin' ? 'Admin' : 'Agent'}
+                         </Badge>
+                      </div>
+                    </>
+                  )}
                </div>
              ))}
           </div>

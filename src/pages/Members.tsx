@@ -7,7 +7,7 @@ import { collection, getDocs, query, where, DocumentData, limit } from "firebase
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2, Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Users, Search, User, MapPin, Phone, Calendar, ArrowUpRight, Filter, Edit, Trash2, Eye, ShieldAlert, CheckCircle2, Download, FileSpreadsheet, Printer, Banknote } from "lucide-react";
 import { formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -131,6 +131,10 @@ const Members = () => {
     const accB = parseInt(b.accountNo || "0", 10);
     return accA - accB;
   });
+
+  const totalExpected = filtered.reduce((acc, m) => acc + (m.totalAmount || 0), 0);
+  const totalReceived = filtered.reduce((acc, m) => acc + (m.paid || 0), 0);
+  const totalPending = filtered.reduce((acc, m) => acc + (m.balance || 0), 0);
 
   const exportToPDF = () => {
     if (filtered.length === 0) {
@@ -320,29 +324,83 @@ const Members = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-card border-none">
-          <CardContent className="p-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Customers</p>
+        <Card 
+          className="glass-card border-none cursor-pointer hover:shadow-2xl transition-all group border-b-4 border-transparent hover:border-emerald-500"
+          onClick={() => navigate('/active-customers')}
+        >
+          <CardContent className="p-6 relative">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground group-hover:text-emerald-500 transition-colors">Active Customers</p>
             <div className="flex items-end justify-between mt-2">
-              <h2 className="text-4xl font-black text-emerald-600">
+              <h2 className="text-4xl font-black text-emerald-600 group-hover:scale-105 origin-left transition-transform">
                 {loading ? "..." : members.filter(m => m.status === 'active').length}
               </h2>
-              <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 transition-transform hover:scale-110">
+              <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 transition-transform group-hover:scale-110 group-hover:-rotate-12">
                 <ArrowUpRight size={18} />
+              </div>
+            </div>
+            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+               <ArrowUpRight size={14} className="text-emerald-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className="glass-card border-none cursor-pointer hover:shadow-2xl transition-all group border-b-4 border-transparent hover:border-accent"
+          onClick={() => navigate('/completed-customers')}
+        >
+          <CardContent className="p-6 relative">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground group-hover:text-accent transition-colors">Complete Customers</p>
+            <div className="flex items-end justify-between mt-2">
+              <h2 className="text-4xl font-black text-accent group-hover:scale-105 origin-left transition-transform">
+                {loading ? "..." : members.filter(m => m.status === 'completed').length}
+              </h2>
+              <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center text-accent transition-transform group-hover:scale-110 group-hover:rotate-12">
+                <Calendar size={18} />
+              </div>
+            </div>
+            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+               <ArrowUpRight size={14} className="text-accent" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="glass-card border-none border-t-4 border-amber-500">
+          <CardContent className="p-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Total Expected (Given + Int)</p>
+            <div className="flex items-end justify-between mt-2">
+              <h2 className="text-3xl font-black text-amber-600">{loading ? "..." : formatCurrency(totalExpected)}</h2>
+              <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600 transition-transform hover:scale-110">
+                <Banknote size={18} />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="glass-card border-none">
+        <Card className="glass-card border-none border-t-4 border-emerald-500">
           <CardContent className="p-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Complete Customers</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Total Received (Recovered)</p>
             <div className="flex items-end justify-between mt-2">
-              <h2 className="text-4xl font-black text-accent">
-                {loading ? "..." : members.filter(m => m.status === 'completed').length}
+              <h2 className="text-3xl font-black text-emerald-600">
+                {loading ? "..." : formatCurrency(totalReceived)}
               </h2>
-              <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center text-accent transition-transform hover:scale-110">
-                <Calendar size={18} />
+              <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 transition-transform hover:scale-110">
+                <CheckCircle2 size={18} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card border-none border-t-4 border-rose-500">
+          <CardContent className="p-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Pending Balance Due</p>
+            <div className="flex items-end justify-between mt-2">
+              <h2 className="text-3xl font-black text-rose-600">
+                {loading ? "..." : formatCurrency(totalPending)}
+              </h2>
+              <div className="h-8 w-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-600 transition-transform hover:scale-110">
+                <ShieldAlert size={18} />
               </div>
             </div>
           </CardContent>

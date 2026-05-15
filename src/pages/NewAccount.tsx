@@ -104,9 +104,17 @@ const NewAccount = () => {
   const [isSearchingMember, setIsSearchingMember] = useState(false);
   const [searchedMember, setSearchedMember] = useState<any>(null);
   const [showProfileDialog, setShowProfileDialog] = useState(false);
+  const [previousAccountNo, setPreviousAccountNo] = useState("");
 
   const applySearchedMember = (data: any) => {
-    setValue("accountNo", data.accountNo || memberSearchId);
+    setPreviousAccountNo(data.accountNo || "");
+    // Do NOT overwrite accountNo if we are creating a new account for an existing member
+    // The accountNo should remain the next available number (continuation)
+    if (!isEdit) {
+      toast.info(`Applying details for existing member (Old ID: ${data.accountNo}). New account will follow sequence.`);
+    } else {
+      setValue("accountNo", data.accountNo || memberSearchId);
+    }
     setValue("name", data.name || "");
     setValue("nameTelugu", data.nameTelugu || "");
     setValue("fatherHusbandName", data.fatherHusbandName || "");
@@ -169,6 +177,7 @@ const NewAccount = () => {
 
   const handleClearSearch = () => {
     setMemberSearchId("");
+    setPreviousAccountNo("");
     reset({
       lineId: selectedLineId || "",
       paymentFrequency: "daily",
@@ -817,44 +826,57 @@ const NewAccount = () => {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
             {/* ID Search Option */}
             {!isEdit && (
-              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 mb-8 flex flex-col md:flex-row items-end gap-4">
-                <div className="flex-1 space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Profile Identity Search (ID)</Label>
-                  <div className="relative group">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-primary transition-colors" />
-                    <Input 
-                      placeholder="Enter Existing Account No (e.g. 101)" 
-                      value={memberSearchId}
-                      onChange={(e) => setMemberSearchId(e.target.value)}
-                      className="pl-11 h-12 finance-input bg-white border-none shadow-sm font-bold text-primary"
-                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleMemberSearchById())}
-                    />
+              <div className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 mb-8">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex-1 min-w-[140px] max-w-[240px]">
+                    <div className="relative group/input">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <Input 
+                        placeholder="Search Member ID..." 
+                        value={memberSearchId}
+                        onChange={(e) => setMemberSearchId(e.target.value)}
+                        className="pl-9 h-10 bg-white border-slate-200 rounded-xl font-bold text-sm text-primary shadow-sm"
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleMemberSearchById())}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      type="button"
+                      disabled={isSearchingMember || !memberSearchId}
+                      onClick={handleMemberSearchById}
+                      className="h-10 px-4 bg-slate-900 text-white rounded-xl font-black uppercase tracking-widest text-[9px] shadow-sm hover:bg-primary/90 transition-all gap-2"
+                    >
+                      {isSearchingMember ? <RefreshCw className="h-3 w-3 animate-spin" /> : <UserCheck className="h-3.5 w-3.5" />}
+                      Search
+                    </Button>
+                    <Button 
+                      type="button"
+                      variant="ghost"
+                      onClick={handleClearSearch}
+                      title="Clear Search"
+                      className="h-10 w-10 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all shrink-0"
+                    >
+                      <X size={16} />
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button 
-                    type="button"
-                    disabled={isSearchingMember || !memberSearchId}
-                    onClick={handleMemberSearchById}
-                    className="h-12 px-8 bg-slate-900 text-white font-black uppercase tracking-widest text-[10px] shadow-lg active:scale-95 transition-all gap-2"
-                  >
-                    {isSearchingMember ? <RefreshCw className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
-                    Search Profile
-                  </Button>
-                  <Button 
-                    type="button"
-                    variant="outline"
-                    onClick={handleClearSearch}
-                    className="h-12 px-6 border-slate-200 text-slate-500 font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-all gap-2"
-                  >
-                    <X className="h-4 w-4" />
-                    Clear
-                  </Button>
-                </div>
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 mt-2 ml-1 italic opacity-60">Identity Search</p>
               </div>
             )}
 
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {previousAccountNo && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-rose-500">Previous Account ID</Label>
+                  <Input 
+                    value={previousAccountNo} 
+                    readOnly 
+                    className="finance-input bg-rose-50 border-rose-100 text-rose-600 font-bold"
+                  />
+                  <p className="text-[10px] text-rose-400 px-1 italic">Reference only</p>
+                </div>
+              )}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-semibold">Account Number *</Label>
@@ -1104,7 +1126,7 @@ const NewAccount = () => {
                 <Input {...register("documentsTaken")} className="finance-input" placeholder="e.g. Aadhar Card, Promissory Note, Blank Cheque" />
               </div>
 
-              <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+              <div className="space-y-2 sm:col-span-2 lg:col-span-4">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-semibold text-accent">Customer Location / Google Maps Link (for Agents)</Label>
                   <Button 

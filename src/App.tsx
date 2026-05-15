@@ -42,6 +42,8 @@ import LineSelection from "@/pages/LineSelection";
 import ManageVillages from "@/pages/ManageVillages";
 import PostingVerification from "@/pages/PostingVerification";
 import ExtraAmount from "@/pages/ExtraAmount";
+import CompletedCustomers from "@/pages/CompletedCustomers";
+import ActiveCustomers from "@/pages/ActiveCustomers";
 
 const queryClient = new QueryClient();
 
@@ -65,6 +67,8 @@ const App = () => (
               <Route path="/daily-posting" element={<DailyPosting />} />
               <Route path="/extra-amount" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><ExtraAmount /></ProtectedRoute>} />
               <Route path="/members" element={<Members />} />
+              <Route path="/completed-customers" element={<CompletedCustomers />} />
+              <Route path="/active-customers" element={<ActiveCustomers />} />
               <Route path="/posting-search" element={<PostingSearch />} />
               <Route path="/collection-excess" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><CollectionExcess /></ProtectedRoute>} />
               <Route path="/daily-collection" element={<DailyCollection />} />

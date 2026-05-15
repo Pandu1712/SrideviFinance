@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, getDoc, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
+import { collection, getDocs, getDoc, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction, deleteDoc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,6 +87,8 @@ const DailyCollection = () => {
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [batchNewDate, setBatchNewDate] = useState(new Date().toISOString().split("T")[0]);
   const [isBulkMoving, setIsBulkMoving] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
    
   // Agent Expense States
   const [isAddingExpense, setIsAddingExpense] = useState(false);
@@ -1420,6 +1422,47 @@ const DailyCollection = () => {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!records.length) {
+      toast.error("No records found to delete");
+      return;
+    }
+    
+    setIsBulkDeleting(true);
+    const toastId = toast.loading(`Deleting ${records.length} transactions without affecting balances...`);
+    try {
+      const batchPromises = records.map(async (r) => {
+        const postingRef = doc(db, "postings", r.id);
+        return deleteDoc(postingRef);
+      });
+
+      await Promise.all(batchPromises);
+      
+      toast.success(`Successfully deleted ${records.length} transactions for ${date}`, { id: toastId });
+      
+      if (userData) {
+        logActivity(
+          userData.uid,
+          userData.name,
+          userData.role,
+          "BATCH_POSTING_DELETE",
+          `Bulk deleted ${records.length} transactions for date ${date} WITHOUT reversing balances`,
+          selectedLineId
+        );
+      }
+
+      setBulkDeleteOpen(false);
+      setTimeout(() => {
+        handleSearch();
+      }, 500);
+    } catch (err: any) {
+      console.error("Bulk Delete Error:", err);
+      toast.error(`Failed to delete: ${err.message || "Unknown error"}`, { id: toastId });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-7xl mx-auto space-y-6">
@@ -1437,6 +1480,13 @@ const DailyCollection = () => {
                  className="bg-amber-500 hover:bg-amber-600 text-white shadow-lg h-11 px-6 font-bold uppercase tracking-widest text-[10px]"
                >
                  <Calendar className="mr-2 h-4 w-4" /> Bulk Move
+               </Button>
+               <Button 
+                 onClick={() => setBulkDeleteOpen(true)} 
+                 disabled={records.length === 0}
+                 className="bg-rose-500 hover:bg-rose-600 text-white shadow-lg h-11 px-6 font-bold uppercase tracking-widest text-[10px]"
+               >
+                 <Trash2 className="mr-2 h-4 w-4" /> Bulk Delete
                </Button>
                <Button onClick={openOverrideModal} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg h-11 px-6 font-bold uppercase tracking-widest text-[10px]"><Zap size={14} className="mr-2" /> Manual Override</Button>
              </>
@@ -1983,6 +2033,34 @@ const DailyCollection = () => {
               }}
             >
               Yes, Post Again
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Alert Dialog */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent className="border-rose-200">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center text-rose-600 gap-2">
+              <AlertCircle className="h-6 w-6" />
+              Bulk Delete (No Balance Change)
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-600 font-medium pt-2">
+              Are you sure you want to permanently delete all <strong>{records.length}</strong> postings for <strong>{date}</strong>?<br/><br/>
+              This will <strong className="text-rose-600">ONLY remove the logs</strong> and WILL NOT reverse or affect the current account balances or total profit calculations.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4">
+            <AlertDialogCancel disabled={isBulkDeleting} className="font-bold">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              className="bg-rose-600 hover:bg-rose-700 font-bold"
+              disabled={isBulkDeleting}
+              onClick={() => {
+                handleBulkDelete();
+              }}
+            >
+              {isBulkDeleting ? "Deleting..." : "Yes, Delete Only Logs"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

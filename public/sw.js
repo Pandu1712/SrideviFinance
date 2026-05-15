@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sri-finance-v2.1'; // Increment version
+const CACHE_NAME = 'sri-finance-v2.2'; // Increment version
 const urlsToCache = [
   '/',
   '/manifest.json',
@@ -44,13 +44,14 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request).then(response => {
       return response || fetch(event.request).then(networkResponse => {
-        // Only cache successful GET requests for local assets
+        // Only cache successful GET requests for local assets, and ignore localhost to avoid dev caching issues
         if (
           networkResponse && 
           networkResponse.status === 200 && 
           event.request.method === 'GET' &&
           url.origin === self.location.origin &&
-          !url.pathname.includes('firebasestorage') // Avoid caching large firebase assets
+          !url.pathname.includes('firebasestorage') &&
+          url.hostname !== 'localhost'
         ) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then(cache => {
