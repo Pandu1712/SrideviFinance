@@ -659,9 +659,11 @@ const DailyPosting = () => {
                               "w-full text-left p-3 rounded-2xl border border-transparent transition-all group",
                               accountInfo?.id === m.id 
                                 ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
-                                : todayPostings.has(m.id)
-                                  ? "bg-emerald-50 border-emerald-100" 
-                                  : "hover:bg-slate-50 hover:border-slate-100"
+                                : (m.status === 'completed' || m.balance <= 0)
+                                  ? "bg-rose-50 border-rose-100 opacity-80"
+                                  : todayPostings.has(m.id)
+                                    ? "bg-emerald-50 border-emerald-100" 
+                                    : "hover:bg-slate-50 hover:border-slate-100"
                             )}
                           >
                              <div className="flex items-center justify-between gap-2 w-full">
@@ -669,12 +671,13 @@ const DailyPosting = () => {
                                  <div className={cn(
                                    "h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[11px] font-black transition-all shadow-sm",
                                    accountInfo?.id === m.id ? "bg-white text-accent" : 
+                                   (m.status === 'completed' || m.balance <= 0) ? "bg-rose-500 text-white" :
                                    todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
                                  )}>
                                    {m.accountNo}
                                  </div>
                                  <div className="min-w-0">
-                                   <p className={cn("text-[13px] sm:text-[14px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>
+                                   <p className={cn("text-[13px] sm:text-[14px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : (m.status === 'completed' || m.balance <= 0) ? "text-rose-700 line-through decoration-rose-300" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>
                                      {m.name}
                                    </p>
                                    <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">

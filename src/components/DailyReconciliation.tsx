@@ -76,11 +76,13 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
           if (data.status === "disbursement") {
             if (adminIdsSet.has(data.collectedById)) adDis += amt;
             else agDis += amt;
+          } else if (data.status === "charge") {
+            dtDocCharge += amt;
+          } else if (data.status === "other") {
+            dtExtra += amt;
           } else {
-            if (data.status === "collection") {
-              if (adminIdsSet.has(data.collectedById)) adCol += amt;
-              else agCol += amt;
-            }
+            if (adminIdsSet.has(data.collectedById)) adCol += amt;
+            else agCol += amt;
           }
           
           dtDocCharge += (data.documentCharge || 0);
