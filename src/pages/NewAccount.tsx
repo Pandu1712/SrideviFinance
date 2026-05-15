@@ -22,11 +22,21 @@ import {
   Wallet, UserPlus, Calendar, Info, Calculator, UserCheck, IndianRupee, TrendingUp, Download, CreditCard, MapPin, Check, ChevronsUpDown, Plus, CheckCircle2,
   FileText, Upload, X, File, Image as ImageIcon, Search, RefreshCw
 } from "lucide-react";
-import { cn, formatCurrency, formatCurrencyPDF } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { uploadToCloudinary } from "@/lib/cloudinary";
 import { logActivity } from "@/lib/audit";
+
+const formatCurrencyPDF = (amount: number | string | undefined | null) => {
+  if (amount === undefined || amount === null) return "Rs 0";
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(num || 0).replace("₹", "Rs ");
+};
 
 const accountSchema = z.object({
   accountNo: z.string().min(1, "Account number is required"),
@@ -92,6 +102,39 @@ const NewAccount = () => {
   
   const [memberSearchId, setMemberSearchId] = useState("");
   const [isSearchingMember, setIsSearchingMember] = useState(false);
+  const [searchedMember, setSearchedMember] = useState<any>(null);
+  const [showProfileDialog, setShowProfileDialog] = useState(false);
+
+  const applySearchedMember = (data: any) => {
+    setValue("accountNo", data.accountNo || memberSearchId);
+    setValue("name", data.name || "");
+    setValue("nameTelugu", data.nameTelugu || "");
+    setValue("fatherHusbandName", data.fatherHusbandName || "");
+    setValue("phone", data.phone || "");
+    setValue("village", data.village || "");
+    setValue("occupation", data.occupation || "");
+    setValue("altPhone", data.altPhone || "");
+    setValue("customerLocation", data.customerLocation || "");
+    setValue("guarantorName", data.guarantorName || "");
+    setValue("guarantorPhone", data.guarantorPhone || "");
+    
+    // Extended Financial Details
+    if (data.loanAmount) setValue("loanAmount", String(data.loanAmount));
+    if (data.interestAmount) setValue("interestAmount", String(data.interestAmount));
+    if (data.totalAmount) setValue("totalAmount", String(data.totalAmount));
+    if (data.paymentFrequency) setValue("paymentFrequency", data.paymentFrequency);
+    if (data.paymentType) setValue("paymentType", data.paymentType);
+    if (data.installmentAmount) setValue("installmentAmount", String(data.installmentAmount));
+    if (data.documentCharge) setValue("documentCharge", String(data.documentCharge));
+    if (data.commission) setValue("commission", String(data.commission));
+    if (data.upiId) setValue("upiId", data.upiId);
+    if (data.bankAccountNumber) setValue("bankAccountNumber", data.bankAccountNumber);
+    if (data.bankIfsc) setValue("bankIfsc", data.bankIfsc);
+    if (data.documentsTaken) setValue("documentsTaken", data.documentsTaken);
+
+    toast.success(`Complete profile for ${data.name} applied! All details filled.`);
+    setShowProfileDialog(false);
+  };
 
   const handleMemberSearchById = async () => {
     if (!memberSearchId) {
@@ -111,33 +154,8 @@ const NewAccount = () => {
       
       if (!snap.empty) {
         const data = snap.docs[0].data();
-        setValue("accountNo", data.accountNo || memberSearchId);
-        setValue("name", data.name || "");
-        setValue("nameTelugu", data.nameTelugu || "");
-        setValue("fatherHusbandName", data.fatherHusbandName || "");
-        setValue("phone", data.phone || "");
-        setValue("village", data.village || "");
-        setValue("occupation", data.occupation || "");
-        setValue("altPhone", data.altPhone || "");
-        setValue("customerLocation", data.customerLocation || "");
-        setValue("guarantorName", data.guarantorName || "");
-        setValue("guarantorPhone", data.guarantorPhone || "");
-        
-        // Extended Financial Details
-        if (data.loanAmount) setValue("loanAmount", String(data.loanAmount));
-        if (data.interestAmount) setValue("interestAmount", String(data.interestAmount));
-        if (data.totalAmount) setValue("totalAmount", String(data.totalAmount));
-        if (data.paymentFrequency) setValue("paymentFrequency", data.paymentFrequency);
-        if (data.paymentType) setValue("paymentType", data.paymentType);
-        if (data.installmentAmount) setValue("installmentAmount", String(data.installmentAmount));
-        if (data.documentCharge) setValue("documentCharge", String(data.documentCharge));
-        if (data.commission) setValue("commission", String(data.commission));
-        if (data.upiId) setValue("upiId", data.upiId);
-        if (data.bankAccountNumber) setValue("bankAccountNumber", data.bankAccountNumber);
-        if (data.bankIfsc) setValue("bankIfsc", data.bankIfsc);
-        if (data.documentsTaken) setValue("documentsTaken", data.documentsTaken);
-
-        toast.success(`Complete profile for ${data.name} retrieved! All financial details auto-filled.`);
+        setSearchedMember(data);
+        setShowProfileDialog(true);
       } else {
         toast.error("No record found with this ID.");
       }
@@ -627,6 +645,7 @@ const NewAccount = () => {
           adminName: userData?.name,
           creationDate: data.creationDate,
           createdAt: new Date().toISOString(),
+          lastPostingDate: initialPaidValue > 0 ? data.creationDate : null,
         };
         const accountDocRef = await addDoc(collection(db, "accounts"), newPayload);
 
@@ -1108,11 +1127,12 @@ const NewAccount = () => {
               </div>
             </div>
 
-            <div className="border-t border-primary/10 pt-8">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <Calculator className="h-5 w-5 text-accent" />
-                Finance Details
-              </h3>
+            <div className="space-y-8">
+              <div className="border-t border-primary/10 pt-8">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                  <Calculator className="h-5 w-5 text-accent" />
+                  Finance Details
+                </h3>
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-[#0F172A]">Principal Loan Amount (₹) *</Label>
@@ -1481,10 +1501,11 @@ const NewAccount = () => {
                 </Button>
               </div>
             </div>
+          </div>
 
-            <div className="flex items-center justify-end border-t border-primary/10 pt-6">
+          <div className="flex items-center justify-end border-t border-primary/10 pt-6">
               <div className="flex gap-4">
-                <Button variant="outline" type="button" onClick={() => reset()} disabled={loading}>
+                <Button variant="outline" type="button" onClick={() => handleClearSearch()} disabled={loading}>
                   Reset Form
                 </Button>
                 <Button 
@@ -1500,6 +1521,76 @@ const NewAccount = () => {
         </CardContent>
       </Card>
     </motion.div>
+
+      <Dialog open={showProfileDialog} onOpenChange={setShowProfileDialog}>
+        <DialogContent className="w-[95vw] sm:max-w-[500px] rounded-3xl border-none shadow-2xl overflow-hidden p-0">
+          <div className="bg-slate-900 p-6 text-white relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-accent/10 blur-3xl -mr-16 -mt-16" />
+            <DialogTitle className="text-xl sm:text-2xl font-black italic uppercase tracking-tight flex items-center gap-2 relative z-10">
+              <UserCheck size={24} className="text-accent" />
+              Profile Found
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs sm:text-sm font-medium relative z-10">
+              Review existing member details before applying to form.
+            </DialogDescription>
+          </div>
+          
+          <div className="p-6 space-y-6 bg-white overflow-y-auto max-h-[70vh]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Customer Name</p>
+                <p className="text-base sm:text-lg font-bold text-slate-900 leading-tight break-words">{searchedMember?.name}</p>
+                {searchedMember?.nameTelugu && <p className="text-sm font-telugu text-slate-500">{searchedMember?.nameTelugu}</p>}
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Account No</p>
+                <p className="text-base sm:text-lg font-black text-accent">{searchedMember?.accountNo}</p>
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-100" />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Father/Husband</p>
+                <p className="text-sm font-bold text-slate-700">{searchedMember?.fatherHusbandName || "N/A"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Phone</p>
+                <p className="text-sm font-bold text-slate-700">{searchedMember?.phone || "N/A"}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Village/Area</p>
+                <p className="text-sm font-bold text-slate-700">{searchedMember?.village || "N/A"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Occupation</p>
+                <p className="text-sm font-bold text-slate-700">{searchedMember?.occupation || "N/A"}</p>
+              </div>
+            </div>
+
+            <div className="pt-4 flex flex-col sm:flex-row gap-3">
+              <Button 
+                variant="outline" 
+                className="w-full sm:flex-1 h-12 rounded-xl border-slate-200 text-slate-500 font-bold"
+                onClick={() => setShowProfileDialog(false)}
+              >
+                Discard
+              </Button>
+              <Button 
+                className="w-full sm:flex-[2] h-12 premium-gradient text-white font-bold rounded-xl shadow-lg border-none flex items-center justify-center gap-2"
+                onClick={() => applySearchedMember(searchedMember)}
+              >
+                <UserPlus size={18} />
+                View & Apply Details
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showVillageDialog} onOpenChange={setShowVillageDialog}>
         <DialogContent className="sm:max-w-[425px] rounded-3xl border-none shadow-2xl overflow-hidden">

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, where, doc, updateDoc, DocumentData, runTransaction, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, addDoc, getDocs, getDoc, query, where, doc, updateDoc, DocumentData, runTransaction, orderBy, onSnapshot } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin } from "lucide-react";
+import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin, AlertCircle } from "lucide-react";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,6 +18,16 @@ import { logActivity } from "@/lib/audit";
 import DailyReconciliation from "@/components/DailyReconciliation";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
 
 const DailyPosting = () => {
   const { userData } = useAuth();
@@ -40,6 +50,8 @@ const DailyPosting = () => {
     payMode: "cash",
     penaltyAmount: ""
   });
+  const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
+  const [lastPostedAmount, setLastPostedAmount] = useState<number | null>(null);
 
   // Fetch accounts in line
   useEffect(() => {
@@ -88,7 +100,6 @@ const DailyPosting = () => {
   }, [selectedLineId]);
 
   // Fetch today's postings to highlight paid accounts
-  // Fetch today's postings to highlight paid accounts
   useEffect(() => {
     if (!selectedLineId || !form.date) return;
     
@@ -114,14 +125,17 @@ const DailyPosting = () => {
   const selectMember = (member: DocumentData) => {
     setAccountInfo(member);
     setForm(prev => ({ ...prev, accountNo: member.accountNo, amount: String(member.installmentAmount || "") }));
-    toast.info(`Selected: ${member.name}`);
     
-    // Auto-scroll and switch view on mobile
+    if (todayPostings.has(member.id)) {
+      toast.error(`ALERT: A payment has already been recorded for ${member.name} today!`, { duration: 5000, icon: '🚨' });
+    } else {
+      toast.info(`Selected: ${member.name}`);
+    }
+    
+    // Switch view on mobile to form
     if (window.innerWidth < 1024) {
       setMobileView("form");
-      setTimeout(() => {
-        profileRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -157,13 +171,16 @@ const DailyPosting = () => {
       const accountData = { id: d.id, ...(d.data() as any) };
       setAccountInfo(accountData);
       setForm(prev => ({ ...prev, amount: String(accountData.installmentAmount || "") }));
-      toast.success("Account loaded successfully");
       
-      // Auto-scroll to profile on mobile
+      if (todayPostings.has(accountData.id)) {
+        toast.error(`ALERT: A payment has already been recorded for ${accountData.name} today!`, { duration: 5000, icon: '🚨' });
+      } else {
+        toast.success("Account loaded successfully");
+      }
+      
+      // Scroll to top on mobile
       if (window.innerWidth < 1024) {
-        setTimeout(() => {
-          profileRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 100);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err) {
       console.error(err);
@@ -200,7 +217,45 @@ const DailyPosting = () => {
         return;
       }
 
-      const accountRef = doc(db, "accounts", accountInfo.id);
+      // FORCED DUPLICATE CHECK: Verify if this account already has a posting today
+      const todayDateStr = form.date;
+      
+      // 1. Query the postings collection directly
+      const duplicateQuery = query(
+        collection(db, "postings"),
+        where("accountId", "==", accountInfo.id),
+        where("date", "==", todayDateStr)
+      );
+      const duplicateSnap = await getDocs(duplicateQuery);
+      
+      // 2. Fetch fresh account data to check the lastPostingDate flag
+      const freshAccDoc = await getDoc(doc(db, "accounts", accountInfo.id));
+      const freshAccData = freshAccDoc.exists() ? freshAccDoc.data() : null;
+      
+      const serverLastPostingDate = freshAccData?.lastPostingDate;
+      const localLastPostingDate = accountInfo.lastPostingDate;
+      
+      const hasPostingToday = !duplicateSnap.empty || 
+                              serverLastPostingDate === todayDateStr || 
+                              localLastPostingDate === todayDateStr;
+
+      if (hasPostingToday) {
+        setShowDuplicateAlert(true);
+        setLoading(false);
+        return;
+      }
+
+      await executePosting(totalCollection, postingAmount, penaltyAmount);
+    } catch (err: any) {
+      toast.error(err.message || "Failed");
+      setLoading(false);
+    }
+  };
+
+  const executePosting = async (totalCollection: number, postingAmount: number, penaltyAmount: number) => {
+    setLoading(true);
+    try {
+      const accountRef = doc(db, "accounts", accountInfo!.id);
 
       await runTransaction(db, async (transaction) => {
         const accDoc = await transaction.get(accountRef);
@@ -219,7 +274,7 @@ const DailyPosting = () => {
           status: form.status,
           payMode: form.payMode,
           lineId: accountInfo.lineId,
-          adminId: accountInfo.adminId || "", // Pass through adminId so admins can see this in their collections
+          adminId: accountInfo.adminId || "",
           memberName: accountInfo.name,
           nameTelugu: accountInfo.nameTelugu || "",
           collectedByRole: userData?.role,
@@ -245,6 +300,8 @@ const DailyPosting = () => {
         }
       });
 
+      setLastPostedAmount(totalCollection);
+
       if (userData) {
         logActivity(
           userData.uid,
@@ -259,24 +316,21 @@ const DailyPosting = () => {
         toast.success("Collection submitted! Awaiting admin approval.");
       } else {
         toast.success("Posted and finalized successfully");
-        // Update local state for balance ONLY if verified
-        setAccountInfo(prev => prev ? { 
-          ...prev, 
-          paid: (prev.paid || 0) + postingAmount, 
-          balance: Math.max(0, (prev.balance || 0) - postingAmount) 
-        } : null);
       }
-      
-      // Clear form for next entry immediately
-      setAccountInfo(null);
+
+      setAccountInfo(prev => prev ? { 
+        ...prev, 
+        lastPostingDate: form.date,
+        paid: (prev.paid || 0) + (userData?.role !== 'agent' ? postingAmount : 0), 
+        balance: Math.max(0, (prev.balance || 0) - (userData?.role !== 'agent' ? postingAmount : 0)) 
+      } : null);
+
       setForm(prev => ({ 
         ...prev, 
-        accountNo: "", 
         amount: "", 
         penaltyAmount: "" 
       }));
       
-      // Update local state for immediate feedback (Greening the list)
       setTodayPostings(prev => new Set([...Array.from(prev), accountInfo.id]));
 
     } catch (err: any) {
@@ -295,7 +349,7 @@ const DailyPosting = () => {
     const doc = new jsPDF({
       orientation: "portrait",
       unit: "mm",
-      format: [100, 150] // Custom small receipt size
+      format: [100, 150]
     });
 
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -842,6 +896,36 @@ const DailyPosting = () => {
       <div className="pt-10 border-t border-slate-100 mt-10">
         <DailyReconciliation targetDate={form.date} />
       </div>
+
+      {/* Duplicate Posting Alert Dialog */}
+      <AlertDialog open={showDuplicateAlert} onOpenChange={setShowDuplicateAlert}>
+        <AlertDialogContent className="border-rose-200">
+          <AlertDialogHeader>
+            <div className="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 mb-2">
+              <Calendar size={24} />
+            </div>
+            <AlertDialogTitle className="text-xl font-black">Duplicate Posting Detected</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-600 font-medium">
+              A collection has already been recorded for <strong>{accountInfo?.name}</strong> on this date ({formatDate(form.date)}).
+              <br /><br />
+              Are you sure you want to add another posting for the same day?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-3">
+            <AlertDialogCancel className="rounded-xl border-slate-200 font-bold">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                const p = parseFloat(form.amount) || 0;
+                const pen = parseFloat(form.penaltyAmount) || 0;
+                executePosting(p + pen, p, pen);
+              }}
+              className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold border-none"
+            >
+              Yes, Post Again
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 };

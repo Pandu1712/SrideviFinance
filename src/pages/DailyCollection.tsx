@@ -3,17 +3,27 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
+import { collection, getDocs, getDoc, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Scale, ShieldCheck, FileSpreadsheet } from "lucide-react";
+import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Scale, ShieldCheck, FileSpreadsheet, AlertCircle } from "lucide-react";
 import { formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
 import { generateRepaymentSchedule, getGoogleMapsUrl } from "@/lib/loanUtils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -60,6 +70,10 @@ const DailyCollection = () => {
   const [adminCustomerSearch, setAdminCustomerSearch] = useState("");
   const [allAccounts, setAllAccounts] = useState<any[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+
+  // Duplicate Check Dialog
+  const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
+  const [pendingDuplicateAction, setPendingDuplicateAction] = useState<(() => void) | null>(null);
 
   // Clear cached accounts when line changes to prevent leakage
   useEffect(() => {
@@ -584,6 +598,102 @@ const DailyCollection = () => {
 
       setSubmitting(true);
       try {
+        const todayDateStr = targetCell.date;
+        
+        // 1. Query postings collection
+        const duplicateQuery = query(
+          collection(db, "postings"),
+          where("accountId", "==", targetCell.custId),
+          where("date", "==", todayDateStr)
+        );
+        const duplicateSnap = await getDocs(duplicateQuery);
+        
+        // 2. Fetch fresh account data
+        const freshAccDoc = await getDoc(doc(db, "accounts", targetCell.custId));
+        const freshAccData = freshAccDoc.exists() ? freshAccDoc.data() : null;
+        
+        const serverLastPostingDate = freshAccData?.lastPostingDate;
+        const isAlreadyPaidLocally = postings[targetCell.custId]?.[todayDateStr];
+
+        const hasPostingToday = !duplicateSnap.empty || 
+                                isAlreadyPaidLocally || 
+                                serverLastPostingDate === todayDateStr;
+
+        if (hasPostingToday) {
+          setPendingDuplicateAction(() => async () => {
+            setSubmitting(true);
+            try {
+              const isVerified = userData?.role === 'super_admin' || userData?.role === 'admin';
+
+              const postingData = {
+                accountId: targetCell.custId,
+                accountNo: targetCell.accountNo,
+                memberName: targetCell.custName,
+                nameTelugu: activeCustomer?.nameTelugu || "",
+                amount: amountNum,
+                principal: principalAmount,
+                lateFee: lateFeeNum,
+                digiPayer: payMode === 'online' ? digiPayer : '',
+                date: targetCell.date,
+                payMode: payMode,
+                agentId: userData?.uid,
+                adminId: activeCustomer?.adminId || "",
+                lineId: selectedLineId || activeCustomer?.lineId || "default",
+                timestamp: serverTimestamp(),
+                createdAt: new Date().toISOString(),
+                status: 'collection',
+                collectedById: userData?.uid,
+                collectedByName: userData?.name || 'Unknown Agent',
+                collectedByRole: userData?.role || 'agent',
+                verified: isVerified
+              };
+
+              await addDoc(collection(db, "postings"), postingData);
+              
+              if (isVerified) {
+                const accountRef = doc(db, "accounts", targetCell.custId);
+                
+                await updateDoc(accountRef, {
+                  paid: increment(amountNum),
+                  balance: increment(-principalAmount),
+                  lastPostingDate: targetCell.date
+                });
+
+                if (activeCustomer && activeCustomer.id === targetCell.custId) {
+                  setActiveCustomer((prev: any) => ({
+                    ...prev,
+                    paid: (prev.paid || 0) + amountNum,
+                    balance: (prev.balance || 0) - principalAmount
+                  }));
+                }
+
+                setCustomers(prev => prev.map(c => 
+                  c.id === targetCell.custId 
+                    ? { ...c, paid: (c.paid || 0) + amountNum, balance: (c.balance || 0) - principalAmount } 
+                    : c
+                ));
+              }
+
+              toast.success(`Success ₹${amountNum}`);
+              setPayDialogOpen(false);
+              setDigiPayer("");
+              setLateFee("");
+              setPostings(prev => ({
+                ...prev,
+                [targetCell.custId]: { ...(prev[targetCell.custId] || {}), [targetCell.date]: postingData }
+              }));
+            } catch (err) {
+              console.error(err);
+              toast.error("Failed to post payment");
+            } finally {
+              setSubmitting(false);
+            }
+          });
+          setShowDuplicateAlert(true);
+          setSubmitting(false);
+          return;
+        }
+
         const isVerified = userData?.role === 'super_admin' || userData?.role === 'admin';
 
         const postingData = {
@@ -617,7 +727,8 @@ const DailyCollection = () => {
           // Logic: Paid increases by total recovery, Balance decreases only by principal
           await updateDoc(accountRef, {
             paid: increment(amountNum),
-            balance: increment(-principalAmount)
+            balance: increment(-principalAmount),
+            lastPostingDate: targetCell.date
           });
 
           if (activeCustomer && activeCustomer.id === targetCell.custId) {
@@ -674,6 +785,75 @@ const DailyCollection = () => {
 
     setSubmitting(true);
     try {
+      const todayDateStr = payDate;
+
+      const duplicateQuery = query(
+        collection(db, "postings"),
+        where("accountId", "==", selectedAdminCustomer.id),
+        where("date", "==", todayDateStr)
+      );
+      const duplicateSnap = await getDocs(duplicateQuery);
+
+      // Fetch fresh account data for admin override
+      const freshAccDoc = await getDoc(doc(db, "accounts", selectedAdminCustomer.id));
+      const freshAccData = freshAccDoc.exists() ? freshAccDoc.data() : null;
+
+      const serverLastPostingDate = freshAccData?.lastPostingDate;
+      const localLastPostingDate = selectedAdminCustomer.lastPostingDate;
+
+      const hasPostingToday = !duplicateSnap.empty || 
+                              serverLastPostingDate === todayDateStr || 
+                              localLastPostingDate === todayDateStr;
+
+      if (hasPostingToday) {
+        setPendingDuplicateAction(() => async () => {
+          setSubmitting(true);
+          try {
+            const postingData = {
+              accountId: selectedAdminCustomer.id,
+              accountNo: selectedAdminCustomer.accountNo,
+              memberName: selectedAdminCustomer.memberName || selectedAdminCustomer.name,
+              amount: amountNum,
+              principal: principalAmount,
+              lateFee: lateFeeNum,
+              digiPayer: payMode === 'online' ? digiPayer : '',
+              date: payDate,
+              payMode: payMode,
+              agentId: selectedAdminCustomer.agentId || userData?.uid || "",
+              adminId: userData?.uid || "",
+              lineId: selectedAdminCustomer.lineId || "default",
+              timestamp: serverTimestamp(),
+              status: 'collection',
+              collectedByName: userData?.name || 'Admin',
+              collectedByRole: 'super_admin',
+              verified: true
+            };
+
+            await addDoc(collection(db, "postings"), postingData);
+            
+            const accountRef = doc(db, "accounts", selectedAdminCustomer.id);
+            await updateDoc(accountRef, {
+              paid: increment(amountNum),
+              balance: increment(-principalAmount),
+              status: ((selectedAdminCustomer.balance || 0) - principalAmount) > 0 ? "active" : "completed",
+              lastPostingDate: payDate
+            });
+
+            toast.success(`Success ₹${amountNum} for ${selectedAdminCustomer.memberName}`);
+            setOverrideModalOpen(false);
+            fetchDataForGrid();
+          } catch (err) {
+            console.error(err);
+            toast.error("Failed to post override");
+          } finally {
+            setSubmitting(false);
+          }
+        });
+        setShowDuplicateAlert(true);
+        setSubmitting(false);
+        return;
+      }
+
       const postingData = {
         accountId: selectedAdminCustomer.id,
         accountNo: selectedAdminCustomer.accountNo,
@@ -700,7 +880,8 @@ const DailyCollection = () => {
       await updateDoc(accountRef, {
         paid: increment(amountNum),
         balance: increment(-principalAmount),
-        status: ((selectedAdminCustomer.balance || 0) - principalAmount) > 0 ? "active" : "completed"
+        status: ((selectedAdminCustomer.balance || 0) - principalAmount) > 0 ? "active" : "completed",
+        lastPostingDate: payDate
       });
 
       toast.success(`Success ₹${amountNum} for ${selectedAdminCustomer.memberName}`);
@@ -712,7 +893,8 @@ const DailyCollection = () => {
       handleSearch(); // Refresh admin list
     } catch (err) {
       toast.error("Failed to manual post");
-    } finally { setSubmitting(false); }
+      setSubmitting(false);
+    }
   };
 
   const uniqueVillages = Array.from(new Set(customers.map(c => c.village).filter(Boolean)));
@@ -1246,7 +1428,7 @@ const DailyCollection = () => {
           <div className="h-12 w-12 rounded-xl bg-slate-900 flex items-center justify-center shadow-lg"><Wallet className="text-white h-6 w-6" /></div>
           <div><h1 className="text-3xl font-extrabold tracking-tight text-[#5f259f] uppercase italic">Recovery Intelligence</h1><p className="text-muted-foreground font-medium">Global session auditing matrix.</p></div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 mt-4 md:mt-0">
           {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
              <>
                <Button 
@@ -1775,6 +1957,37 @@ const DailyCollection = () => {
           </div>
         </DialogContent>
       </Dialog>
+      
+      {/* Duplicate Posting Alert Dialog */}
+      <AlertDialog open={showDuplicateAlert} onOpenChange={setShowDuplicateAlert}>
+        <AlertDialogContent className="border-rose-200">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center text-rose-600 gap-2">
+              <AlertCircle className="h-6 w-6" />
+              Duplicate Posting Detected!
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-600 font-medium pt-2">
+              A payment has <strong className="text-slate-900">already been recorded</strong> on this date.<br/><br/>
+              Are you sure you want to post <strong className="text-rose-600">another payment</strong> for the exact same day?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4">
+            <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              className="bg-rose-600 hover:bg-rose-700 font-bold"
+              onClick={() => {
+                if (pendingDuplicateAction) {
+                  pendingDuplicateAction();
+                  setPendingDuplicateAction(null);
+                }
+              }}
+            >
+              Yes, Post Again
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </motion.div>
   );
 };
