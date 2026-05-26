@@ -713,7 +713,8 @@ const NewAccount = () => {
             collectedById: userData?.uid,
             collectedByName: userData?.name,
             createdAt: new Date().toISOString(),
-            isInitial: true
+            isInitial: true,
+            verified: true
           });
         }
 

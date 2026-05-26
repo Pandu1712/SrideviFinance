@@ -211,7 +211,8 @@ const ExtraAmount = () => {
           collectedById: userData?.uid,
           collectedByName: userData?.name,
           createdAt: new Date().toISOString(),
-          timestamp: Timestamp.now()
+          timestamp: Timestamp.now(),
+          verified: true
         });
 
         const destPostingRef = doc(collection(db, "postings"));
@@ -228,7 +229,8 @@ const ExtraAmount = () => {
           collectedById: userData?.uid,
           collectedByName: userData?.name,
           createdAt: new Date().toISOString(),
-          timestamp: Timestamp.now()
+          timestamp: Timestamp.now(),
+          verified: true
         });
       });
 
