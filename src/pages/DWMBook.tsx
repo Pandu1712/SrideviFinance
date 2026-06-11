@@ -66,7 +66,9 @@ const DWMBook = () => {
            return;
         }
         const actSnap = await getDocs(actQ);
-        const allActs = actSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
+        const allActs = actSnap.docs
+          .map(d => ({ id: d.id, ...d.data() as any }))
+          .filter(a => a.status !== "deleted");
         const today = new Date().toISOString().split("T")[0];
         
         const defs = allActs.filter(a => {

@@ -59,7 +59,12 @@ const UpdateAccounts = () => {
       }
       const snap = await getDocs(q);
       const list: DocumentData[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.status !== "deleted") {
+          list.push({ id: d.id, ...(data as Record<string, any>) });
+        }
+      });
       setAccounts(list);
       setLoading(false);
     };

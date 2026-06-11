@@ -88,6 +88,7 @@ const Reports = () => {
             memberName: a.memberName || a.name,
             payMode: a.paymentType || "CASH",
             status: "New Account",
+            originalStatus: a.status,
             isDisbursement: true
           };
         });
@@ -402,7 +403,7 @@ const Reports = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-card shadow-xl border-none bg-slate-900 text-white relative overflow-hidden">
+        <Card className="shadow-xl border-none bg-slate-900 text-white relative overflow-hidden">
           <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
           <CardHeader className="pb-1 p-4 relative z-10">
             <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Total</p>
@@ -526,7 +527,12 @@ const Reports = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold text-slate-700">{item.memberName || item.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-700">{item.memberName || item.name}</span>
+                            {item.originalStatus === "deleted" && (
+                              <span className="text-[8px] bg-rose-100 text-rose-600 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">Deleted</span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2">
                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{item.village || 'N/A'}</span>
                             {item.nameTelugu && <span className="text-[11px] font-bold text-slate-500 font-telugu">{item.nameTelugu}</span>}

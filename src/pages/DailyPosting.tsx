@@ -169,6 +169,11 @@ const DailyPosting = () => {
       }
       const d = snap.docs[0];
       const accountData = { id: d.id, ...(d.data() as any) };
+      if (accountData.status === "deleted") {
+        toast.error("Account not found or access denied");
+        setAccountInfo(null);
+        return;
+      }
       setAccountInfo(accountData);
       setForm(prev => ({ ...prev, amount: String(accountData.installmentAmount || "") }));
       
@@ -832,12 +837,12 @@ const DailyPosting = () => {
                             <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden">
                               <motion.div 
                                 initial={{ width: 0 }}
-                                animate={{ width: `${Math.min(100, (accountInfo.paid / accountInfo.totalAmount) * 100)}%` }}
+                                animate={{ width: `${Math.min(100, ((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}%` }}
                                 className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
                               />
                             </div>
                             <p className="text-[10px] text-right text-muted-foreground font-black uppercase tracking-widest">
-                              {Math.round((accountInfo.paid / accountInfo.totalAmount) * 100)}% Recovered
+                              {Math.round(((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}% Recovered
                             </p>
                           </div>
 

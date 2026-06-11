@@ -431,10 +431,15 @@ const Ledger = () => {
               <Card className="bg-primary/5 border-primary/10">
                 <CardContent className="p-4">
                   <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">Subscriber & ID</p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-lg font-black text-primary truncate leading-tight">{accountInfo.name}</p>
                     {accountInfo.nameTelugu && (
                       <span className="text-[10px] font-bold text-slate-400 italic">({accountInfo.nameTelugu})</span>
+                    )}
+                    {accountInfo.status === "deleted" && (
+                      <Badge variant="destructive" className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full">
+                        Deleted
+                      </Badge>
                     )}
                   </div>
                   <p className="text-[10px] font-bold text-accent">{accountInfo.accountNo}</p>
@@ -727,15 +732,15 @@ const Ledger = () => {
             </Card>
 
             {/* Payment Progress Visualization */}
-            <Card className="glass-card border-none shadow-xl bg-[#0F172A] text-white p-8 overflow-hidden relative rounded-3xl">
+            <Card className="border-none shadow-xl bg-[#0F172A] text-white p-8 overflow-hidden relative rounded-3xl">
                <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                     <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                     <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Recovery Maturity Lifecycle</p>
                   </div>
                   <div className="text-right">
                     <p className="text-2xl font-black text-emerald-400 italic">
-                      {Math.round(((accountInfo.paid || 0) / (accountInfo.totalAmount || 1)) * 100)}%
+                      {Math.round(((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}%
                     </p>
                     <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Recovered</p>
                   </div>
@@ -744,7 +749,7 @@ const Ledger = () => {
                <div className="h-4 w-full bg-white/5 rounded-full overflow-hidden mb-8 border border-white/5">
                   <motion.div 
                     initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(100, ((accountInfo.paid || 0) / (accountInfo.totalAmount || 1)) * 100)}%` }}
+                    animate={{ width: `${Math.min(100, ((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}%` }}
                     className="h-full bg-premium-gradient shadow-[0_0_30px_rgba(245,158,11,0.4)] relative"
                   >
                     <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent)] animate-[shimmer_2s_infinite]" />

@@ -171,9 +171,16 @@ const Dashboard = () => {
           let spent = 0; let balance = 0; let expected = 0; let totalAcc = 0;
           snapshot.forEach(d => {
             const acc = d.data();
-            totalAcc++;
+            const isDeleted = acc.status === "deleted";
+            if (!isDeleted) {
+              totalAcc++;
+            }
             const isMatch = timeFilter === "all" || (timeFilter === "month" && acc.startDate >= startOfMonth) || (timeFilter === "year" && acc.startDate >= startOfYear);
-            if (isMatch) { spent += (acc.loanAmount || 0); balance += (acc.balance || 0); expected += (acc.totalAmount || 0); }
+            if (isMatch) { 
+              spent += (acc.loanAmount || 0); 
+              balance += (acc.balance || 0); 
+              expected += (acc.totalAmount || 0); 
+            }
           });
           setStats(prev => ({ ...prev, totalAccounts: totalAcc, totalSpent: spent, totalBalance: balance, projectedProfit: expected - spent }));
         });
@@ -191,8 +198,15 @@ const Dashboard = () => {
 
         unsubscribeAccounts = onSnapshot(accountsRef, (snapshot) => {
           let pending = 0;
-          snapshot.forEach(d => pending += d.data().balance || 0);
-          setStats(prev => ({ ...prev, totalAccounts: snapshot.size, pendingAmount: pending }));
+          let activeCount = 0;
+          snapshot.forEach(d => {
+            const acc = d.data();
+            if (acc.status !== "deleted") {
+              activeCount++;
+              pending += acc.balance || 0;
+            }
+          });
+          setStats(prev => ({ ...prev, totalAccounts: activeCount, pendingAmount: pending }));
         });
       } else if (userData.role === "agent") {
         let assignedLineIds = userData.lineIds || (userData.lineId ? [userData.lineId] : []);
@@ -200,8 +214,15 @@ const Dashboard = () => {
         
         unsubscribeAccounts = onSnapshot(accQuery, (snapshot) => {
            let pendingCount = 0;
-           snapshot.forEach(d => { if (d.data().balance > 0) pendingCount++; });
-           setStats(prev => ({ ...prev, assignedAccounts: snapshot.size, pendingAccounts: pendingCount }));
+           let assignedCount = 0;
+           snapshot.forEach(d => {
+             const acc = d.data();
+             if (acc.status !== "deleted") {
+               assignedCount++;
+               if (acc.balance > 0) pendingCount++;
+             }
+           });
+           setStats(prev => ({ ...prev, assignedAccounts: assignedCount, pendingAccounts: pendingCount }));
         });
       }
     };

@@ -301,7 +301,7 @@ const PostingSearch = () => {
             animate={{ opacity: 1, y: 0 }}
             className="grid grid-cols-1 md:grid-cols-4 gap-6"
           >
-            <Card className="glass-card border-none shadow-xl bg-primary text-white overflow-hidden">
+            <Card className="border-none shadow-xl bg-primary text-white overflow-hidden">
                <CardContent className="p-6 relative">
                  <div className="absolute top-0 right-0 p-4 opacity-10">
                    <Target size={80} />

@@ -41,7 +41,12 @@ const BookPrint = () => {
 
         const snap = await getDocs(q);
         const list: DocumentData[] = [];
-        snap.forEach(d => list.push({ id: d.id, ...d.data() as any }));
+        snap.forEach(d => {
+          const data = d.data();
+          if (data.status !== "deleted") {
+            list.push({ id: d.id, ...data as any });
+          }
+        });
         setAccounts(list);
       } catch (err) {
         console.error("Fetch error:", err);

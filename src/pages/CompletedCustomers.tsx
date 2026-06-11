@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData, limit, deleteDoc, doc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, query, where, DocumentData, limit, deleteDoc, doc, writeBatch, updateDoc } from "firebase/firestore";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion } from "framer-motion";
@@ -81,7 +81,7 @@ const CompletedCustomers = () => {
     if (!window.confirm(`Are you sure you want to delete ${name}'s account? Financial history will be preserved.`)) return;
     
     try {
-      await deleteDoc(doc(db, "accounts", id));
+      await updateDoc(doc(db, "accounts", id), { status: "deleted" });
       setMembers(prev => prev.filter(m => m.id !== id));
       toast.success("Account successfully deleted. Transaction history preserved.");
     } catch (err: any) {
@@ -104,7 +104,7 @@ const CompletedCustomers = () => {
       const chunk = members.slice(0, 450);
       
       chunk.forEach(m => {
-        batch.delete(doc(db, "accounts", m.id));
+        batch.update(doc(db, "accounts", m.id), { status: "deleted" });
       });
 
       await batch.commit();

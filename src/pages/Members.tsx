@@ -55,7 +55,12 @@ const Members = () => {
         
         const snap = await getDocs(q);
         const list: DocumentData[] = [];
-        snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
+        snap.forEach(d => {
+          const data = d.data();
+          if (data.status !== "deleted") {
+            list.push({ id: d.id, ...(data as Record<string, any>) });
+          }
+        });
         setMembers(list);
       } catch (err) {
         console.error(err);
@@ -95,9 +100,9 @@ const Members = () => {
     if (!window.confirm(`Are you sure you want to delete ${name}'s account? The account will be removed, but all financial postings will be securely preserved to maintain total collection accuracy.`)) return;
     
     try {
-      // Delete ONLY the account. We intentionally PRESERVE the postings 
+      // Soft-delete ONLY the account by setting status to "deleted". We intentionally PRESERVE the postings 
       // so that total collections, profits, and investments are not affected.
-      await deleteDoc(doc(db, "accounts", id));
+      await updateDoc(doc(db, "accounts", id), { status: "deleted" });
       
       setMembers(prev => prev.filter(m => m.id !== id));
       toast.success("Account successfully deleted. Transaction history preserved for analytics.");

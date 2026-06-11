@@ -118,10 +118,9 @@ const DailyCollection = () => {
       const targetLine = selectedLineId;
       const custQuery = query(collection(db, "accounts"), where("lineId", "==", targetLine));
       const custSnap = await getDocs(custQuery);
-      const custData = custSnap.docs.map(d => {
-        const data = d.data();
-        return { id: d.id, ...data };
-      });
+      const custData = custSnap.docs
+        .map(d => ({ id: d.id, ...d.data() as any }))
+        .filter(c => c.status !== "deleted");
       setCustomers(custData);
       
       const minDate = gridDates[0];

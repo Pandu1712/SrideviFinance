@@ -29,6 +29,7 @@ const menuSections: MenuSection[] = [
     items: [
       { label: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Reports Engine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Profits Center", path: "/profits", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin", "partner"] },
     ]
   },
   {
