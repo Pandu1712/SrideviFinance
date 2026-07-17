@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File, FileSpreadsheet, Edit, IndianRupee, Calendar, ArrowRightLeft, MoveRight, Printer } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
+import { formatCurrency, formatDate, formatCurrencyPDF, checkPermission } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -17,12 +17,13 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { exportToExcel } from "@/lib/excel";
 
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 
 const Ledger = () => {
   const { userData, loading: authLoading } = useAuth();
   const { selectedLineId } = useLine();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [accountNo, setAccountNo] = useState(searchParams.get("acc") || "");
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [accountInfo, setAccountInfo] = useState<DocumentData | null>(null);
@@ -30,6 +31,8 @@ const Ledger = () => {
   const [totalPenalty, setTotalPenalty] = useState(0);
   const [totalExtra, setTotalExtra] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
 
   // Edit Posting States
   const [editPostingOpen, setEditPostingOpen] = useState(false);
@@ -288,6 +291,12 @@ const Ledger = () => {
     }
   };
 
+  const filteredPostings = postings.filter(p => {
+    if (filterStartDate && p.date < filterStartDate) return false;
+    if (filterEndDate && p.date > filterEndDate) return false;
+    return true;
+  });
+
   let runningTotal = 0;
 
   return (
@@ -347,11 +356,11 @@ const Ledger = () => {
             doc.text(`Current Status: ${accountInfo.status.toUpperCase()}`, 120, 68);
 
             const tableColumn = ["Sl No", "Date", "Amount", "Mode", "Collected By"];
-            const tableRows = postings.map((p, i) => [
+            const tableRows = filteredPostings.map((p, i) => [
               i + 1, 
               formatDate(p.date), 
               formatCurrencyPDF(p.amount), 
-              p.payMode.toUpperCase(), 
+              p.payMode.toUpperCase() + (p.note ? ` (${p.note})` : ""), 
               p.collectedByName || "System"
             ]);
 
@@ -373,17 +382,17 @@ const Ledger = () => {
             <Download className="h-4 w-4" /> PDF
           </Button>
           <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-emerald-600 font-bold hover:bg-emerald-50 hover:border-emerald-200 transition-all" onClick={() => {
-            if (!accountInfo || postings.length === 0) {
+            if (!accountInfo || filteredPostings.length === 0) {
               toast.error("No data to export");
               return;
             }
             
-            const data = postings.map((p, i) => ({
+            const data = filteredPostings.map((p, i) => ({
               "Sl No": i + 1,
               "Date": formatDate(p.date),
               "Description": p.status?.toUpperCase() || "PAYMENT",
               "Amount": p.amount || 0,
-              "Mode": (p.payMode || "CASH").toUpperCase(),
+              "Mode": (p.payMode || "CASH").toUpperCase() + (p.note ? ` (${p.note})` : ""),
               "Collected By": p.collectedByName || "System"
             }));
 
@@ -397,9 +406,9 @@ const Ledger = () => {
       </div>
 
       <Card className="glass-card">
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4 items-end">
-            <div className="flex-1 space-y-1 w-full">
+        <CardContent className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div className="space-y-1 w-full md:col-span-2">
               <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Search Account</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -412,7 +421,41 @@ const Ledger = () => {
                 />
               </div>
             </div>
-            <Button onClick={handleSearch} disabled={loading || !accountNo} className="bg-accent text-accent-foreground hover:bg-accent/90 min-w-[120px]">
+            
+            <div className="space-y-1 w-full">
+              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Start Date</Label>
+              <Input 
+                type="date"
+                value={filterStartDate}
+                onChange={e => setFilterStartDate(e.target.value)}
+                className="finance-input"
+              />
+            </div>
+
+            <div className="space-y-1 w-full">
+              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">End Date</Label>
+              <Input 
+                type="date"
+                value={filterEndDate}
+                onChange={e => setFilterEndDate(e.target.value)}
+                className="finance-input"
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100 print:hidden">
+            <Button 
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setFilterStartDate("");
+                setFilterEndDate("");
+              }}
+              className="text-xs font-bold text-slate-500 hover:text-slate-700 h-9 px-4 border-slate-200"
+            >
+              Clear Date Filters
+            </Button>
+            <Button onClick={handleSearch} disabled={loading || !accountNo} className="bg-accent text-accent-foreground hover:bg-accent/90 min-w-[150px] font-bold h-9">
               {loading ? "Searching..." : "Generate Ledger"}
             </Button>
           </div>
@@ -430,7 +473,20 @@ const Ledger = () => {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Card className="bg-primary/5 border-primary/10">
                 <CardContent className="p-4">
-                  <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">Subscriber & ID</p>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Subscriber & ID</p>
+                    {checkPermission(userData, "canEditAccount") && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 rounded-md hover:bg-slate-200 hover:text-primary text-slate-400 animate-pulse-subtle"
+                        onClick={() => navigate(`/accounts/edit/${accountInfo.id}`)}
+                        title="Edit Account Details"
+                      >
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-lg font-black text-primary truncate leading-tight">{accountInfo.name}</p>
                     {accountInfo.nameTelugu && (
@@ -447,7 +503,7 @@ const Ledger = () => {
               </Card>
               <Card className="bg-primary/5 border-primary/10">
                 <CardContent className="p-4">
-                  <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">Total Principal</p>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">Total Amount to Pay</p>
                   <p className="text-lg font-black text-primary leading-tight">{formatCurrency(accountInfo.totalAmount)}</p>
                   <p className="text-[10px] font-bold text-slate-500">Interest Amt: {formatCurrency(accountInfo.interestAmount)}</p>
                 </CardContent>
@@ -586,7 +642,7 @@ const Ledger = () => {
                   Transaction Statement
                 </CardTitle>
                 <div className="text-xs font-medium text-muted-foreground">
-                  Showing {postings.length} entries
+                  Showing {filteredPostings.length} entries
                 </div>
               </CardHeader>
               <CardContent className="p-0 overflow-x-auto">
@@ -604,7 +660,7 @@ const Ledger = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-primary/5">
-                    {postings.length === 0 ? (
+                    {filteredPostings.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="text-center py-20 text-muted-foreground italic bg-slate-50/50">
                           <User className="h-12 w-12 mx-auto mb-3 text-muted-foreground/20" />
@@ -612,7 +668,7 @@ const Ledger = () => {
                         </td>
                       </tr>
                     ) : (
-                      postings.map((p, i) => {
+                      filteredPostings.map((p, i) => {
                         runningTotal += p.amount || 0;
                         return (
                           <motion.tr 
@@ -647,12 +703,19 @@ const Ledger = () => {
                               </div>
                             </td>
                             <td className="p-4 text-sm font-bold text-right text-primary group-hover:text-accent transition-colors">
-                              {formatCurrency(runningTotal + postings.slice(0, i + 1).reduce((s, x) => s + (x.penaltyAmount || 0), 0))}
+                              {formatCurrency(runningTotal + filteredPostings.slice(0, i + 1).reduce((s, x) => s + (x.penaltyAmount || 0), 0))}
                             </td>
                               <td className="p-4">
-                                <span className="text-[10px] font-bold uppercase py-1 px-2 rounded-md bg-slate-100 text-slate-600">
-                                  {p.payMode}
-                                </span>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] font-bold uppercase py-1 px-2 rounded-md bg-slate-100 text-slate-600 w-max">
+                                    {p.payMode}
+                                  </span>
+                                  {p.note && (
+                                    <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={p.note}>
+                                      Note: {p.note}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="p-4">
                                 <div className="flex flex-col">
@@ -717,7 +780,7 @@ const Ledger = () => {
                       })
                     )}
                   </tbody>
-                  {postings.length > 0 && (
+                  {filteredPostings.length > 0 && (
                     <tfoot className="bg-primary hover:bg-primary transition-colors">
                       <tr>
                         <td colSpan={2} className="p-4 text-xs font-bold text-primary-foreground uppercase tracking-widest">Final Total Summarized</td>

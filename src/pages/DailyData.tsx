@@ -101,7 +101,7 @@ const DailyData = () => {
       p.memberName,
       formatCurrency(p.amount),
       p.status.toUpperCase(),
-      p.payMode.toUpperCase(),
+      p.payMode.toUpperCase() + (p.note ? ` (${p.note})` : ""),
       formatDate(p.date)
     ]);
 
@@ -157,10 +157,28 @@ const DailyData = () => {
                 <tr key={p.id}>
                   <td>{i + 1}</td>
                   <td className="font-mono">{p.accountNo}</td>
-                  <td>{p.memberName}</td>
+                  <td>
+                    <div className="flex flex-col">
+                      <span className="font-medium text-slate-900 dark:text-white">{p.memberName}</span>
+                      {p.nameTelugu && (
+                        <span className="text-[10px] font-bold text-slate-400 font-telugu mt-0.5">
+                          ({p.nameTelugu})
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td>₹{(p.amount || 0).toLocaleString("en-IN")}</td>
                   <td className="capitalize">{p.status}</td>
-                  <td className="capitalize">{p.payMode}</td>
+                  <td>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="capitalize">{p.payMode}</span>
+                      {p.note && (
+                        <span className="text-[9px] text-slate-500 normal-case" title={p.note}>
+                          Note: {p.note}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   {userData?.role === "super_admin" && (
                     <td className="text-right">
                       <Button 

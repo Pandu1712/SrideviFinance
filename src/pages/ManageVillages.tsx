@@ -176,7 +176,7 @@ const ManageVillages = () => {
             <MapPin className="text-white h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tight text-[#0F172A]">Manage Villages</h1>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Manage Villages</h1>
             <p className="text-muted-foreground font-medium">Configure central village dropdown for account creation.</p>
           </div>
         </div>
@@ -185,7 +185,7 @@ const ManageVillages = () => {
           <Card className="glass-card border-none shadow-lg p-4 flex items-center gap-4 bg-white/50 backdrop-blur-sm">
              <div className="flex-1">
                 <p className="text-[10px] font-black text-slate-400 leading-none mb-1">Active Line</p>
-                <h3 className="text-lg font-black text-slate-900 leading-none">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white leading-none">
                   {lines.find(l => l.id === selectedLineId)?.name || "Unknown Line"}
                 </h3>
              </div>
@@ -298,7 +298,7 @@ const ManageVillages = () => {
                 )}
                 <Button 
                   onClick={handleSave} 
-                  className={cn("flex-[2] h-12 text-white font-bold tracking-wide shadow-xl transition-all", editingId ? "bg-accent hover:bg-amber-600" : "bg-primary hover:bg-slate-900")}
+                  className={cn("flex-[2] h-12 font-bold tracking-wide shadow-xl transition-all", editingId ? "bg-accent text-white hover:bg-amber-600" : "bg-primary text-primary-foreground hover:opacity-90")}
                   disabled={loading}
                 >
                   {loading ? "Saving..." : editingId ? "Update Details" : "Add to Database"}

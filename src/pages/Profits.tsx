@@ -330,14 +330,14 @@ const Profits = () => {
       className="space-y-8 pb-20 max-w-7xl mx-auto"
     >
       {/* Analytics Premium Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-white rounded-[2rem] border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.01)] relative overflow-hidden">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-white dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-[0_8px_30px_rgb(0,0,0,0.01)] relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600" />
         <div className="flex items-center gap-5">
           <div className="h-16 w-16 rounded-2xl bg-emerald-50 flex items-center justify-center border border-emerald-100/60 shadow-inner shrink-0">
             <TrendingUp className="text-emerald-600 h-8 w-8" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase italic leading-none">Profits Center</h1>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white uppercase italic leading-none">Profits Center</h1>
             <div className="flex items-center gap-2 mt-2">
               <Badge variant="outline" className="bg-slate-50 border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 py-0.5 px-3">
                 {selectedLineId ? lines.find(l => l.id === selectedLineId)?.name : "Consolidated Portfolio"}
@@ -387,13 +387,13 @@ const Profits = () => {
           {/* Visual P&L Stat Matrix Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Projected Gross Revenue */}
-            <Card className="glass-card shadow-lg border-none border-t-4 border-indigo-500 bg-white relative overflow-hidden group">
+            <Card className="glass-card shadow-lg border-none border-t-4 border-indigo-500 bg-white dark:bg-slate-900/60 relative overflow-hidden group">
               <div className="absolute right-0 bottom-0 translate-x-2 translate-y-2 opacity-5 text-indigo-500 group-hover:scale-110 transition-transform">
                 <Landmark size={120} />
               </div>
               <CardContent className="p-6 relative z-10">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Projected Gross Profit</p>
-                <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(grossProjectedProfit)}</h3>
+                <h3 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{formatCurrency(grossProjectedProfit)}</h3>
                 <div className="flex items-center gap-2 mt-4 text-[9px] font-bold text-slate-400">
                   <Badge className="bg-indigo-50 text-indigo-600 border-none font-black text-[8px]">Projected</Badge>
                   <span>Expected Interest + Fees</span>
@@ -402,7 +402,7 @@ const Profits = () => {
             </Card>
 
             {/* Realized Inflow Revenue */}
-            <Card className="glass-card shadow-lg border-none border-t-4 border-emerald-500 bg-white relative overflow-hidden group">
+            <Card className="glass-card shadow-lg border-none border-t-4 border-emerald-500 bg-white dark:bg-slate-900/60 relative overflow-hidden group">
               <div className="absolute right-0 bottom-0 translate-x-2 translate-y-2 opacity-5 text-emerald-500 group-hover:scale-110 transition-transform">
                 <ArrowUpRight size={120} />
               </div>
@@ -417,7 +417,7 @@ const Profits = () => {
             </Card>
 
             {/* Accumulated Expenses */}
-            <Card className="glass-card shadow-lg border-none border-t-4 border-rose-500 bg-white relative overflow-hidden group">
+            <Card className="glass-card shadow-lg border-none border-t-4 border-rose-500 bg-white dark:bg-slate-900/60 relative overflow-hidden group">
               <div className="absolute right-0 bottom-0 translate-x-2 translate-y-2 opacity-5 text-rose-500 group-hover:scale-110 transition-transform">
                 <ArrowDownRight size={120} />
               </div>
@@ -503,7 +503,7 @@ const Profits = () => {
                 <CardContent className="p-0 overflow-x-auto no-scrollbar">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-slate-50/50 border-b border-slate-100">
+                      <tr className="bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800">
                         <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-400 text-center">Ref</th>
                         <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-400">Period</th>
                         <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-400 text-right">Lent Capital</th>
@@ -511,22 +511,22 @@ const Profits = () => {
                         <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-400 text-right">Office Expenses</th>
                         <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-indigo-500 text-right">Realized Interest</th>
                         <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-emerald-600 text-right">Gross Revenue</th>
-                        <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-900 text-right">Net Profit</th>
+                        <th className="p-5 text-[10px] uppercase tracking-[0.2em] font-black text-slate-900 dark:text-white text-right">Net Profit</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                       {filteredMonths.map((m, idx) => (
                         <motion.tr 
                           key={m.month}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: idx * 0.02 }}
-                          className="hover:bg-slate-50/50 transition-colors"
+                          className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
                         >
                           <td className="p-5 text-center font-bold text-slate-300 text-xs">{String(idx + 1).padStart(2, '0')}</td>
-                          <td className="p-5 font-black text-slate-900 text-sm">{m.month}</td>
-                          <td className="p-5 text-right text-xs font-bold text-slate-600">{formatCurrency(m.disbursed)}</td>
-                          <td className="p-5 text-right text-xs font-bold text-slate-600">{formatCurrency(m.docCharges)}</td>
+                          <td className="p-5 font-black text-slate-900 dark:text-white text-sm">{m.month}</td>
+                          <td className="p-5 text-right text-xs font-bold text-slate-600 dark:text-slate-350">{formatCurrency(m.disbursed)}</td>
+                          <td className="p-5 text-right text-xs font-bold text-slate-600 dark:text-slate-350">{formatCurrency(m.docCharges)}</td>
                           <td className="p-5 text-right text-xs font-bold text-rose-500">{formatCurrency(m.expenses)}</td>
                           <td className="p-5 text-right text-xs font-bold text-indigo-600">{formatCurrency(Math.round(m.realizedInterest))}</td>
                           <td className="p-5 text-right text-xs font-black text-emerald-600">{formatCurrency(Math.round(m.revenue))}</td>

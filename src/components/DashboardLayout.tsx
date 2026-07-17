@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Outlet, useLocation, Navigate, useNavigate } from "react-router-dom";
 import AppSidebar from "@/components/AppSidebar";
-import { Bell, Search, Settings, HelpCircle, MapPin, LogOut, UserCog, Users, ShieldCheck, ChevronDown, X, Zap, LayoutDashboard, BookOpen, Wallet } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { Bell, Search, Settings, HelpCircle, MapPin, LogOut, UserCog, Users, ShieldCheck, ChevronDown, X, Zap, LayoutDashboard, BookOpen, Wallet, Sun, Moon, Globe } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +30,8 @@ const DashboardLayout = () => {
   const location = useLocation();
   const { userData, logout } = useAuth();
   const { selectedLineId, lines, hasSelectedOnce } = useLine();
+  const { theme, toggleTheme } = useTheme();
+  const { language, setLanguage, t } = useLanguage();
   const navigate = useNavigate();
 
   const triggerHaptic = () => {
@@ -167,29 +171,29 @@ const DashboardLayout = () => {
 
   if (isAgentRecovery) {
     return (
-      <div className="h-screen bg-[#F5F7FB] overflow-hidden">
+      <div className="h-screen bg-[#F5F7FB] dark:bg-[#0B0F19] overflow-hidden">
         <Outlet />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F8FAFC]">
+    <div className="flex h-screen overflow-hidden bg-[#F8FAFC] dark:bg-[#0B0F19] text-foreground">
       <AppSidebar />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Premium Top Bar */}
-        <header className="h-16 lg:h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 lg:px-6 flex items-center justify-between z-30 shrink-0">
+        <header className="h-16 lg:h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 lg:px-6 flex items-center justify-between z-30 shrink-0">
           <div className="flex items-center gap-3 lg:gap-4">
-            <div className="h-8 w-8 lg:h-10 lg:w-10 rounded-lg lg:rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-lg">
+            <div className="h-8 w-8 lg:h-10 lg:w-10 rounded-lg lg:rounded-xl bg-slate-900 dark:bg-slate-800 flex items-center justify-center text-white shadow-lg">
               <MapPin size={16} className="text-accent lg:w-5 lg:h-5" />
             </div>
             <div className="flex flex-col">
-              <span className="text-[8px] lg:text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Channel</span>
-              <h2 className="text-sm lg:text-lg font-black text-slate-900 leading-none truncate max-w-[120px] lg:max-w-none">{activeLineName}</h2>
+              <span className="text-[8px] lg:text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t("channel")}</span>
+              <h2 className="text-sm lg:text-lg font-black text-slate-900 dark:text-white leading-none truncate max-w-[120px] lg:max-w-none">{activeLineName}</h2>
             </div>
-            <div className="h-6 lg:h-8 w-[1px] bg-slate-200 mx-1 lg:mx-2" />
-            <h2 className="text-sm lg:text-lg font-black text-slate-400 capitalize tracking-tight truncate">{pageName}</h2>
+            <div className="h-6 lg:h-8 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1 lg:mx-2" />
+            <h2 className="text-sm lg:text-lg font-black text-slate-400 dark:text-slate-500 capitalize tracking-tight truncate">{pageName}</h2>
           </div>
 
           <div className="flex items-center gap-2 lg:gap-6">
@@ -258,6 +262,39 @@ const DashboardLayout = () => {
             </div>
 
             <div className="flex items-center gap-1 lg:gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="h-10 px-2 lg:px-3 flex items-center gap-1 lg:gap-1.5 justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-300 hover:text-primary dark:hover:text-white transition-all text-xs font-black uppercase" title={t("language")}>
+                    <Globe size={16} />
+                    <span>{language === "en" ? "EN" : "తె"}</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36 glass-card border-slate-200 dark:border-slate-800 p-1 shadow-2xl z-[100]">
+                  <DropdownMenuItem onClick={() => setLanguage("en")} className="rounded-lg gap-2 text-xs font-bold py-2 cursor-pointer text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                    English
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setLanguage("te")} className="rounded-lg gap-2 text-xs font-bold py-2 cursor-pointer text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                    తెలుగు (Telugu)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <button 
+                onClick={toggleTheme} 
+                className="h-10 w-10 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-300 hover:text-primary dark:hover:text-white transition-all relative overflow-hidden"
+                title="Toggle Theme Mode"
+              >
+                <motion.div
+                  key={theme}
+                  initial={{ y: -20, opacity: 0, rotate: -90 }}
+                  animate={{ y: 0, opacity: 1, rotate: 0 }}
+                  exit={{ y: 20, opacity: 0, rotate: 90 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {theme === "light" ? <Moon size={20} /> : <Sun size={20} className="text-amber-400" />}
+                </motion.div>
+              </button>
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="h-10 w-10 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400 hover:text-primary transition-all relative">
@@ -365,7 +402,7 @@ const DashboardLayout = () => {
         </header>
 
         {/* Main Content with Page Transitions */}
-        <main className="flex-1 p-4 lg:p-8 pb-32 lg:pb-16 overflow-x-hidden overflow-y-auto bg-slate-50/30">
+        <main className="flex-1 p-4 lg:p-8 pb-32 lg:pb-16 overflow-x-hidden overflow-y-auto bg-slate-50/30 dark:bg-slate-950/20">
           <AnimatePresence>
             <motion.div
               key={location.pathname}
@@ -382,7 +419,7 @@ const DashboardLayout = () => {
 
         {/* Mobile Bottom Nav - REIMAGINED FOR NATIVE FEEL */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[100] safe-area-bottom">
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-2xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]" />
+          <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border-t border-slate-100 dark:border-slate-800 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]" />
           <div className="relative flex items-center justify-around h-16 px-2">
             <button
               onClick={() => navTo("/dashboard")}

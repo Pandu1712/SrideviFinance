@@ -32,6 +32,7 @@ const PostingVerification = () => {
   const [editDate, setEditDate] = useState("");
   const [editPayMode, setEditPayMode] = useState("");
   const [editStatus, setEditStatus] = useState("");
+  const [editNote, setEditNote] = useState("");
 
   const fetchPendingPostings = async () => {
     if (!selectedLineId) return;
@@ -193,6 +194,7 @@ const PostingVerification = () => {
     setEditDate(posting.date);
     setEditPayMode(posting.payMode);
     setEditStatus(posting.status || "collection");
+    setEditNote(posting.note || "");
     setEditDialogOpen(true);
   };
 
@@ -204,7 +206,8 @@ const PostingVerification = () => {
         amount: parseFloat(editAmount),
         date: editDate,
         payMode: editPayMode,
-        status: editStatus
+        status: editStatus,
+        note: (editPayMode === 'bank' || editPayMode === 'upi') ? editNote : ""
       };
       await updateDoc(postingRef, updates);
       toast.success("Entry updated successfully");
@@ -229,7 +232,7 @@ const PostingVerification = () => {
       "Agent Name": p.collectedByName || "Unknown",
       "Agent ID": p.collectedById || "N/A",
       "Amount": p.amount || 0,
-      "Mode": (p.payMode || "CASH").toUpperCase(),
+      "Mode": (p.payMode || "CASH").toUpperCase() + (p.note ? ` (${p.note})` : ""),
       "Category": `${(p.collectedByRole || 'Agent').replace('_', ' ')} ${p.status || 'Collection'}`.toUpperCase()
     }));
 
@@ -354,7 +357,14 @@ const PostingVerification = () => {
                             {p.accountNo}
                           </div>
                           <div>
-                            <p className="font-black text-primary">{p.memberName}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-black text-primary">{p.memberName}</p>
+                              {p.nameTelugu && (
+                                <span className="text-[10px] font-bold text-slate-500 font-telugu whitespace-nowrap">
+                                  ({p.nameTelugu})
+                                </span>
+                              )}
+                            </div>
                             <p className="text-[10px] font-bold text-slate-400 uppercase"># {p.accountNo}</p>
                           </div>
                         </div>
@@ -376,6 +386,11 @@ const PostingVerification = () => {
                       <td className="p-4 text-right">
                         <p className="text-lg font-black text-primary">{formatCurrency(p.amount)}</p>
                         <p className="text-[10px] font-bold text-slate-400 uppercase">{p.payMode}</p>
+                        {p.note && (
+                          <p className="text-[9px] font-medium text-slate-500 italic mt-0.5" title={p.note}>
+                            Note: {p.note}
+                          </p>
+                        )}
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-center gap-2">
@@ -472,10 +487,23 @@ const PostingVerification = () => {
                 </Select>
               </div>
             </div>
+
+            {(editPayMode === 'bank' || editPayMode === 'upi') && (
+              <div className="space-y-2">
+                <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Note / Reference (Optional)</Label>
+                <Input 
+                  type="text" 
+                  value={editNote} 
+                  onChange={e => setEditNote(e.target.value)} 
+                  placeholder="Enter transaction ref, bank name or note..."
+                  className="h-12 finance-input font-bold text-slate-900"
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)} className="h-11 font-bold">Cancel</Button>
-            <Button onClick={saveEdit} className="h-11 bg-primary text-white font-black uppercase tracking-widest px-8">Save Update</Button>
+            <Button onClick={saveEdit} className="h-11 bg-primary text-primary-foreground font-black uppercase tracking-widest px-8">Save Update</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

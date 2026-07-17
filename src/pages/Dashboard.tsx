@@ -23,17 +23,17 @@ const StatCard = ({ title, value, icon, color, trend, index }: { title: string; 
     animate={{ opacity: 1, y: 0 }}
     transition={{ delay: index * 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
   >
-    <Card className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-[0_10px_40px_-15px_rgba(0,0,0,0.05)] hover:shadow-[0_20px_60px_-10px_rgba(0,0,0,0.1)] hover:-translate-y-1.5 transition-all duration-500 group overflow-hidden relative">
+    <Card className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-xl border border-white/40 dark:border-slate-800/40 shadow-[0_10px_40px_-15px_rgba(0,0,0,0.05)] dark:shadow-[0_10px_40px_-15px_rgba(0,0,0,0.4)] hover:shadow-[0_20px_60px_-10px_rgba(0,0,0,0.1)] dark:hover:shadow-[0_20px_60px_-10px_rgba(0,0,0,0.5)] hover:-translate-y-1.5 transition-all duration-500 group overflow-hidden relative">
       <div className={`absolute -right-4 -top-4 w-24 h-24 blur-3xl rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-700 ${color.includes('bg-') ? color : 'bg-primary'}`} />
       
       <CardContent className="flex items-center gap-5 p-7 relative z-10">
-        <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl shadow-xl shadow-slate-200 transition-all duration-500 group-hover:scale-110 group-hover:shadow-2xl ${color} border border-white/20`}>
+        <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl shadow-xl shadow-slate-200 dark:shadow-none transition-all duration-500 group-hover:scale-110 group-hover:shadow-2xl ${color} border border-white/20`}>
           {icon}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-slate-500 transition-colors">{title}</p>
           <div className="flex items-baseline gap-2 mt-1">
-            <h3 className="text-xl font-black tracking-tight text-slate-900 leading-none">{value}</h3>
+            <h3 className="text-xl font-black tracking-tight text-slate-900 dark:text-white leading-none">{value}</h3>
           </div>
         </div>
       </CardContent>
@@ -246,7 +246,7 @@ const Dashboard = () => {
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between px-2">
         <div className="relative">
           <div className="absolute -left-4 top-0 bottom-0 w-1 bg-amber-500 rounded-full opacity-50" />
-          <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">
+          <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-slate-900 dark:text-white uppercase italic leading-none">
             {activeLineName}
           </h1>
           <div className="flex items-center gap-3 mt-3">
@@ -282,13 +282,13 @@ const Dashboard = () => {
             Neural Pulse Active
           </div>
           
-          <div className="flex items-center gap-2 bg-white/50 backdrop-blur-sm border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm">
+          <div className="flex items-center gap-2 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 shadow-sm">
             <Calendar className="h-4 w-4 text-slate-400" />
             <input 
               type="date" 
               value={currentDate}
               onChange={(e) => setCurrentDate(e.target.value)}
-              className="bg-transparent border-none text-[11px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 w-[130px]"
+              className="bg-transparent border-none text-[11px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 dark:text-white w-[130px]"
             />
           </div>
         </div>
@@ -363,18 +363,18 @@ const Dashboard = () => {
                     <Database size={16} className="text-accent" />
                     Recovery Stream
                   </CardTitle>
-                  <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm w-full sm:w-auto">
+                  <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 shadow-sm w-full sm:w-auto">
                     <Calendar className="h-3 w-3 text-slate-400 shrink-0" />
                     <input 
-                      type="date" 
-                      value={streamDate}
-                      onChange={(e) => setStreamDate(e.target.value)}
-                      className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 w-full sm:w-[110px] p-0"
+                       type="date" 
+                       value={streamDate}
+                       onChange={(e) => setStreamDate(e.target.value)}
+                       className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 dark:text-white w-full sm:w-[110px] p-0"
                     />
                   </div>
                 </CardHeader>
                 <CardContent className="p-0 flex-1 overflow-y-auto">
-                   <div className="divide-y divide-slate-100">
+                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
                       {recentPostings.filter(p => p.date === streamDate).length === 0 ? (
                         <div className="p-10 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
                           No transactions for this date
@@ -382,9 +382,9 @@ const Dashboard = () => {
                       ) : recentPostings
                           .filter(p => p.date === streamDate)
                           .map((p: any) => (
-                        <div key={p.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center group">
+                        <div key={p.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex justify-between items-center group">
                            <div>
-                              <p className="text-[10px] font-black text-slate-900 uppercase">{p.memberName}</p>
+                              <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase">{p.memberName}</p>
                               <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">#{p.accountNo} • {formatDate(p.date)}</p>
                            </div>
                            <div className="text-right">

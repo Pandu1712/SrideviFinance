@@ -27,17 +27,46 @@ const ManageAgents = () => {
   const { lines } = useLine();
   const navigate = useNavigate();
   const [agents, setAgents] = useState<DocumentData[]>([]);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", lineIds: [] as string[] });
-  const [loading, setLoading] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editingAgent, setEditingAgent] = useState<DocumentData | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", phone: "", lineIds: [] as string[] });
-  const [updating, setUpdating] = useState(false);
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const type = searchParams.get("type") || "agent";
   const isPartner = type === "partner";
+
+  const defaultAllowedMenus = isPartner
+    ? ["/dashboard", "/reports", "/profits", "/ledger", "/accounts/new", "/extra-amount", "/members", "/daily-collection", "/verify-postings", "/manage-villages"]
+    : ["/dashboard", "/reports", "/daily-posting", "/ledger", "/accounts/new", "/members", "/daily-collection", "/posting-search"];
+
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ 
+    name: "", 
+    email: "", 
+    phone: "", 
+    password: "", 
+    lineIds: [] as string[],
+    permissions: {
+      canChangeDate: false,
+      canCreateAccount: true,
+      canEditAccount: isPartner,
+      canPostPayment: true,
+      allowedMenus: defaultAllowedMenus
+    }
+  });
+  const [loading, setLoading] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<DocumentData | null>(null);
+  const [editForm, setEditForm] = useState({ 
+    name: "", 
+    phone: "", 
+    lineIds: [] as string[],
+    permissions: {
+      canChangeDate: false,
+      canCreateAccount: true,
+      canEditAccount: isPartner,
+      canPostPayment: true,
+      allowedMenus: [] as string[]
+    }
+  });
+  const [updating, setUpdating] = useState(false);
   
   const pageTitle = isPartner ? "Partner Management" : "Field Force Management";
   const subTitle = isPartner ? "Manage enterprise partners and stakeholders." : "Provision and oversee active agents operating in the field.";
@@ -76,10 +105,24 @@ const ManageAgents = () => {
 
   const handleEditClick = (agent: DocumentData) => {
     setEditingAgent(agent);
+    const isAgentType = agent.userType === "agent" || !isPartner;
+    const defaultAllowedMenus = isAgentType
+      ? ["/dashboard", "/reports", "/daily-posting", "/ledger", "/accounts/new", "/members", "/daily-collection", "/posting-search"]
+      : ["/dashboard", "/reports", "/profits", "/ledger", "/accounts/new", "/extra-amount", "/members", "/daily-collection", "/verify-postings", "/manage-villages"];
+
+    const defaultPermissions = {
+      canChangeDate: agent.permissions?.canChangeDate ?? false,
+      canCreateAccount: agent.permissions?.canCreateAccount ?? true,
+      canEditAccount: agent.permissions?.canEditAccount ?? (agent.userType === 'partner'),
+      canPostPayment: agent.permissions?.canPostPayment ?? true,
+      allowedMenus: agent.permissions?.allowedMenus ?? defaultAllowedMenus
+    };
+
     setEditForm({ 
       name: agent.name || "", 
       phone: agent.phone || "", 
-      lineIds: agent.lineIds || (agent.lineId ? [agent.lineId] : []) 
+      lineIds: agent.lineIds || (agent.lineId ? [agent.lineId] : []),
+      permissions: defaultPermissions
     });
     setEditOpen(true);
   };
@@ -96,6 +139,7 @@ const ManageAgents = () => {
         name: editForm.name,
         phone: editForm.phone,
         lineIds: editForm.lineIds,
+        permissions: editForm.permissions,
       });
       toast.success(`${isPartner ? "Partner" : "Agent"} profile updated`);
       setEditOpen(false);
@@ -130,11 +174,25 @@ const ManageAgents = () => {
         lineIds: form.lineIds,
         adminId: userData?.uid,
         createdAt: new Date().toISOString(),
+        permissions: form.permissions,
       });
 
       toast.success(`${isPartner ? "Partner" : "Field agent"} ${form.name} successfully ${isPartner ? "registered" : "deployed"}`);
       setOpen(false);
-      setForm({ name: "", email: "", phone: "", password: "", lineIds: [] });
+      setForm({ 
+        name: "", 
+        email: "", 
+        phone: "", 
+        password: "", 
+        lineIds: [],
+        permissions: {
+          canChangeDate: false,
+          canCreateAccount: true,
+          canEditAccount: isPartner,
+          canPostPayment: true,
+          allowedMenus: defaultAllowedMenus
+        }
+      });
       fetchAgents();
     } catch (err: any) {
       toast.error(err.message || `${isPartner ? "Registration" : "Deployment"} failed`);
@@ -202,53 +260,53 @@ const ManageAgents = () => {
                 <Plus className="mr-2 h-5 w-5" /> {buttonLabel}
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[480px] glass-card border-white/20 p-6 shadow-2xl max-h-[95vh] overflow-y-auto">
-            <DialogHeader className="mb-4 text-center">
-              <div className="h-12 w-12 bg-accent/10 rounded-2xl flex items-center justify-center mb-2 mx-auto">
-                <Smartphone size={24} className="text-accent" />
+            <DialogContent className="md:max-w-[700px] sm:max-w-[600px] w-[95vw] glass-card border-white/20 p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+            <DialogHeader className="mb-6 text-center">
+              <div className="h-14 w-14 bg-accent/10 rounded-2xl flex items-center justify-center mb-3 mx-auto shadow-inner">
+                <Smartphone size={28} className="text-accent" />
               </div>
-              <DialogTitle className="text-xl font-black text-primary text-center">Secure Provisioning</DialogTitle>
-              <DialogDescription className="text-center text-slate-500 text-xs font-medium">Create enterprise credentials for new {isPartner ? "partners" : "field workers"}.</DialogDescription>
+              <DialogTitle className="text-2xl font-black text-primary text-center tracking-tight">Secure Provisioning</DialogTitle>
+              <DialogDescription className="text-center text-slate-500 text-xs font-semibold">Create enterprise credentials and custom permissions for new {isPartner ? "partners" : "field workers"}.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
                   <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Name</Label>
                   <div className="relative group">
-                     <User className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
-                     <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder={isPartner ? "e.g. Sridevi" : "e.g. Rahul"} />
+                     <User className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
+                     <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input text-sm font-bold" placeholder={isPartner ? "e.g. Sridevi" : "e.g. Rahul"} />
                   </div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Phone Number</Label>
                   <div className="relative group">
-                    <Phone className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
-                    <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder="+91 XXXXX" />
+                    <Phone className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
+                    <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} className="pl-9 h-11 finance-input text-sm font-bold" placeholder="+91 XXXXX" />
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
                   <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Email Access</Label>
                   <div className="relative group">
-                    <Mail className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
-                    <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} className="pl-8 h-10 finance-input text-[11px]" placeholder="mail@mail.com" />
+                    <Mail className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
+                    <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} className="pl-9 h-11 finance-input text-sm font-bold" placeholder="mail@mail.com" />
                   </div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Mobile PIN</Label>
                   <div className="relative group">
-                    <Lock className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-accent transition-colors" />
-                    <Input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} className="pl-8 h-10 finance-input text-[11px]" placeholder="••••••••" />
+                    <Lock className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-accent transition-colors" />
+                    <Input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} className="pl-9 h-11 finance-input text-sm font-bold" placeholder="••••••••" />
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-2.5">
                 <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
-                <div className="grid grid-cols-2 gap-2 border border-slate-200 rounded-xl p-2.5 bg-slate-50/50 max-h-32 overflow-y-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 border border-slate-200/60 rounded-2xl p-4 bg-slate-50/50">
                   {lines.map((line) => (
-                    <div key={line.id} className="flex items-center space-x-2">
+                    <div key={line.id} className="flex items-center space-x-2.5 p-1">
                       <Checkbox 
                         id={`create-${line.id}`} 
                         checked={form.lineIds.includes(line.id)}
@@ -260,7 +318,7 @@ const ManageAgents = () => {
                           }
                         }}
                       />
-                      <label htmlFor={`create-${line.id}`} className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                      <label htmlFor={`create-${line.id}`} className="text-xs font-bold text-slate-600 cursor-pointer select-none">
                         {line.name}
                       </label>
                     </div>
@@ -268,17 +326,108 @@ const ManageAgents = () => {
                 </div>
               </div>
 
-              <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-                <p className="text-[9px] text-amber-700 font-black uppercase tracking-widest flex items-center gap-2">
-                  <BadgeCheck size={10} /> Logistic Authority
-                </p>
-                <p className="text-[10px] text-amber-600 font-medium leading-relaxed mt-0.5">
-                  Creation will log you out. Access limited to selected lines.
-                </p>
+              <div className="space-y-2.5 border-t border-slate-100 pt-5">
+                <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Detailed Feature Access</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/70 p-4 rounded-2xl border border-slate-200/60">
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="create-p-post" 
+                      checked={form.permissions.canPostPayment}
+                      onCheckedChange={(checked) => setForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canPostPayment: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="create-p-post" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Post Payments / Recoveries</label>
+                  </div>
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="create-p-edit" 
+                      checked={form.permissions.canEditAccount}
+                      onCheckedChange={(checked) => setForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canEditAccount: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="create-p-edit" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Edit Member Information</label>
+                  </div>
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="create-p-create" 
+                      checked={form.permissions.canCreateAccount}
+                      onCheckedChange={(checked) => setForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canCreateAccount: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="create-p-create" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Create New Accounts</label>
+                  </div>
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="create-p-date" 
+                      checked={form.permissions.canChangeDate}
+                      onCheckedChange={(checked) => setForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canChangeDate: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="create-p-date" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Change Transaction Dates</label>
+                  </div>
+                </div>
               </div>
 
-              <Button onClick={handleCreate} className="w-full h-11 bg-accent text-accent-foreground font-black text-base hover:bg-slate-900 mt-1 shadow-xl border-none" disabled={loading}>
-                {loading ? "Syncing..." : "Establish Credentials"}
+              <div className="space-y-2.5">
+                <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Sidebar Menu Permissions</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5 border border-slate-200/60 rounded-2xl p-4 bg-slate-50/50">
+                  {[
+                    { label: "Dashboard", path: "/dashboard" },
+                    { label: "Reports Engine", path: "/reports" },
+                    { label: "Profits Center", path: "/profits" },
+                    { label: "Daily Posting", path: "/daily-posting" },
+                    { label: "Master Ledger", path: "/ledger" },
+                    { label: "Collection Book", path: "/collection-book" },
+                    { label: "New Account", path: "/accounts/new" },
+                    { label: "Extra Amount", path: "/extra-amount" },
+                    { label: "Members Registry", path: "/members" },
+                    { label: "Collection Portal", path: "/daily-collection" },
+                    { label: "Posting Approval", path: "/verify-postings" },
+                    { label: "Search Archives", path: "/posting-search" },
+                    { label: "Manage Villages", path: "/manage-villages" },
+                  ].map((menu) => (
+                    <div key={menu.path} className="flex items-center space-x-2.5 p-0.5">
+                      <Checkbox 
+                        id={`create-menu-${menu.path.replace(/\//g, "-")}`}
+                        checked={form.permissions.allowedMenus.includes(menu.path)}
+                        onCheckedChange={(checked) => {
+                          const updatedMenus = checked
+                            ? [...form.permissions.allowedMenus, menu.path]
+                            : form.permissions.allowedMenus.filter(p => p !== menu.path);
+                          setForm(p => ({
+                            ...p,
+                            permissions: { ...p.permissions, allowedMenus: updatedMenus }
+                          }));
+                        }}
+                      />
+                      <label htmlFor={`create-menu-${menu.path.replace(/\//g, "-")}`} className="text-xs font-semibold cursor-pointer truncate text-slate-600 select-none">
+                        {menu.label}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-amber-50/60 rounded-2xl p-4 border border-amber-100/80 flex gap-3 items-start">
+                <BadgeCheck className="text-amber-600 shrink-0 mt-0.5" size={16} />
+                <div>
+                  <p className="text-[10px] text-amber-800 font-black uppercase tracking-wider">Logistic Authority Warning</p>
+                  <p className="text-xs text-amber-700/80 font-medium leading-relaxed mt-0.5">
+                    Deploying a new profile will temporarily log you out to establish secondary credentials in Firebase.
+                  </p>
+                </div>
+              </div>
+
+              <Button onClick={handleCreate} className="w-full h-12 bg-accent text-accent-foreground font-black text-base hover:bg-slate-900 mt-2 shadow-xl border-none transition-all duration-300 rounded-xl" disabled={loading}>
+                {loading ? "Syncing Security Layer..." : "Establish Credentials"}
               </Button>
             </div>
           </DialogContent>
@@ -292,37 +441,37 @@ const ManageAgents = () => {
         </Button>
       </div>
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="sm:max-w-[480px] glass-card border-white/20 p-6 shadow-2xl max-h-[95vh] overflow-y-auto">
-            <DialogHeader className="mb-4 text-center">
-              <div className="h-12 w-12 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-2 mx-auto">
-                <Edit2 size={24} className="text-blue-500" />
+          <DialogContent className="md:max-w-[700px] sm:max-w-[600px] w-[95vw] glass-card border-white/20 p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+            <DialogHeader className="mb-6 text-center">
+              <div className="h-14 w-14 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-3 mx-auto shadow-inner">
+                <Edit2 size={28} className="text-blue-500" />
               </div>
-              <DialogTitle className="text-xl font-black text-primary text-center">Modify Personnel</DialogTitle>
-              <DialogDescription className="text-center text-slate-500 text-xs font-medium">Update the operational parameters for this agent.</DialogDescription>
+              <DialogTitle className="text-2xl font-black text-primary text-center tracking-tight">Modify Personnel</DialogTitle>
+              <DialogDescription className="text-center text-slate-500 text-xs font-semibold">Update the operational parameters and permissions for this profile.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
                   <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">{isPartner ? "Partner" : "Agent"} Name</Label>
                   <div className="relative group">
-                     <User className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                     <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder={isPartner ? "e.g. Sridevi" : "e.g. Rahul"} />
+                     <User className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                     <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} className="pl-9 h-11 finance-input text-sm font-bold" placeholder={isPartner ? "e.g. Sridevi" : "e.g. Rahul"} />
                   </div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Phone Number</Label>
                   <div className="relative group">
-                    <Phone className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                    <Input value={editForm.phone} onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} className="pl-8 h-10 finance-input text-sm" placeholder="+91 XXXXX" />
+                    <Phone className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                    <Input value={editForm.phone} onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} className="pl-9 h-11 finance-input text-sm font-bold" placeholder="+91 XXXXX" />
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-2.5">
                 <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Assign Operational Lines</Label>
-                <div className="grid grid-cols-2 gap-2 border border-blue-200 rounded-xl p-2.5 bg-blue-50/30 max-h-32 overflow-y-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 border border-blue-200/50 rounded-2xl p-4 bg-blue-50/10">
                   {lines.map((line) => (
-                    <div key={line.id} className="flex items-center space-x-2">
+                    <div key={line.id} className="flex items-center space-x-2.5 p-1">
                       <Checkbox 
                         id={`edit-${line.id}`} 
                         checked={editForm.lineIds.includes(line.id)}
@@ -334,7 +483,7 @@ const ManageAgents = () => {
                           }
                         }}
                       />
-                      <label htmlFor={`edit-${line.id}`} className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                      <label htmlFor={`edit-${line.id}`} className="text-xs font-bold text-slate-600 cursor-pointer select-none">
                         {line.name}
                       </label>
                     </div>
@@ -342,8 +491,98 @@ const ManageAgents = () => {
                 </div>
               </div>
 
-              <Button onClick={handleUpdate} className="w-full h-11 bg-blue-600 text-white font-black text-base hover:bg-blue-700 mt-1 shadow-xl border-none" disabled={updating}>
-                {updating ? "Updating..." : "Update Profile"}
+              <div className="space-y-2.5 border-t border-slate-100 pt-5">
+                <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Detailed Feature Access</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/70 p-4 rounded-2xl border border-slate-200/60">
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="edit-p-post" 
+                      checked={editForm.permissions.canPostPayment}
+                      onCheckedChange={(checked) => setEditForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canPostPayment: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="edit-p-post" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Post Payments / Recoveries</label>
+                  </div>
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="edit-p-edit" 
+                      checked={editForm.permissions.canEditAccount}
+                      onCheckedChange={(checked) => setEditForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canEditAccount: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="edit-p-edit" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Edit Member Information</label>
+                  </div>
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="edit-p-create" 
+                      checked={editForm.permissions.canCreateAccount}
+                      onCheckedChange={(checked) => setEditForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canCreateAccount: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="edit-p-create" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Create New Accounts</label>
+                  </div>
+                  <div className="flex items-center space-x-2.5">
+                    <Checkbox 
+                      id="edit-p-date" 
+                      checked={editForm.permissions.canChangeDate}
+                      onCheckedChange={(checked) => setEditForm(p => ({
+                        ...p,
+                        permissions: { ...p.permissions, canChangeDate: !!checked }
+                      }))}
+                    />
+                    <label htmlFor="edit-p-date" className="text-xs font-bold cursor-pointer text-slate-700 select-none">Change Transaction Dates</label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                <Label className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Sidebar Menu Permissions</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5 border border-slate-200/60 rounded-2xl p-4 bg-slate-50/50">
+                  {[
+                    { label: "Dashboard", path: "/dashboard" },
+                    { label: "Reports Engine", path: "/reports" },
+                    { label: "Profits Center", path: "/profits" },
+                    { label: "Daily Posting", path: "/daily-posting" },
+                    { label: "Master Ledger", path: "/ledger" },
+                    { label: "Collection Book", path: "/collection-book" },
+                    { label: "New Account", path: "/accounts/new" },
+                    { label: "Extra Amount", path: "/extra-amount" },
+                    { label: "Members Registry", path: "/members" },
+                    { label: "Collection Portal", path: "/daily-collection" },
+                    { label: "Posting Approval", path: "/verify-postings" },
+                    { label: "Search Archives", path: "/posting-search" },
+                    { label: "Manage Villages", path: "/manage-villages" },
+                  ].map((menu) => (
+                    <div key={menu.path} className="flex items-center space-x-2.5 p-0.5">
+                      <Checkbox 
+                        id={`edit-menu-${menu.path.replace(/\//g, "-")}`}
+                        checked={editForm.permissions.allowedMenus.includes(menu.path)}
+                        onCheckedChange={(checked) => {
+                          const updatedMenus = checked
+                            ? [...editForm.permissions.allowedMenus, menu.path]
+                            : editForm.permissions.allowedMenus.filter(p => p !== menu.path);
+                          setEditForm(p => ({
+                            ...p,
+                            permissions: { ...p.permissions, allowedMenus: updatedMenus }
+                          }));
+                        }}
+                      />
+                      <label htmlFor={`edit-menu-${menu.path.replace(/\//g, "-")}`} className="text-xs font-semibold cursor-pointer truncate text-slate-600 select-none">
+                        {menu.label}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <Button onClick={handleUpdate} className="w-full h-12 bg-blue-600 text-white font-black text-base hover:bg-blue-700 mt-2 shadow-xl border-none transition-all duration-300 rounded-xl" disabled={updating}>
+                {updating ? "Updating Parameters..." : "Update Profile"}
               </Button>
             </div>
           </DialogContent>

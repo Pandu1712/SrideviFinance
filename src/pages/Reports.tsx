@@ -223,7 +223,7 @@ const Reports = () => {
       item.memberName || item.name || "N/A",
       !item.isDisbursement ? formatCurrencyPDF(item.amount + (item.extraAmount || 0)) : "—",
       item.isDisbursement ? formatCurrencyPDF(item.amount) : "—",
-      item.payMode?.toUpperCase() || "—",
+      (item.payMode?.toUpperCase() || "—") + (item.note ? ` (${item.note})` : ""),
       `${item.collectedByRole === 'agent' ? 'AGENT' : 'ADMIN'} ${item.status?.toUpperCase() || "COLLECTION"}`,
     ]);
 
@@ -260,7 +260,7 @@ const Reports = () => {
       "Extra": item.extraAmount || 0,
       "Doc Charges": item.documentCharge || 0,
       "Daily Expenses": stats.expenses,
-      "Mode": (item.payMode || "").toUpperCase(),
+      "Mode": (item.payMode || "").toUpperCase() + (item.note ? ` (${item.note})` : ""),
       "Category": (item.status || "").toUpperCase(),
       "Creation Date": item.creationDate || ""
     }));
@@ -562,10 +562,15 @@ const Reports = () => {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex justify-center">
-                          <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest px-2 border-slate-200">
+                        <div className="flex flex-col items-center gap-1">
+                          <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest px-2 border-slate-200 w-max">
                             {item.payMode}
                           </Badge>
+                          {item.note && (
+                            <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={item.note}>
+                              {item.note}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">

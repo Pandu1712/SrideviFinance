@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, getDoc, query, where, doc, updateDoc, DocumentData, runTransaction, orderBy, onSnapshot } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
@@ -10,8 +11,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin, AlertCircle } from "lucide-react";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin, AlertCircle, Edit, Settings, Eye, EyeOff } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { formatCurrency, formatDate, cn, playSuccessSound, checkPermission } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { logActivity } from "@/lib/audit";
@@ -32,6 +34,8 @@ import {
 const DailyPosting = () => {
   const { userData } = useAuth();
   const { selectedLineId } = useLine();
+  const { t } = useLanguage();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [accountInfo, setAccountInfo] = useState<DocumentData | null>(null);
@@ -39,6 +43,20 @@ const DailyPosting = () => {
   const [fetchingMembers, setFetchingMembers] = useState(false);
   const [villageFilter, setVillageFilter] = useState("all");
   const [timelineFilter, setTimelineFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [modalSearchQuery, setModalSearchQuery] = useState("");
+  
+  const toggleAccountUnhide = async (accountId: string, newUnhidden: boolean) => {
+    try {
+      await updateDoc(doc(db, "accounts", accountId), { unhidden: newUnhidden });
+      setAssignedMembers(prev => prev.map(m => m.id === accountId ? { ...m, unhidden: newUnhidden } : m));
+      toast.success(newUnhidden ? "Account is now visible in Posting" : "Account is now hidden from Posting");
+    } catch (err: any) {
+      toast.error("Failed to update visibility: " + err.message);
+    }
+  };
+
   const [availableVillages, setAvailableVillages] = useState<string[]>([]);
   const [todayPostings, setTodayPostings] = useState<Set<string>>(new Set());
   const [mobileView, setMobileView] = useState<"list" | "form">("list");
@@ -48,7 +66,8 @@ const DailyPosting = () => {
     amount: "", 
     status: "collection", 
     payMode: "cash",
-    penaltyAmount: ""
+    penaltyAmount: "",
+    note: ""
   });
   const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
   const [lastPostedAmount, setLastPostedAmount] = useState<number | null>(null);
@@ -69,7 +88,14 @@ const DailyPosting = () => {
         }
         const snap = await getDocs(q);
         const membersList = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-        membersList.sort((a: any, b: any) => (a.accountNo || "").localeCompare(b.accountNo || ""));
+        membersList.sort((a: any, b: any) => {
+          const numA = parseInt(a.accountNo, 10);
+          const numB = parseInt(b.accountNo, 10);
+          if (!isNaN(numA) && !isNaN(numB)) {
+            return numA - numB;
+          }
+          return (a.accountNo || "").localeCompare(b.accountNo || "");
+        });
         setAssignedMembers(membersList);
       } catch (err) {
         console.error("Load members error:", err);
@@ -197,6 +223,10 @@ const DailyPosting = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!checkPermission(userData, "canPostPayment")) {
+      toast.error("You do not have permission to post collections.");
+      return;
+    }
     if (!accountInfo || (!form.amount && !form.penaltyAmount)) {
       toast.error("Please select an account and enter an amount");
       return;
@@ -278,6 +308,7 @@ const DailyPosting = () => {
           penaltyAmount: penaltyAmount,
           status: form.status,
           payMode: form.payMode,
+          note: (form.payMode === 'bank' || form.payMode === 'upi') ? (form.note || "") : "",
           lineId: accountInfo.lineId,
           adminId: accountInfo.adminId || "",
           memberName: accountInfo.name,
@@ -298,6 +329,7 @@ const DailyPosting = () => {
             paid: newPaid,
             balance: Math.max(0, newBalance),
             status: newStatus,
+            unhidden: newStatus === 'completed' ? false : (accData.unhidden || false),
             lastPostingDate: form.date,
             lastCollectedByName: userData?.name,
             lastCollectedByRole: userData?.role
@@ -317,18 +349,47 @@ const DailyPosting = () => {
         );
       }
 
+      playSuccessSound();
       if (userData?.role === 'agent') {
         toast.success("Collection submitted! Awaiting admin approval.");
       } else {
         toast.success("Posted and finalized successfully");
       }
 
-      setAccountInfo(prev => prev ? { 
-        ...prev, 
-        lastPostingDate: form.date,
-        paid: (prev.paid || 0) + (userData?.role !== 'agent' ? postingAmount : 0), 
-        balance: Math.max(0, (prev.balance || 0) - (userData?.role !== 'agent' ? postingAmount : 0)) 
-      } : null);
+      setAccountInfo(prev => {
+        if (!prev) return null;
+        const addAmount = userData?.role !== 'agent' ? postingAmount : 0;
+        const newPaid = (prev.paid || 0) + addAmount;
+        const newBalance = Math.max(0, (prev.totalAmount || 0) - newPaid);
+        const newStatus = newBalance <= 0 ? "completed" : prev.status;
+        return { 
+          ...prev, 
+          lastPostingDate: form.date,
+          paid: newPaid, 
+          balance: newBalance,
+          status: newStatus,
+          unhidden: newStatus === 'completed' ? false : (prev.unhidden || false)
+        };
+      });
+
+      if (userData?.role !== 'agent') {
+        setAssignedMembers(prev => prev.map(m => {
+          if (m.id === accountInfo.id) {
+            const newPaid = (m.paid || 0) + postingAmount;
+            const newBalance = Math.max(0, (m.totalAmount || 0) - newPaid);
+            const newStatus = newBalance <= 0 ? "completed" : m.status;
+            return {
+              ...m,
+              paid: newPaid,
+              balance: newBalance,
+              status: newStatus,
+              unhidden: newStatus === 'completed' ? false : (m.unhidden || false),
+              lastPostingDate: form.date
+            };
+          }
+          return m;
+        }));
+      }
 
       setForm(prev => ({ 
         ...prev, 
@@ -497,7 +558,7 @@ const DailyPosting = () => {
                     <form onSubmit={handleSubmit} className="space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Account Number</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("accountNo")}</Label>
                           <div className="relative">
                             <Input 
                               value={form.accountNo} 
@@ -510,14 +571,14 @@ const DailyPosting = () => {
                               type="button"
                               size="icon" 
                               onClick={() => fetchAccount()}
-                              className="absolute right-1 top-1 h-9 w-9 bg-primary text-white rounded-lg"
+                              className="absolute right-1 top-1 h-9 w-9 bg-primary text-primary-foreground rounded-lg"
                             >
                               <Search size={16} />
                             </Button>
                           </div>
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Posting Date</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("date")}</Label>
                           <div className="relative group">
                             <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors z-10" />
                             <Input 
@@ -525,7 +586,7 @@ const DailyPosting = () => {
                               value={form.date} 
                               onChange={e => handleChange("date", e.target.value)} 
                               className="absolute inset-0 opacity-0 cursor-pointer z-20"
-                              disabled={userData?.role === 'agent'}
+                              disabled={!checkPermission(userData, 'canChangeDate')}
                             />
                             <div className="pl-9 h-11 finance-input flex items-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded-xl">
                               {(() => {
@@ -539,7 +600,7 @@ const DailyPosting = () => {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Collection Amount (₹)</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("amount")} (₹)</Label>
                           <Input 
                             type="text" 
                             inputMode="decimal"
@@ -593,12 +654,29 @@ const DailyPosting = () => {
                         </Select>
                       </div>
 
+                      {(form.payMode === 'bank' || form.payMode === 'upi') && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="space-y-1.5"
+                        >
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("note")} / Reference (Optional)</Label>
+                          <Input 
+                            type="text" 
+                            value={form.note} 
+                            onChange={e => handleChange("note", e.target.value)} 
+                            placeholder="Enter transaction ref, bank name or note..." 
+                            className="h-11 bg-white border-slate-200 focus-visible:ring-accent font-medium text-slate-900" 
+                          />
+                        </motion.div>
+                      )}
+
                       <Button 
                         type="submit" 
-                        className="w-full h-16 md:h-14 bg-primary text-white font-black uppercase tracking-widest shadow-2xl hover:bg-slate-900 transition-all active-scale" 
+                        className="w-full h-16 md:h-14 bg-primary text-primary-foreground font-black uppercase tracking-widest shadow-2xl hover:opacity-90 transition-all active-scale" 
                         disabled={loading || !accountInfo}
                       >
-                        {loading ? "Authorizing..." : "Submit Collection"}
+                        {loading ? t("loading") : t("submit")}
                       </Button>
                     </form>
                   </CardContent>
@@ -617,7 +695,7 @@ const DailyPosting = () => {
                 )}
               >
                 <Card className="glass-card h-[calc(100vh-250px)] overflow-hidden flex flex-col border-none shadow-2xl transition-all">
-                  <CardHeader className="border-b border-primary/5 bg-slate-50/50 py-4">
+                  <CardHeader className="border-b border-border/40 bg-slate-50/50 dark:bg-slate-900/20 py-4 flex flex-col gap-3">
                     <div className="flex items-center justify-between gap-4">
                       <CardTitle className="text-sm font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
                         <Users className="h-4 w-4 text-accent" />
@@ -625,7 +703,7 @@ const DailyPosting = () => {
                       </CardTitle>
                       <div className="flex items-center gap-2">
                         <Select value={timelineFilter} onValueChange={setTimelineFilter}>
-                          <SelectTrigger className="h-8 w-20 sm:w-24 text-[10px] font-black uppercase tracking-widest border-none bg-white shadow-sm">
+                          <SelectTrigger className="h-8 w-20 sm:w-24 text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm">
                             <SelectValue placeholder="Freq" />
                           </SelectTrigger>
                           <SelectContent>
@@ -636,7 +714,7 @@ const DailyPosting = () => {
                           </SelectContent>
                         </Select>
                         <Select value={villageFilter} onValueChange={setVillageFilter}>
-                          <SelectTrigger className="h-8 w-24 sm:w-28 text-[10px] font-black uppercase tracking-widest border-none bg-white shadow-sm">
+                          <SelectTrigger className="h-8 w-24 sm:w-28 text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm">
                             <SelectValue placeholder="Village" />
                           </SelectTrigger>
                           <SelectContent>
@@ -646,7 +724,28 @@ const DailyPosting = () => {
                             ))}
                           </SelectContent>
                         </Select>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setModalSearchQuery("");
+                            setShowSettingsModal(true);
+                          }}
+                          className="h-8 w-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-300 hover:text-slate-600 dark:hover:text-white shadow-sm transition-all shrink-0"
+                          title="Manage Hidden Completed Accounts"
+                        >
+                          <Settings className="h-4 w-4" />
+                        </Button>
                       </div>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                      <Input
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="Search subscriber by Name, ID..."
+                        className="pl-8.5 h-8.5 text-xs border-slate-200/60 rounded-xl focus-visible:ring-accent w-full"
+                      />
                     </div>
                   </CardHeader>
                   <CardContent className="p-0 flex-1 overflow-hidden">
@@ -655,13 +754,33 @@ const DailyPosting = () => {
                         {fetchingMembers ? (
                           <div className="p-5 text-center text-xs text-muted-foreground animate-pulse">Syncing members...</div>
                         ) : assignedMembers
-                            .filter(m => (villageFilter === 'all' || m.village === villageFilter) && (timelineFilter === 'all' || m.paymentFrequency === timelineFilter))
+                            .filter(m => {
+                              const matchesVillage = villageFilter === 'all' || m.village === villageFilter;
+                              const matchesFreq = timelineFilter === 'all' || m.paymentFrequency === timelineFilter;
+                              const matchesSearch = !searchQuery || 
+                                m.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                m.accountNo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                (m.nameTelugu && m.nameTelugu.toLowerCase().includes(searchQuery.toLowerCase()));
+                              
+                              const isCompleted = m.status === 'completed' || Number(m.balance) <= 0;
+                              // Automatically hide completed accounts unless explicitly unhidden
+                              const matchesCompletion = !isCompleted || m.unhidden === true;
+                              
+                              return matchesVillage && matchesFreq && matchesSearch && matchesCompletion;
+                            })
                             .map((m) => (
-                          <button 
+                          <div 
                             key={m.id}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => selectMember(m)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                selectMember(m);
+                              }
+                            }}
                             className={cn(
-                              "w-full text-left p-3 rounded-2xl border border-transparent transition-all group",
+                              "w-full text-left p-3 rounded-2xl border border-transparent transition-all group cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/50",
                               accountInfo?.id === m.id 
                                 ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
                                 : (m.status === 'completed' || m.balance <= 0)
@@ -741,10 +860,27 @@ const DailyPosting = () => {
                                       <MapPin size={16} />
                                     </button>
                                   )}
+                                  {(m.status === 'completed' || Number(m.balance) <= 0) && (
+                                    <button 
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        await toggleAccountUnhide(m.id, false);
+                                      }}
+                                      className={cn(
+                                        "h-10 w-10 rounded-xl flex items-center justify-center transition-all shadow-sm border",
+                                        accountInfo?.id === m.id 
+                                          ? "bg-white/20 text-white border-white/30" 
+                                          : "bg-rose-50 text-rose-600 border-rose-100 hover:bg-rose-500 hover:text-white active-scale"
+                                      )}
+                                      title="Hide Account"
+                                    >
+                                      <EyeOff size={16} />
+                                    </button>
+                                  )}
                                   <ArrowRight size={14} className={cn("ml-1", accountInfo?.id === m.id ? "text-white" : "text-slate-300")} />
                                </div>
                              </div>
-                          </button>
+                          </div>
                         ))}
                       </div>
                     </ScrollArea>
@@ -769,8 +905,20 @@ const DailyPosting = () => {
                       <FileText className="h-5 w-5 text-accent" />
                       Verified Account Profile
                     </CardTitle>
-                    <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${accountInfo.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {accountInfo.status}
+                    <div className="flex items-center gap-2">
+                      {checkPermission(userData, "canEditAccount") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-lg hover:bg-slate-100 hover:text-primary text-slate-400"
+                          onClick={() => navigate(`/accounts/edit/${accountInfo.id}`)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${accountInfo.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {accountInfo.status}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="p-0">
@@ -790,7 +938,7 @@ const DailyPosting = () => {
                           <p className="text-sm font-semibold text-slate-600">{accountInfo.village || 'Not specified'}</p>
                         </div>
                         <div className="pt-4 border-t border-primary/5">
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Total Payable Principal</p>
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Total Amount to Pay</p>
                           <p className="text-3xl font-black text-[#0F172A] tracking-tighter">{formatCurrency(accountInfo.totalAmount)}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-4 pt-2">
@@ -934,6 +1082,102 @@ const DailyPosting = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Hidden Completed Accounts Settings Modal */}
+      <AnimatePresence>
+        {showSettingsModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl flex flex-col max-h-[85vh] border border-slate-100"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                    <Settings className="h-5 w-5 text-accent" />
+                    Hidden Portfolio
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">Unhide accounts to show them in posting list.</p>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setShowSettingsModal(false)}
+                  className="h-8 w-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                >
+                  <EyeOff className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <Input
+                  value={modalSearchQuery}
+                  onChange={e => setModalSearchQuery(e.target.value)}
+                  placeholder="Search completed accounts..."
+                  className="pl-8.5 h-9 text-xs border-slate-200/60 rounded-xl focus-visible:ring-accent w-full"
+                />
+              </div>
+
+              <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-1 custom-scrollbar">
+                {assignedMembers
+                  .filter(m => (m.status === 'completed' || Number(m.balance) <= 0) && !m.unhidden)
+                  .filter(m => {
+                    if (!modalSearchQuery) return true;
+                    return m.name?.toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                      m.accountNo?.toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                      (m.nameTelugu && m.nameTelugu.toLowerCase().includes(modalSearchQuery.toLowerCase()));
+                  })
+                  .length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 italic text-xs">
+                      No matching hidden accounts.
+                    </div>
+                  ) : (
+                    assignedMembers
+                      .filter(m => (m.status === 'completed' || Number(m.balance) <= 0) && !m.unhidden)
+                      .filter(m => {
+                        if (!modalSearchQuery) return true;
+                        return m.name?.toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                          m.accountNo?.toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                          (m.nameTelugu && m.nameTelugu.toLowerCase().includes(modalSearchQuery.toLowerCase()));
+                      })
+                      .map(m => (
+                        <div key={m.id} className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between gap-3 hover:bg-slate-100/50 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="h-9 w-9 shrink-0 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-black">
+                              {m.accountNo}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-slate-800 truncate uppercase">{m.name}</p>
+                              <p className="text-[9px] font-bold text-slate-400 truncate mt-0.5">{m.village || 'N/A'}</p>
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => toggleAccountUnhide(m.id, true)}
+                            className="bg-accent text-accent-foreground hover:bg-accent/90 rounded-xl font-bold text-[10px] uppercase tracking-wide gap-1 shrink-0 h-8 px-3"
+                          >
+                            <Eye className="h-3 w-3" /> Unhide
+                          </Button>
+                        </div>
+                      ))
+                  )}
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
+                <Button 
+                  onClick={() => setShowSettingsModal(false)}
+                  className="bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold text-xs px-5 h-9"
+                >
+                  Close
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };

@@ -106,7 +106,7 @@ const ManageAdmins = () => {
 
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-primary text-white h-11 px-6 shadow-xl hover:bg-slate-900 font-bold border-none transition-all">
+            <Button className="bg-primary text-primary-foreground h-11 px-6 shadow-xl hover:opacity-90 font-bold border-none transition-all">
               <Plus className="mr-2 h-5 w-5" /> Provision Administrator
             </Button>
           </DialogTrigger>
@@ -159,7 +159,7 @@ const ManageAdmins = () => {
                 </p>
               </div>
 
-              <Button onClick={handleCreate} className="w-full h-12 bg-primary text-white font-black text-lg hover:bg-slate-900 mt-2 shadow-xl" disabled={loading}>
+              <Button onClick={handleCreate} className="w-full h-12 bg-primary text-primary-foreground font-black text-lg hover:opacity-90 mt-2 shadow-xl" disabled={loading}>
                 {loading ? "Initializing..." : "Register Administrator"}
               </Button>
             </div>
@@ -184,7 +184,7 @@ const ManageAdmins = () => {
             >
               <Card className="glass-card border-none shadow-xl group hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
                 <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 rounded-t-xl border-b border-slate-100">
-                  <div className="h-10 w-10 bg-primary text-white rounded-lg flex items-center justify-center font-black group-hover:bg-slate-900 transition-all">
+                  <div className="h-10 w-10 bg-primary text-primary-foreground rounded-lg flex items-center justify-center font-black group-hover:bg-slate-900 dark:group-hover:bg-slate-800 transition-all">
                     {admin.name?.charAt(0) || "A"}
                   </div>
                   <Badge className="bg-primary/10 text-primary border-none font-black text-[9px] uppercase tracking-widest">

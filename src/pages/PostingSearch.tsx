@@ -241,7 +241,7 @@ const PostingSearch = () => {
               <Search className="text-white h-7 w-7" />
             </div>
             <div>
-              <h1 className="text-3xl font-black tracking-tight text-slate-900">Master Audit</h1>
+              <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Master Audit</h1>
               <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1 opacity-80">Collection Integrity & Verification</p>
             </div>
           </div>
@@ -395,7 +395,7 @@ const PostingSearch = () => {
                 p.memberName,
                 p.accountNo,
                 formatCurrency(p.amount),
-                p.payMode.toUpperCase(),
+                p.payMode.toUpperCase() + (p.note ? ` (${p.note})` : ""),
                 p.collectedByName || "System"
               ]);
 
@@ -429,7 +429,7 @@ const PostingSearch = () => {
                 "Member": p.memberName,
                 "Account No": p.accountNo,
                 "Amount": p.amount || 0,
-                "Mode": (p.payMode || "").toUpperCase(),
+                "Mode": (p.payMode || "").toUpperCase() + (p.note ? ` (${p.note})` : ""),
                 "Category": (p.status || "").toUpperCase(),
                 "Agent": p.collectedByName || "System"
               }));
@@ -521,7 +521,14 @@ const PostingSearch = () => {
                         </Badge>
                       </td>
                       <td className="p-4 text-center">
-                        <span className="text-[10px] font-black uppercase tracking-tighter text-slate-400">{r.payMode}</span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[10px] font-black uppercase tracking-tighter text-slate-400">{r.payMode}</span>
+                          {r.note && (
+                            <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={r.note}>
+                              {r.note}
+                            </span>
+                          )}
+                        </div>
                       </td>
                         <td className="p-4 text-right">
                           <div className="flex justify-end gap-1">

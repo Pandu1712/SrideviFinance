@@ -22,7 +22,7 @@ import {
   Wallet, UserPlus, Calendar, Info, Calculator, UserCheck, IndianRupee, TrendingUp, Download, CreditCard, MapPin, Check, ChevronsUpDown, Plus, CheckCircle2,
   FileText, Upload, X, File, Image as ImageIcon, Search, RefreshCw
 } from "lucide-react";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, checkPermission } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { uploadToCloudinary } from "@/lib/cloudinary";
@@ -51,12 +51,12 @@ const accountSchema = z.object({
   documentCharge: z.string().optional(),
   guarantorName: z.string().optional(),
   guarantorPhone: z.string().optional(),
-  loanAmount: z.string().min(1, "Loan amount is required"),
+  loanAmount: z.string().min(1, "Principal amount is required"),
   interestAmount: z.string().min(1, "Interest amount is required"),
   customerLocation: z.string().optional(),
   paymentFrequency: z.enum(["daily", "weekly", "monthly"]),
   installmentAmount: z.string().min(1, "Required"),
-  totalAmount: z.string().min(1, "Required"),
+  totalAmount: z.string().min(1, "Total amount is required"),
   startDate: z.string().min(1, "Required"),
   endDate: z.string().min(1, "Required"),
   paymentType: z.enum(["cash", "upi", "account"]),
@@ -358,17 +358,24 @@ const NewAccount = () => {
     }
   }, [creationDate, setValue]);
 
-  // Calculate Total Amount based on Principal and Direct Interest
   useEffect(() => {
-    if (loanAmount && interestAmount) {
-      const principal = parseFloat(loanAmount);
+    if (userData && !isEdit && !checkPermission(userData, "canCreateAccount")) {
+      toast.error("You do not have permission to create new accounts.");
+      navigate("/dashboard");
+    }
+  }, [userData, isEdit, navigate]);
+
+  // Calculate Principal (loanAmount) based on Total Amount and Interest
+  useEffect(() => {
+    if (totalAmount && interestAmount) {
+      const total = parseFloat(totalAmount);
       const interest = parseFloat(interestAmount);
-      if (!isNaN(principal) && !isNaN(interest)) {
-        const total = principal + interest;
-        setValue("totalAmount", total.toString());
+      if (!isNaN(total) && !isNaN(interest)) {
+        const principal = total - interest;
+        setValue("loanAmount", principal.toString());
       }
     }
-  }, [loanAmount, interestAmount, setValue]);
+  }, [totalAmount, interestAmount, setValue]);
   
   // Transliteration logic for Telugu Name
   useEffect(() => {
@@ -415,9 +422,9 @@ const NewAccount = () => {
   useEffect(() => {
     const fetchExisting = async () => {
       if (!id || !isEdit) return;
-      if (userData?.role === 'agent') {
-        toast.error("Agents cannot edit existing member data.");
-        navigate('/members');
+      if (!checkPermission(userData, "canEditAccount")) {
+        toast.error("You do not have permission to edit member data.");
+        navigate("/members");
         return;
       }
       try {
@@ -522,7 +529,7 @@ const NewAccount = () => {
     ];
 
     const financeInfo = [
-      ["Principal Amount", `Rs. ${formatCurrencyPDF(data.loanAmount)}`],
+      ["Total Amount", `Rs. ${formatCurrencyPDF(data.loanAmount)}`],
       ["Interest Amount", `Rs. ${formatCurrencyPDF(data.interestAmount)}`],
       ["Total Payable", `Rs. ${formatCurrencyPDF(data.totalAmount)}`],
       ["Payment Type", data.paymentType?.toUpperCase()],
@@ -614,7 +621,23 @@ const NewAccount = () => {
       };
 
       if (isEdit && id) {
-        await updateDoc(doc(db, "accounts", id), payload);
+        const docRef = doc(db, "accounts", id);
+        const docSnap = await getDoc(docRef);
+        let existingPaid = 0;
+        if (docSnap.exists()) {
+          existingPaid = docSnap.data().paid || 0;
+        }
+
+        const newBalance = Math.max(0, total - existingPaid);
+        const newStatus = newBalance <= 0 ? "completed" : "active";
+
+        const editPayload = {
+          ...payload,
+          balance: newBalance,
+          status: newStatus,
+        };
+
+        await updateDoc(docRef, editPayload);
         toast.success("Account updated successfully");
 
         if (userData) {
@@ -623,7 +646,7 @@ const NewAccount = () => {
             userData.name,
             userData.role,
             "MEMBER_CREATE", // Using CREATE as general UPSERT log
-            `Modified Account ${data.accountNo} for ${data.name}. New Balance: ${formatCurrency(total - (parseFloat(data.initialPaid || "0")))}`,
+            `Modified Account ${data.accountNo} for ${data.name}. New Balance: ${formatCurrency(newBalance)}`,
             data.lineId
           );
         }
@@ -807,7 +830,7 @@ const NewAccount = () => {
           <UserPlus className="text-white h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             {isEdit ? "Update Account" : "New Account"}
           </h1>
           <p className="text-muted-foreground font-medium">
@@ -1158,22 +1181,22 @@ const NewAccount = () => {
                 </h3>
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Principal Loan Amount (₹) *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Total Amount (₹) *</Label>
                   <div className="relative">
                     <Wallet className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
                       type="text"
                       inputMode="decimal"
-                      {...register("loanAmount")} 
+                      {...register("totalAmount")} 
                       className="pl-9 finance-input font-bold" 
-                      placeholder="e.g. 10000"
+                      placeholder="e.g. 25000"
                     />
                   </div>
-                  {errors.loanAmount && <p className="text-[10px] text-destructive">{errors.loanAmount.message}</p>}
+                  {errors.totalAmount && <p className="text-[10px] text-destructive">{errors.totalAmount.message}</p>}
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Interest Amount (₹) *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Interest Amount (₹) *</Label>
                   <div className="relative">
                     <TrendingUp className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1188,7 +1211,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Document Charge (₹)</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Document Charge (₹)</Label>
                   <div className="relative">
                     <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1202,7 +1225,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Payment Frequency *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Payment Frequency *</Label>
                   <Select onValueChange={(v: any) => setValue("paymentFrequency", v)} value={paymentFrequency}>
                     <SelectTrigger className="finance-input">
                       <SelectValue placeholder="Select frequency" />
@@ -1216,7 +1239,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">Installment Amount (₹) *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Installment Amount (₹) *</Label>
                   <div className="relative">
                     <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1231,18 +1254,18 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-primary">Total Amount to Pay (₹)</Label>
+                  <Label className="text-sm font-semibold text-primary">Principal Amount (₹)</Label>
                   <div className="relative">
                     <Calculator className="absolute left-3 top-3 h-4 w-4 text-primary" />
                     <Input 
                       type="text"
                       inputMode="decimal"
-                      {...register("totalAmount")} 
+                      {...register("loanAmount")} 
                       className="pl-9 finance-input bg-emerald-50 border-emerald-200 font-black text-emerald-700" 
                       readOnly
                     />
                   </div>
-                  <p className="text-[10px] text-muted-foreground px-1 italic">Auto-calculated (Principal + Interest)</p>
+                  <p className="text-[10px] text-muted-foreground px-1 italic">Auto-calculated (Total Amount - Interest)</p>
                 </div>
 
                 <div className="space-y-2">
@@ -1264,14 +1287,14 @@ const NewAccount = () => {
                   <Label className="text-sm font-semibold text-accent">Account Creation Date *</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-accent/60" />
-                    <Input type="date" {...register("creationDate")} className="pl-9 finance-input border-accent/20 bg-accent/5" />
+                    <Input type="date" {...register("creationDate")} className="pl-9 finance-input border-accent/20 bg-accent/5" readOnly={!checkPermission(userData, "canChangeDate")} />
                   </div>
                   <p className="text-[10px] text-muted-foreground px-1 italic">Date of registration</p>
                 </div>
 
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A]">End Date</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">End Date</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input type="date" {...register("endDate")} className="pl-9 finance-input bg-muted/30" readOnly />
@@ -1281,7 +1304,7 @@ const NewAccount = () => {
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-[#0F172A]">Payment Type *</Label>
+                    <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Payment Type *</Label>
                     <Select onValueChange={(v: any) => setValue("paymentType", v)} value={paymentType}>
                       <SelectTrigger className="finance-input">
                         <SelectValue placeholder="Payment mode" />
@@ -1341,7 +1364,7 @@ const NewAccount = () => {
 
                 {!selectedLineId && (
                   <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-[#0F172A]">Assign Operational Line *</Label>
+                    <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Assign Operational Line *</Label>
                     <Select 
                       onValueChange={(v) => setValue("lineId", v)} 
                       value={watch("lineId") || undefined}

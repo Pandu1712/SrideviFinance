@@ -28,7 +28,8 @@ export interface DailyPosting {
   date: string;
   amount: number;
   status: "collection" | "penalty";
-  payMode: "cash" | "bank";
+  payMode: string;
+  note?: string;
   agentId: string;
   adminId: string;
   memberName: string;

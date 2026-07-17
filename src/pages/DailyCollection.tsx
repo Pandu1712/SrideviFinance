@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, getDoc, query, where, DocumentData, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction, deleteDoc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
 import { Wallet, TrendingUp, IndianRupee, Search, RefreshCw, ArrowLeft, Edit3, Navigation, PhoneCall, Phone, Check, ChevronRight, User, Banknote, CreditCard, CheckCircle2, ChevronDown, Calendar, X, Zap, Trash2, Printer, Scale, ShieldCheck, FileSpreadsheet, AlertCircle } from "lucide-react";
-import { formatCurrency, formatDate, formatCurrencyPDF } from "@/lib/utils";
+import { formatCurrency, formatDate, formatCurrencyPDF, playSuccessSound } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -34,6 +35,7 @@ const DailyCollection = () => {
   const navigate = useNavigate();
   const { userData } = useAuth();
   const { lines, selectedLineId } = useLine();
+  const { t } = useLanguage();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [records, setRecords] = useState<DocumentData[]>([]);
   const [expense, setExpense] = useState("0");
@@ -57,6 +59,7 @@ const DailyCollection = () => {
   const [payMode, setPayMode] = useState("cash");
   const [digiPayer, setDigiPayer] = useState("");
   const [lateFee, setLateFee] = useState("");
+  const [note, setNote] = useState("");
   const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
 
   // Edit Posting States
@@ -574,11 +577,16 @@ const DailyCollection = () => {
     setPayMode(existing?.payMode || "cash");
     setDigiPayer(existing?.digiPayer || "");
     setLateFee(existing?.lateFee || "");
+    setNote(existing?.note || "");
     setPayDate(dateStr);
     setPayDialogOpen(true);
   };
 
   const submitPayment = async (overrideAmount?: number) => {
+    if (!checkPermission(userData, "canPostPayment")) {
+      toast.error("You do not have permission to post collections.");
+      return;
+    }
     const targetCell = selectedCell || (activeCustomer ? {
       custId: activeCustomer.id,
       date: payDate,
@@ -637,6 +645,7 @@ const DailyCollection = () => {
                 digiPayer: payMode === 'online' ? digiPayer : '',
                 date: targetCell.date,
                 payMode: payMode,
+                note: payMode === 'online' ? (note || "") : "",
                 agentId: userData?.uid,
                 adminId: activeCustomer?.adminId || "",
                 lineId: selectedLineId || activeCustomer?.lineId || "default",
@@ -675,10 +684,12 @@ const DailyCollection = () => {
                 ));
               }
 
+              playSuccessSound();
               toast.success(`Success ₹${amountNum}`);
               setPayDialogOpen(false);
               setDigiPayer("");
               setLateFee("");
+              setNote("");
               setPostings(prev => ({
                 ...prev,
                 [targetCell.custId]: { ...(prev[targetCell.custId] || {}), [targetCell.date]: postingData }
@@ -708,6 +719,7 @@ const DailyCollection = () => {
           digiPayer: payMode === 'online' ? digiPayer : '',
           date: targetCell.date,
           payMode: payMode,
+          note: payMode === 'online' ? (note || "") : "",
           agentId: userData?.uid,
           adminId: activeCustomer?.adminId || "",
           lineId: selectedLineId || activeCustomer?.lineId || "default",
@@ -747,10 +759,12 @@ const DailyCollection = () => {
           ));
         }
 
+        playSuccessSound();
         toast.success(`Success ₹${amountNum}`);
         setPayDialogOpen(false);
         setDigiPayer("");
         setLateFee("");
+        setNote("");
         setPostings(prev => ({
           ...prev,
           [targetCell.custId]: { ...(prev[targetCell.custId] || {}), [targetCell.date]: postingData }
@@ -820,6 +834,7 @@ const DailyCollection = () => {
               digiPayer: payMode === 'online' ? digiPayer : '',
               date: payDate,
               payMode: payMode,
+              note: payMode === 'online' ? (note || "") : "",
               agentId: selectedAdminCustomer.agentId || userData?.uid || "",
               adminId: userData?.uid || "",
               lineId: selectedAdminCustomer.lineId || "default",
@@ -840,6 +855,7 @@ const DailyCollection = () => {
               lastPostingDate: payDate
             });
 
+            playSuccessSound();
             toast.success(`Success ₹${amountNum} for ${selectedAdminCustomer.memberName}`);
             setOverrideModalOpen(false);
             fetchDataForGrid();
@@ -865,6 +881,7 @@ const DailyCollection = () => {
         digiPayer: payMode === 'online' ? digiPayer : '',
         date: payDate,
         payMode: payMode,
+        note: payMode === 'online' ? (note || "") : "",
         agentId: selectedAdminCustomer.agentId || userData?.uid || "",
         adminId: userData?.uid || "",
         lineId: selectedAdminCustomer.lineId || "default",
@@ -885,12 +902,14 @@ const DailyCollection = () => {
         lastPostingDate: payDate
       });
 
+      playSuccessSound();
       toast.success(`Success ₹${amountNum} for ${selectedAdminCustomer.memberName}`);
       setOverrideModalOpen(false);
       setSelectedAdminCustomer(null);
       setPayAmount("");
       setLateFee("");
       setDigiPayer("");
+      setNote("");
       handleSearch(); // Refresh admin list
     } catch (err) {
       toast.error("Failed to manual post");
@@ -911,7 +930,7 @@ const DailyCollection = () => {
 
   if (userData?.role === "agent") {
     return (
-      <div className="flex flex-col h-screen bg-[#F5F7FB] overflow-hidden">
+      <div className="flex flex-col h-screen bg-[#F5F7FB] dark:bg-[#080B11] text-foreground overflow-hidden">
         {/* PhonePe Header */}
         <div className="bg-[#5f259f] px-6 pt-6 pb-6 shrink-0 shadow-lg relative z-20">
            <div className="max-w-4xl mx-auto">
@@ -993,7 +1012,7 @@ const DailyCollection = () => {
                  initial={{ opacity: 0, y: 10 }}
                  animate={{ opacity: 1, y: 0 }}
                  onClick={() => { setActiveCustomer(c); setDetailModalOpen(true); }}
-                 className="bg-white rounded-[2rem] p-4 shadow-sm border border-slate-100 active:scale-[0.98] transition-all"
+                 className="bg-white dark:bg-slate-900 rounded-[2rem] p-4 shadow-sm border border-slate-100 dark:border-slate-800 active:scale-[0.98] transition-all"
                >
                   <div className="flex items-start justify-between mb-4">
                      <div className="flex items-center gap-3 min-w-0">
@@ -1001,45 +1020,45 @@ const DailyCollection = () => {
                            {c.accountNo}
                         </div>
                         <div className="min-w-0">
-                           <h3 className="text-[14px] font-black text-slate-900 tracking-tighter leading-none uppercase truncate">{c.memberName || c.name}</h3>
+                           <h3 className="text-[14px] font-black text-slate-900 dark:text-white tracking-tighter leading-none uppercase truncate">{c.memberName || c.name}</h3>
                            <p className="text-[9px] font-bold text-slate-400 mt-1.5 uppercase tracking-tighter">{c.village || 'No Village'}</p>
                         </div>
                      </div>
                      <div className="text-right shrink-0">
-                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Outstanding</p>
+                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">{t("outstanding")}</p>
                         <h4 className="text-[16px] font-black text-rose-500 italic tracking-tighter leading-none">₹{c.balance || 0}</h4>
                      </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 mb-4">
-                     <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
-                        <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Debt</p>
-                        <p className="text-xs font-black text-slate-700">₹{c.totalAmount || 0}</p>
+                     <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-3 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">{t("totalDebt")}</p>
+                        <p className="text-xs font-black text-slate-700 dark:text-slate-300">₹{c.totalAmount || 0}</p>
                      </div>
                      <div className="bg-emerald-50 rounded-2xl p-3 border border-emerald-100">
-                        <p className="text-[7px] font-black text-emerald-400 uppercase tracking-widest mb-1">Recovered</p>
+                        <p className="text-[7px] font-black text-emerald-400 uppercase tracking-widest mb-1">{t("recovered")}</p>
                         <p className="text-xs font-black text-emerald-600">₹{c.paid || 0}</p>
                      </div>
                   </div>
 
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-1.5 px-1">
-                       <p className="text-[8px] font-black text-slate-400 uppercase">Repayment Velocity</p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase">{t("repaymentVelocity")}</p>
                        <p className="text-[9px] font-black text-[#5f259f] italic">{Math.min(100, Math.round(((c.paid || 0) / (c.totalAmount || 1)) * 100))}%</p>
                     </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200/50 dark:border-slate-700/50">
                        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, ((c.paid || 0) / (c.totalAmount || 1)) * 100)}%` }} className="h-full bg-gradient-to-r from-[#5f259f] to-[#a855f7] rounded-full" />
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-50">
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-50 dark:border-slate-800">
                      <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
                         {gridDates.map(d => {
                           const post = postings[c.id]?.[d];
                           const isToday = d === new Date().toISOString().split("T")[0];
                           const isSuperAdminCollected = post?.collectedByRole === 'super_admin';
                           return (
-                            <div key={d} className={`h-7 w-7 rounded-lg flex items-center justify-center text-[7px] font-black border transition-all ${isSuperAdminCollected ? 'bg-indigo-500 border-indigo-400 text-white' : post ? 'bg-emerald-500 border-emerald-400 text-white' : isToday ? 'bg-amber-50 border-amber-300 text-amber-600' : 'bg-slate-50 border-slate-100 text-slate-200'}`}>
+                            <div key={d} className={`h-7 w-7 rounded-lg flex items-center justify-center text-[7px] font-black border transition-all ${isSuperAdminCollected ? 'bg-indigo-500 border-indigo-400 text-white' : post ? 'bg-emerald-500 border-emerald-400 text-white' : isToday ? 'bg-amber-50 border-amber-300 text-amber-600' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-800 text-slate-200 dark:text-slate-600'}`}>
                                {isSuperAdminCollected ? <Zap size={8} /> : d.slice(8, 10)}
                             </div>
                           );
@@ -1242,7 +1261,7 @@ const DailyCollection = () => {
                                       ) : isSettled ? (
                                          <Badge className="bg-slate-50 text-slate-400 border-slate-100 font-black text-[8px] uppercase">CLOSED</Badge>
                                       ) : (
-                                         <div className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest ${isToday ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-100 text-slate-400'}`}>
+                                         <div className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest ${isToday ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
                                             {isToday ? 'COLLECT NOW' : 'SCHEDULED'}
                                          </div>
                                       )}
@@ -1296,7 +1315,7 @@ const DailyCollection = () => {
                          <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                               <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">Entry Date</Label>
-                              <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="w-full h-12 rounded-xl bg-slate-50 border border-slate-100 px-3 text-[11px] font-black text-slate-700 focus:outline-none uppercase" />
+                              <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} disabled={!checkPermission(userData, 'canChangeDate')} className="w-full h-12 rounded-xl bg-slate-50 border border-slate-100 px-3 text-[11px] font-black text-slate-700 focus:outline-none uppercase" />
                             </div>
                             <div className="space-y-1.5">
                               <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">Mode</Label>
@@ -1337,6 +1356,26 @@ const DailyCollection = () => {
                               )}
                             </AnimatePresence>
                          </div>
+
+                         <AnimatePresence>
+                           {payMode === 'online' && (
+                             <motion.div 
+                               initial={{ opacity: 0, y: -5 }} 
+                               animate={{ opacity: 1, y: 0 }} 
+                               exit={{ opacity: 0, y: -5 }} 
+                               className="space-y-1.5"
+                             >
+                               <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">Note / Reference (Optional)</Label>
+                               <input 
+                                  type="text" 
+                                  placeholder="Enter transaction ref, bank name or note..."
+                                  value={note} 
+                                  onChange={(e) => setNote(e.target.value)} 
+                                  className="w-full h-12 rounded-xl bg-slate-50 border border-slate-100 px-3 text-[11px] font-bold text-slate-900 focus:outline-none" 
+                               />
+                             </motion.div>
+                           )}
+                         </AnimatePresence>
                          
                          <Button onClick={() => submitPayment()} disabled={submitting} className="w-full h-14 rounded-2xl bg-slate-900 text-white text-base font-black italic uppercase shadow-[0_15px_30px_rgba(0,0,0,0.2)] active:scale-95 transition-all flex items-center justify-center gap-3">
                             Confirm Recovery <Zap size={20} className="text-amber-400 fill-amber-400" />
@@ -1544,7 +1583,16 @@ const DailyCollection = () => {
                     {formatCurrency(customers.find(c => c.id === r.accountId)?.balance || 0)}
                   </td>
                   <td className="p-5 text-right font-black text-orange-500 italic text-sm">{formatCurrency(r.lateFee || 0)}</td>
-                  <td className="p-5"><Badge className="bg-slate-100 text-slate-600 border-none font-black text-[9px] uppercase tracking-widest">{r.payMode}</Badge></td>
+                  <td className="p-5">
+                    <div className="flex flex-col gap-1">
+                      <Badge className="bg-slate-100 text-slate-600 border-none font-black text-[9px] uppercase tracking-widest w-max">{r.payMode}</Badge>
+                      {r.note && (
+                        <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={r.note}>
+                          {r.note}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                    <td className="p-5">
                       <div className="flex flex-col">
                         <span className="text-[11px] font-black text-slate-800 uppercase leading-none">{r.collectedByName || 'System'}</span>
@@ -1756,7 +1804,7 @@ const DailyCollection = () => {
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <Label className="text-[9px] font-black uppercase text-slate-500">Date</Label>
-                            <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="h-11 rounded-xl bg-slate-50 uppercase text-xs font-bold" />
+                            <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} disabled={!checkPermission(userData, 'canChangeDate')} className="h-11 rounded-xl bg-slate-50 uppercase text-xs font-bold" />
                           </div>
                           <div className="space-y-1.5">
                             <Label className="text-[9px] font-black uppercase text-slate-500">Mode</Label>
@@ -1783,6 +1831,19 @@ const DailyCollection = () => {
                             </div>
                           )}
                         </div>
+
+                        {payMode === 'online' && (
+                          <div className="space-y-1.5">
+                            <Label className="text-[9px] font-black uppercase text-slate-500">Note / Reference (Optional)</Label>
+                            <Input 
+                              type="text" 
+                              placeholder="Enter transaction ref, bank name or note..." 
+                              value={note} 
+                              onChange={(e) => setNote(e.target.value)} 
+                              className="h-11 rounded-xl bg-slate-50 border-slate-100 text-slate-700 font-bold text-slate-900" 
+                            />
+                          </div>
+                        )}
 
                         <Button disabled={submitting} onClick={adminSubmitOverride} className="w-full h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xl shadow-indigo-600/20 font-black uppercase tracking-widest text-sm flex items-center gap-2">
                           {submitting ? <RefreshCw className="animate-spin h-5 w-5" /> : <><CheckCircle2 size={18} /> CONFIRM OVERRIDE</>}

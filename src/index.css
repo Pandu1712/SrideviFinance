@@ -44,23 +44,57 @@
     --padding-desktop: 2rem;
   }
 
+  .dark {
+    /* Premium Financial Palette Dark Mode - Rich Deep Slate/Navy & Gold */
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 45 93% 47%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 217 32% 14%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 45 93% 47%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 32% 14%;
+    --input: 217 32% 14%;
+    --ring: 221 39% 80%;
+
+    --sidebar-background: 222 47% 4%;
+    --sidebar-foreground: 210 40% 98%;
+  }
+
   * {
     @apply border-border;
   }
   
   body {
-    @apply bg-[#F8FAFC] text-foreground antialiased selection:bg-accent/30 selection:text-accent-foreground;
+    @apply bg-background text-foreground antialiased selection:bg-accent/30 selection:text-accent-foreground;
     font-feature-settings: "ss01", "ss02", "cv01", "cv02";
   }
 }
 
 @layer utilities {
   .glass-card {
-    @apply bg-white/80 backdrop-blur-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_48px_rgba(0,0,0,0.08)] transition-all duration-300;
+    @apply bg-card/80 backdrop-blur-xl border border-border/40 shadow-[0_8px_32px_rgba(0,0,0,0.04)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.2)] hover:shadow-[0_12px_48px_rgba(0,0,0,0.08)] transition-all duration-300;
   }
   
   .premium-gradient {
-    @apply bg-gradient-to-br from-[#0F172A] via-[#1E293B] to-[#334155];
+    @apply bg-gradient-to-br from-[#0F172A] via-[#1E293B] to-[#334155] dark:from-[#020617] dark:via-[#0F172A] dark:to-[#1E293B];
   }
 
   .accent-gradient {
@@ -72,7 +106,7 @@
   }
 
   .mobile-bottom-nav {
-    @apply fixed bottom-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-xl border-t border-slate-100 flex items-center justify-around px-4 z-[50] pb-safe;
+    @apply fixed bottom-0 left-0 right-0 h-16 bg-card/85 backdrop-blur-xl border-t border-border flex items-center justify-around px-4 z-[50] pb-safe;
   }
 
   .pb-safe {
@@ -104,7 +138,7 @@
 
   /* Responsive & Premium Table System */
   .finance-table-container {
-    @apply w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm;
+    @apply w-full overflow-x-auto rounded-2xl border border-border bg-card shadow-sm;
   }
 
   .finance-table {
@@ -112,23 +146,23 @@
   }
 
   .finance-table thead tr {
-    @apply bg-slate-50/80 border-b border-slate-200;
+    @apply bg-muted/30 border-b border-border;
   }
 
   .finance-table th {
-    @apply px-6 py-4 text-[11px] font-black uppercase tracking-[0.15em] text-slate-500 whitespace-nowrap;
+    @apply px-6 py-4 text-[11px] font-black uppercase tracking-[0.15em] text-muted-foreground whitespace-nowrap;
   }
 
   .finance-table tbody tr {
-    @apply transition-colors hover:bg-slate-50/50 border-b border-slate-100 last:border-0;
+    @apply transition-colors hover:bg-muted/10 border-b border-border last:border-0;
   }
 
   .finance-table td {
-    @apply px-6 py-4 text-sm font-medium text-slate-700 whitespace-nowrap align-middle;
+    @apply px-6 py-4 text-sm font-medium text-foreground whitespace-nowrap align-middle;
   }
 
   .finance-input {
-    @apply h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-accent focus:ring-accent/20 transition-all rounded-xl;
+    @apply h-11 bg-muted/20 border-input text-foreground focus:bg-card focus:border-accent focus:ring-accent/20 transition-all rounded-xl;
   }
 
   /* Custom Scrollbar */

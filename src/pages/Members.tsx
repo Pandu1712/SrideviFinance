@@ -241,7 +241,7 @@ const Members = () => {
               <Users className="text-white h-8 w-8" />
             </div>
             <div>
-              <h1 className="text-4xl font-black tracking-tight text-slate-900">Member Registry</h1>
+              <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">Member Registry</h1>
               <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1 opacity-80">Portfolio Intelligence & Monitoring</p>
             </div>
           </div>

@@ -324,16 +324,16 @@ const DWMBook = () => {
 
       {/* Stats Layer */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 print:hidden">
-        <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden group hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all">
+        <Card className="bg-white dark:bg-slate-900/60 border-none dark:border dark:border-slate-800/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden group hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all">
           <CardContent className="p-8 flex items-center justify-between">
             <div className="space-y-2">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Total volume</p>
-              <h3 className="text-3xl font-black text-slate-900 leading-none">
+              <h3 className="text-3xl font-black text-slate-900 dark:text-white leading-none">
                 {activeTab === "defaulters" ? filteredDefaulters.length : filteredPostings.length}
                 <span className="text-xs font-bold text-slate-300 ml-2 uppercase tracking-widest">Entries</span>
               </h3>
             </div>
-            <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-primary/5 group-hover:border-primary/10 transition-colors">
+            <div className="h-14 w-14 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center border border-slate-100 dark:border-slate-700 group-hover:bg-primary/5 group-hover:border-primary/10 transition-colors">
               <Activity size={24} className="text-slate-400 group-hover:text-primary" />
             </div>
           </CardContent>
@@ -437,7 +437,7 @@ const DWMBook = () => {
                              </div>
                              <div className="flex flex-col">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                   <span className="font-black text-slate-900 text-sm uppercase leading-tight">{p.memberName || p.name}</span>
+                                   <span className="font-black text-slate-900 dark:text-white text-sm uppercase leading-tight">{p.memberName || p.name}</span>
                                    {p.nameTelugu && <span className="text-[10px] font-bold text-slate-500 font-telugu whitespace-nowrap">({p.nameTelugu})</span>}
                                 </div>
                                 <span className="text-[8px] text-rose-500 font-black uppercase tracking-widest mt-0.5">{p.village || 'N/A'}</span>
@@ -477,7 +477,7 @@ const DWMBook = () => {
                              </div>
                              <div className="flex flex-col">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                   <span className="font-black text-slate-900 text-sm uppercase leading-tight">{p.memberName}</span>
+                                   <span className="font-black text-slate-900 dark:text-white text-sm uppercase leading-tight">{p.memberName}</span>
                                    {p.nameTelugu && <span className="text-[10px] font-bold text-slate-500 font-telugu whitespace-nowrap">({p.nameTelugu})</span>}
                                 </div>
                                 <span className="text-[8px] text-emerald-600 font-black uppercase tracking-widest mt-0.5">{p.village || 'N/A'}</span>
@@ -485,7 +485,7 @@ const DWMBook = () => {
                           </div>
                         </td>
                         <td className="px-8 py-5 text-center font-black text-xs text-primary/60 tracking-widest">{p.accountNo}</td>
-                        <td className="px-8 py-5 text-right font-black text-slate-900 text-base">{formatCurrency(p.amount)}</td>
+                        <td className="px-8 py-5 text-right font-black text-slate-900 dark:text-white text-base">{formatCurrency(p.amount)}</td>
                         <td className="px-8 py-5 text-center">
                           <Badge className="bg-emerald-50 text-emerald-600 border-none font-black text-[8px] uppercase tracking-widest px-3 py-1">
                             Recovered

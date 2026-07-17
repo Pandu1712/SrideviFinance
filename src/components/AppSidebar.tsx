@@ -2,17 +2,19 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
+import { useLanguage, TranslationKey } from "@/contexts/LanguageContext";
 import {
   IndianRupee, LayoutDashboard, UserPlus, FileText, Users, Search,
   TrendingUp, BookOpen, BarChart3, List, Download, LogOut, Menu, X,
   Wallet, UserCog, Printer, Calendar, LineChart, Database, MapPin,
   ArrowRightLeft, Edit, Calculator, ChevronRight, ShieldCheck, Zap
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, isMenuAllowed } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface MenuItem {
   label: string;
+  labelKey: TranslationKey;
   path: string;
   icon: React.ReactNode;
   roles: string[];
@@ -20,40 +22,47 @@ interface MenuItem {
 
 interface MenuSection {
   title: string;
+  titleKey: TranslationKey;
   items: MenuItem[];
 }
 
 const menuSections: MenuSection[] = [
   {
     title: "Analytics & Reporting",
+    titleKey: "analyticsReporting",
     items: [
-      { label: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Reports Engine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "Profits Center", path: "/profits", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Dashboard", labelKey: "dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "Reports Engine", labelKey: "reportsEngine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Profits Center", labelKey: "profitsCenter", path: "/profits", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin", "partner"] },
     ]
   },
   {
     title: "Loan Operations",
+    titleKey: "loanOperations",
     items: [
-      { label: "Daily Posting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Master Ledger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "New Account", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "Extra Amount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
-      { label: "Members Registry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Daily Posting", labelKey: "dailyPosting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "Master Ledger", labelKey: "masterLedger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Collection Book", labelKey: "collectionBook", path: "/collection-book", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "New Account", labelKey: "newAccount", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Extra Amount", labelKey: "extraAmount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Members Registry", labelKey: "membersRegistry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
     ]
   },
   {
     title: "Recovery Management",
+    titleKey: "recoveryManagement",
     items: [
-      { label: "Collection Portal", path: "/daily-collection", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "Posting Approval", path: "/verify-postings", icon: <ShieldCheck size={18} />, roles: ["super_admin", "admin", "partner"] },
-      { label: "Search Archives", path: "/posting-search", icon: <Search size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "Collection Portal", labelKey: "dailyCollection", path: "/daily-collection", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Posting Approval", labelKey: "verifyPostings", path: "/verify-postings", icon: <ShieldCheck size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Search Archives", labelKey: "searchArchives", path: "/posting-search", icon: <Search size={18} />, roles: ["super_admin", "admin", "agent"] },
     ]
   },
   {
     title: "System Management",
+    titleKey: "systemManagement",
     items: [
-      { label: "Manage Villages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Manage Villages", labelKey: "manageVillages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Shift Accounts", labelKey: "shiftAccounts", path: "/shift-accounts", icon: <ArrowRightLeft size={18} />, roles: ["super_admin"] },
     ]
   }
 ];
@@ -61,6 +70,7 @@ const menuSections: MenuSection[] = [
 const AppSidebar = () => {
   const { userData, logout } = useAuth();
   const { selectedLineId, lines, setSelectedLineId } = useLine();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   
@@ -91,7 +101,7 @@ const AppSidebar = () => {
       {/* Operational Context Switcher */}
       {(userData?.role === "super_admin" || userData?.role === "admin" || (userData?.role === "agent" && (userData.lineIds?.length || 0) > 1)) && (
         <div className="px-6 py-6 border-b border-white/5 bg-white/5">
-          <h3 className="text-[10px] font-black text-slate-500 mb-4">Operative Channel</h3>
+          <h3 className="text-[10px] font-black text-slate-400 mb-4">{t("channel")}</h3>
           <button 
             onClick={() => {
               setSelectedLineId(null);
@@ -106,7 +116,7 @@ const AppSidebar = () => {
               </div>
               <div className="text-left">
                 <p className="text-xs font-black text-white leading-tight">{activeLineName}</p>
-                <p className="text-[9px] font-bold text-slate-500 mt-0.5">Switch Line</p>
+                <p className="text-[9px] font-bold text-slate-400 mt-0.5">Switch Line</p>
               </div>
             </div>
             <ArrowRightLeft size={14} className="text-slate-600 group-hover:text-accent transition-colors" />
@@ -118,16 +128,16 @@ const AppSidebar = () => {
       <nav className="flex-1 overflow-y-auto px-4 py-8 custom-scrollbar space-y-10">
         {menuSections.map((section, sidx) => {
           const authorizedItems = section.items.filter(item => 
-            userData ? item.roles.includes(userData.role) : false
+            userData ? isMenuAllowed(item.path, userData, item.roles) : false
           );
 
           if (authorizedItems.length === 0) return null;
 
           return (
             <div key={sidx} className="space-y-3">
-              <h3 className="px-4 text-[9px] font-black text-slate-500/60 flex items-center gap-2">
+              <h3 className="px-4 text-[9px] font-black text-slate-400 flex items-center gap-2">
                 <span className="h-px w-4 bg-slate-800" />
-                {section.title}
+                {t(section.titleKey)}
               </h3>
               <div className="space-y-1">
                 {authorizedItems.map((item) => (
@@ -146,7 +156,7 @@ const AppSidebar = () => {
                     }}
                   >
                     <span className="transition-all group-hover:scale-110 duration-500 opacity-80 group-hover:opacity-100">{item.icon}</span>
-                    <span className="flex-1 truncate tracking-tight font-black text-[12px]">{item.label}</span>
+                    <span className="flex-1 truncate tracking-tight font-black text-[12px]">{t(item.labelKey)}</span>
                     <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-500" />
                     
                     {/* Active Glow */}
@@ -165,7 +175,7 @@ const AppSidebar = () => {
           className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-black text-slate-500 hover:bg-destructive hover:text-white transition-all duration-300 group"
         >
           <LogOut size={16} className="group-hover:-translate-x-1 transition-transform" />
-          Terminate
+          {t("logout")}
         </button>
       </div>
     </div>
