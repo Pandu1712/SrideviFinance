@@ -3,11 +3,13 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { useLanguage, TranslationKey } from "@/contexts/LanguageContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import {
   IndianRupee, LayoutDashboard, UserPlus, FileText, Users, Search,
   TrendingUp, BookOpen, BarChart3, List, Download, LogOut, Menu, X,
   Wallet, UserCog, Printer, Calendar, LineChart, Database, MapPin,
-  ArrowRightLeft, Edit, Calculator, ChevronRight, ShieldCheck, Zap
+  ArrowRightLeft, Edit, Calculator, ChevronRight, ShieldCheck, Zap,
+  Globe, Sun, Moon
 } from "lucide-react";
 import { cn, isMenuAllowed } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -28,24 +30,26 @@ interface MenuSection {
 
 const menuSections: MenuSection[] = [
   {
-    title: "Analytics & Reporting",
-    titleKey: "analyticsReporting",
-    items: [
-      { label: "Dashboard", labelKey: "dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Reports Engine", labelKey: "reportsEngine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "Profits Center", labelKey: "profitsCenter", path: "/profits", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin", "partner"] },
-    ]
-  },
-  {
     title: "Loan Operations",
     titleKey: "loanOperations",
     items: [
+      { label: "Dashboard", labelKey: "dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "New Account", labelKey: "newAccount", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Daily Posting", labelKey: "dailyPosting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Master Ledger", labelKey: "masterLedger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Collection Book", labelKey: "collectionBook", path: "/collection-book", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "New Account", labelKey: "newAccount", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "Extra Amount", labelKey: "extraAmount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "DWM Book", labelKey: "collectionBook", path: "/dwm-book", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Members Registry", labelKey: "membersRegistry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Extra Amount", labelKey: "extraAmount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
+    ]
+  },
+  {
+    title: "Analytics & Reporting",
+    titleKey: "analyticsReporting",
+    items: [
+      { label: "Company Account", labelKey: "companyAccount", path: "/company-account", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Reports Engine", labelKey: "reportsEngine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Profits Center", labelKey: "profitsCenter", path: "/profits", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin", "partner"] },
     ]
   },
   {
@@ -62,6 +66,7 @@ const menuSections: MenuSection[] = [
     titleKey: "systemManagement",
     items: [
       { label: "Manage Villages", labelKey: "manageVillages", path: "/manage-villages", icon: <MapPin size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Manage Agents", labelKey: "manageAgents", path: "/manage-agents", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner"] },
       { label: "Shift Accounts", labelKey: "shiftAccounts", path: "/shift-accounts", icon: <ArrowRightLeft size={18} />, roles: ["super_admin"] },
     ]
   }
@@ -70,7 +75,8 @@ const menuSections: MenuSection[] = [
 const AppSidebar = () => {
   const { userData, logout } = useAuth();
   const { selectedLineId, lines, setSelectedLineId } = useLine();
-  const { t } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   
@@ -200,13 +206,35 @@ const AppSidebar = () => {
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-[1px] bg-white/10" />
+        <div className="flex items-center gap-2">
+          {/* Language Switcher */}
+          <button
+            onClick={() => setLanguage(language === "en" ? "te" : "en")}
+            className="h-8 px-2 flex items-center justify-center rounded-lg bg-white/5 text-slate-200 text-[10px] font-black uppercase active:scale-95 transition-transform"
+            title={t("language")}
+          >
+            <Globe size={14} className="mr-1 text-slate-200" />
+            <span>{language === "en" ? "EN" : "తె"}</span>
+          </button>
+
+          {/* Theme Toggle */}
+          <button
+            onClick={toggleTheme}
+            className="h-8 w-8 flex items-center justify-center rounded-lg bg-white/5 text-slate-200 active:scale-95 transition-transform"
+            title="Toggle Theme"
+          >
+            {theme === "light" ? <Moon size={14} className="text-slate-200" /> : <Sun size={14} className="text-amber-400" />}
+          </button>
+
+          <div className="h-6 w-[1px] bg-white/10 mx-0.5" />
+
+          {/* Logout */}
           <button
             onClick={handleLogout}
-            className="flex items-center justify-center h-8 w-8 rounded-lg bg-rose-500/10 text-rose-500 transition-all"
+            className="flex items-center justify-center h-8 w-8 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 active:scale-95 transition-transform"
+            title="Logout"
           >
-            <LogOut size={16} />
+            <LogOut size={14} />
           </button>
         </div>
       </div>

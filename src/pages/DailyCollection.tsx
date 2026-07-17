@@ -39,6 +39,7 @@ const DailyCollection = () => {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [records, setRecords] = useState<DocumentData[]>([]);
   const [expense, setExpense] = useState("0");
+  const [manualInflow, setManualInflow] = useState("0");
   const [openingBalance, setOpeningBalance] = useState("0");
   const [disbursedToday, setDisbursedToday] = useState(0);
   const [docChargesToday, setDocChargesToday] = useState(0);
@@ -97,9 +98,12 @@ const DailyCollection = () => {
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseNote, setExpenseNote] = useState("");
+  const [expenseType, setExpenseType] = useState<"inflow" | "outflow">("outflow");
   const [totalCollectionToday, setTotalCollectionToday] = useState(0);
   const [dailyExpenseLogs, setDailyExpenseLogs] = useState<any[]>([]);
   const [showExpenseDetails, setShowExpenseDetails] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<any>(null);
+  const [editInput, setEditInput] = useState({ amount: "", note: "" });
 
 
   const gridDates = Array.from({ length: 5 }, (_, i) => {
@@ -280,9 +284,11 @@ const DailyCollection = () => {
       if (!expSnap.empty) {
         const summ = expSnap.docs[0].data();
         setExpense(String(summ.expenses || 0));
+        setManualInflow(String(summ.manualInflows || 0));
         setOpeningBalance(String(summ.openingBalance || 0));
       } else {
         setExpense("0");
+        setManualInflow("0");
         setOpeningBalance("0");
       }
 
@@ -312,7 +318,8 @@ const DailyCollection = () => {
       // 1. Log for audit and separate breakdown
       await addDoc(collection(db, "expenses_log"), {
         amount,
-        note: expenseNote || "Operational Expense (Daily Collection)",
+        type: expenseType,
+        note: expenseNote || (expenseType === "inflow" ? "Manual Inflow" : "Operational Expense (Daily Collection)"),
         date: todayStr,
         lineId,
         userName: userData?.name,
@@ -329,23 +336,27 @@ const DailyCollection = () => {
         const snap = await transaction.get(summaryRef);
         if (!snap.exists()) {
           transaction.set(summaryRef, {
-            expenses: amount,
+            expenses: expenseType === "outflow" ? amount : 0,
+            manualInflows: expenseType === "inflow" ? amount : 0,
             openingBalance: 0,
             date: todayStr,
             lineId
           });
         } else {
           const currentExp = snap.data().expenses || 0;
+          const currentInflow = snap.data().manualInflows || 0;
           transaction.update(summaryRef, {
-            expenses: currentExp + amount
+            expenses: expenseType === "outflow" ? currentExp + amount : currentExp,
+            manualInflows: expenseType === "inflow" ? currentInflow + amount : currentInflow
           });
         }
       });
 
-      toast.success("Expense recorded successfully");
+      toast.success(expenseType === "inflow" ? "Inflow recorded successfully" : "Expense recorded successfully");
       setIsAddingExpense(false);
       setExpenseAmount("");
       setExpenseNote("");
+      setExpenseType("outflow");
       
       if (userData) {
         logActivity(
@@ -353,7 +364,7 @@ const DailyCollection = () => {
           userData.name,
           userData.role,
           "POSTING_CREATE",
-          `Recorded Expense: ₹${amount} (${expenseNote || 'No note'})`,
+          `Recorded ${expenseType}: ₹${amount} (${expenseNote || 'No note'})`,
           selectedLineId
         );
       }
@@ -367,6 +378,104 @@ const DailyCollection = () => {
     }
   };
 
+  const handleUpdateExpense = async () => {
+    if (!editingExpense || !editInput.amount || isNaN(parseFloat(editInput.amount))) return;
+    try {
+      const newAmount = parseFloat(editInput.amount);
+      const oldAmount = editingExpense.amount || 0;
+      const diff = newAmount - oldAmount;
+      const lineId = editingExpense.lineId || 'global';
+      const txType = editingExpense.type || 'outflow';
+      
+      const { doc, updateDoc, getDoc } = await import("firebase/firestore");
+      
+      await updateDoc(doc(db, "expenses_log", editingExpense.id), {
+        amount: newAmount,
+        note: editInput.note
+      });
+
+      const summaryId = `${editingExpense.date || date}_${lineId}`;
+      const summaryRef = doc(db, "day_summaries", summaryId);
+      const summSnap = await getDoc(summaryRef);
+      
+      if (summSnap.exists()) {
+        const updateData: any = {};
+        if (txType === 'inflow') {
+          updateData.manualInflows = (summSnap.data().manualInflows || 0) + diff;
+        } else {
+          updateData.expenses = (summSnap.data().expenses || 0) + diff;
+        }
+        await updateDoc(summaryRef, updateData);
+      }
+
+      if (userData) {
+        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_UPDATE", `Updated ${txType} from ${formatCurrency(oldAmount)} to ${formatCurrency(newAmount)}: ${editInput.note}`, lineId);
+      }
+
+      toast.success("Transaction Updated");
+      
+      // Update local state list
+      setDailyExpenseLogs(prev => prev.map(l => l.id === editingExpense.id ? { ...l, amount: newAmount, note: editInput.note } : l));
+      
+      // Update total expense/inflow state
+      if (txType === 'inflow') {
+        setManualInflow(prev => String(Math.max(0, parseFloat(prev || "0") + diff)));
+      } else {
+        setExpense(prev => String(Math.max(0, parseFloat(prev || "0") + diff)));
+      }
+
+      setEditingExpense(null);
+    } catch (err) {
+      console.error("Update expense error:", err);
+      toast.error("Update failed");
+    }
+  };
+
+  const handleDeleteExpense = async (log: any) => {
+    if (!window.confirm("Are you sure you want to delete this record?")) return;
+    try {
+      const lineId = log.lineId || 'global';
+      const txType = log.type || 'outflow';
+      const amount = log.amount || 0;
+      const { doc, deleteDoc, updateDoc, getDoc } = await import("firebase/firestore");
+
+      await deleteDoc(doc(db, "expenses_log", log.id));
+
+      const summaryId = `${log.date || date}_${lineId}`;
+      const summaryRef = doc(db, "day_summaries", summaryId);
+      const summSnap = await getDoc(summaryRef);
+      
+      if (summSnap.exists()) {
+        const updateData: any = {};
+        if (txType === 'inflow') {
+          updateData.manualInflows = Math.max(0, (summSnap.data().manualInflows || 0) - amount);
+        } else {
+          updateData.expenses = Math.max(0, (summSnap.data().expenses || 0) - amount);
+        }
+        await updateDoc(summaryRef, updateData);
+      }
+
+      if (userData) {
+        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_DELETE", `Deleted ${txType} of ${formatCurrency(amount)}: ${log.note}`, lineId);
+      }
+
+      toast.success("Record Deleted");
+
+      // Update local state list
+      setDailyExpenseLogs(prev => prev.filter(l => l.id !== log.id));
+      
+      // Update total expense/inflow state
+      if (txType === 'inflow') {
+        setManualInflow(prev => String(Math.max(0, parseFloat(prev || "0") - amount)));
+      } else {
+        setExpense(prev => String(Math.max(0, parseFloat(prev || "0") - amount)));
+      }
+    } catch (err) {
+      console.error("Delete expense error:", err);
+      toast.error("Deletion failed");
+    }
+  };
+
   const handleSaveSummary = async () => {
     if (!selectedLineId) return;
     setIsSavingSummary(true);
@@ -376,10 +485,12 @@ const DailyCollection = () => {
       
       const expenseValue = parseFloat(expense) || 0;
       const openingValue = parseFloat(openingBalance) || 0;
+      const inflowValue = parseFloat(manualInflow) || 0;
       
       if (!snap.empty) {
         await updateDoc(doc(db, "day_summaries", snap.docs[0].id), {
           expenses: expenseValue,
+          manualInflows: inflowValue,
           openingBalance: openingValue,
           updatedAt: serverTimestamp()
         });
@@ -388,6 +499,7 @@ const DailyCollection = () => {
           date,
           lineId: selectedLineId,
           expenses: expenseValue,
+          manualInflows: inflowValue,
           openingBalance: openingValue,
           createdAt: serverTimestamp()
         });
@@ -1672,39 +1784,65 @@ const DailyCollection = () => {
                     </div>
                  </div>
 
-                 <div className="h-[1px] bg-white/5 w-full" />
-
-                 <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Operational Expenses</p>
-                       <Button 
-                         variant="ghost" 
-                         size="sm" 
-                         onClick={handleSaveSummary} 
-                         disabled={isSavingSummary}
-                         className="h-7 text-[9px] font-black uppercase tracking-tighter text-amber-500 hover:bg-amber-500/10"
-                       >
-                          {isSavingSummary ? "Saving..." : "Update Summary"}
-                       </Button>
+                 <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Opening Balance</p>
+                       <p className="text-2xl font-black text-slate-300">{formatCurrency(parseFloat(openingBalance) || 0)}</p>
                     </div>
-                    <div className="relative group">
-                       <Banknote size={16} className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
-                       <Input 
-                         type="number"
-                         value={expense}
-                         onChange={(e) => setExpense(e.target.value)}
-                         className="bg-white/5 border-white/10 h-12 pl-12 rounded-2xl font-black text-lg text-white focus:ring-amber-500/20"
-                         placeholder="0"
-                       />
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Other Inflows</p>
+                       <p className="text-2xl font-black text-emerald-400">+{formatCurrency(parseFloat(manualInflow) || 0)}</p>
                     </div>
                  </div>
+
+                 <div className="h-[1px] bg-white/5 w-full" />
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="space-y-2">
+                        <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Operational Expenses</p>
+                        <div className="relative group">
+                           <Banknote size={16} className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
+                           <Input 
+                             type="number"
+                             value={expense}
+                             onChange={(e) => setExpense(e.target.value)}
+                             className="bg-white/5 border-white/10 h-12 pl-12 rounded-2xl font-black text-lg text-white focus:ring-amber-500/20"
+                             placeholder="0"
+                           />
+                        </div>
+                     </div>
+                     <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                           <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Other Inflows</p>
+                           <Button 
+                             variant="ghost" 
+                             size="sm" 
+                             onClick={handleSaveSummary} 
+                             disabled={isSavingSummary}
+                             className="h-7 text-[9px] font-black uppercase tracking-tighter text-amber-500 hover:bg-amber-500/10"
+                           >
+                              {isSavingSummary ? "Saving..." : "Update Summary"}
+                           </Button>
+                        </div>
+                        <div className="relative group">
+                           <TrendingUp size={16} className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-emerald-500 transition-colors" />
+                           <Input 
+                             type="number"
+                             value={manualInflow}
+                             onChange={(e) => setManualInflow(e.target.value)}
+                             className="bg-white/5 border-white/10 h-12 pl-12 rounded-2xl font-black text-lg text-white focus:ring-emerald-500/20"
+                             placeholder="0"
+                           />
+                        </div>
+                     </div>
+                  </div>
 
                  <div className="pt-4 mt-4 border-t border-white/10">
                     <div className="flex items-center justify-between">
                        <h3 className="text-lg font-black uppercase italic text-slate-300">Final Net Balance</h3>
                        <div className="text-right">
-                           <p className={`text-4xl font-black italic ${((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0) + (r.penaltyAmount || 0) + (r.extraAmount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {formatCurrency(((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0) + (r.penaltyAmount || 0) + (r.extraAmount || 0), 0) + docChargesToday) - (disbursedToday + (parseFloat(expense) || 0)))}
+                           <p className={`text-4xl font-black italic ${((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0) + (r.penaltyAmount || 0) + (r.extraAmount || 0), 0) + docChargesToday + (parseFloat(manualInflow) || 0)) - (disbursedToday + (parseFloat(expense) || 0)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {formatCurrency(((parseFloat(openingBalance) || 0) + records.reduce((acc, r) => acc + (r.amount || 0) + (r.penaltyAmount || 0) + (r.extraAmount || 0), 0) + docChargesToday + (parseFloat(manualInflow) || 0)) - (disbursedToday + (parseFloat(expense) || 0)))}
                            </p>
                           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mt-1">Settlement Figure for {formatDate(date)}</p>
                        </div>
@@ -1954,18 +2092,30 @@ const DailyCollection = () => {
 
       <Dialog open={isAddingExpense} onOpenChange={setIsAddingExpense}>
         <DialogContent className="sm:max-w-[425px] glass-card border-none shadow-2xl p-0 overflow-hidden">
-          <div className="bg-rose-500 p-6 text-white">
+          <div className={`${expenseType === "inflow" ? "bg-emerald-500" : "bg-rose-500"} p-6 text-white transition-colors duration-300`}>
             <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2 text-white">
               <Banknote size={20} className="text-white" />
-              Expense Entry
+              Transaction Entry
             </DialogTitle>
             <DialogDescription className="text-white/80 text-xs mt-1">
-              Add operational costs for {lines.find(l => l.id === (userData?.role === 'agent' ? selectedLineId : selectedLineId))?.name || 'this line'}
+              Add operational costs or other inflows for {lines.find(l => l.id === (userData?.role === 'agent' ? selectedLineId : selectedLineId))?.name || 'this line'}
             </DialogDescription>
           </div>
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-4">
             <div className="space-y-2 text-slate-900">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Expense Amount</Label>
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Transaction Type</Label>
+              <select
+                value={expenseType}
+                onChange={e => setExpenseType(e.target.value as any)}
+                className="w-full h-12 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-700 dark:text-white outline-none shadow-sm focus:border-accent"
+              >
+                <option value="outflow">Outflow / Expense</option>
+                <option value="inflow">Inflow / Other Payment</option>
+              </select>
+            </div>
+
+            <div className="space-y-2 text-slate-900">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Amount</Label>
               <div className="relative">
                 <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <Input 
@@ -1973,7 +2123,7 @@ const DailyCollection = () => {
                   value={expenseAmount} 
                   onChange={e => setExpenseAmount(e.target.value)} 
                   placeholder="0.00"
-                  className="pl-9 h-12 finance-input font-black text-lg text-slate-900" 
+                  className="pl-9 h-12 finance-input font-black text-lg text-slate-900 dark:text-white" 
                 />
               </div>
             </div>
@@ -1984,37 +2134,47 @@ const DailyCollection = () => {
                 type="text" 
                 value={expenseNote} 
                 onChange={e => setExpenseNote(e.target.value)} 
-                placeholder="Fuel, maintenance, etc."
-                className="h-12 finance-input font-bold text-slate-900" 
+                placeholder={expenseType === "inflow" ? "Received from..., other source, etc." : "Fuel, maintenance, etc."}
+                className="h-12 finance-input font-bold text-slate-900 dark:text-white" 
               />
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button variant="outline" onClick={() => setIsAddingExpense(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+              <Button variant="outline" onClick={() => setIsAddingExpense(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200 dark:border-slate-800">
                 Cancel
               </Button>
               <Button 
                 onClick={handleAddExpense} 
                 disabled={isSavingSummary}
-                className="flex-1 h-12 rounded-xl bg-rose-600 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-rose-700"
+                className={`flex-1 h-12 rounded-xl text-white font-bold uppercase tracking-widest text-xs shadow-lg transition-colors duration-300 ${
+                  expenseType === "inflow" 
+                    ? "bg-emerald-600 hover:bg-emerald-700" 
+                    : "bg-rose-600 hover:bg-rose-700"
+                }`}
               >
-                {isSavingSummary ? "Syncing..." : "Add Expense"}
+                {isSavingSummary ? "Syncing..." : expenseType === "inflow" ? "Add Inflow" : "Add Expense"}
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
       <Dialog open={showExpenseDetails} onOpenChange={setShowExpenseDetails}>
-        <DialogContent className="max-w-[90vw] sm:max-w-2xl bg-white rounded-3xl border-none shadow-2xl p-0 overflow-hidden">
-          <div className="bg-slate-900 p-6 text-white">
+        <DialogContent className="max-w-[90vw] sm:max-w-2xl bg-white dark:bg-slate-900 rounded-3xl border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-slate-900 p-6 text-white border-b border-slate-800">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">Daily Audit</p>
-                <h2 className="text-xl font-black italic tracking-tighter uppercase">Expense Registry</h2>
+                <h2 className="text-xl font-black italic tracking-tighter uppercase">Transaction Registry</h2>
               </div>
-              <div className="text-right">
-                <p className="text-xl font-black text-rose-400 italic">-{formatCurrency(parseFloat(expense))}</p>
-                <p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Total Outflow</p>
+              <div className="flex gap-4">
+                <div className="text-right">
+                  <p className="text-sm font-black text-rose-450 italic">-{formatCurrency(parseFloat(expense || "0"))}</p>
+                  <p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Outflows</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black text-emerald-450 italic">+{formatCurrency(parseFloat(manualInflow || "0"))}</p>
+                  <p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Inflows</p>
+                </div>
               </div>
             </div>
           </div>
@@ -2023,35 +2183,121 @@ const DailyCollection = () => {
             <div className="max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="border-b border-slate-100">
+                  <tr className="border-b border-slate-100 dark:border-slate-800">
                     <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Time</th>
                     <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Entry</th>
                     <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-400 text-right">Amount</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {dailyExpenseLogs.length > 0 ? (
-                    dailyExpenseLogs.map((log, i) => (
-                      <tr key={i}>
-                        <td className="py-3 text-[9px] font-bold text-slate-400">
-                           {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
-                        </td>
-                        <td className="py-3">
-                           <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{log.note || 'Expense'}</p>
-                           <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">By {log.userName}</p>
-                        </td>
-                        <td className="py-3 text-right">
-                           <span className="text-[11px] font-black text-rose-500 italic">-{formatCurrency(log.amount)}</span>
-                        </td>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-850">
+                  {(() => {
+                    const sortedLogs = [...dailyExpenseLogs].sort((a, b) => {
+                      const timeA = a.timestamp || a.createdAt || "";
+                      const timeB = b.timestamp || b.createdAt || "";
+                      return timeA.localeCompare(timeB);
+                    });
+                    let running = 0;
+                    const displayLogs = sortedLogs.map(log => {
+                      const amt = log.amount || 0;
+                      if (log.type === "inflow") {
+                        running += amt;
+                      } else {
+                        running -= amt;
+                      }
+                      return { ...log, runningBalance: running };
+                    }).reverse();
+
+                    if (displayLogs.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={3} className="py-10 text-center text-slate-400 italic text-[10px] font-black uppercase tracking-widest">
+                            No telemetry found
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return displayLogs.map((log, i) => (
+                      <tr key={log.id || i} className="group hover:bg-slate-50 dark:hover:bg-slate-800/20 transition-colors">
+                        {editingExpense?.id === log.id ? (
+                          <td colSpan={3} className="py-3 px-2">
+                            <div className="space-y-2">
+                              <div className="flex gap-2">
+                                <Input 
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={editInput.amount}
+                                  onChange={e => setEditInput(p => ({ ...p, amount: e.target.value }))}
+                                  className="h-8 w-24 text-xs font-bold bg-white dark:bg-slate-800"
+                                  placeholder="Amount"
+                                />
+                                <Input 
+                                  value={editInput.note}
+                                  onChange={e => setEditInput(p => ({ ...p, note: e.target.value }))}
+                                  className="h-8 flex-1 text-xs font-bold bg-white dark:bg-slate-800"
+                                  placeholder="Note"
+                                />
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button onClick={() => setEditingExpense(null)} variant="ghost" size="sm" className="h-7 text-[9px] uppercase">Cancel</Button>
+                                <Button onClick={handleUpdateExpense} size="sm" className="h-7 bg-emerald-500 hover:bg-emerald-600 text-white text-[9px] uppercase font-black">Update</Button>
+                              </div>
+                            </div>
+                          </td>
+                        ) : (
+                          <>
+                            <td className="py-3 text-[9px] font-bold text-slate-400">
+                               {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                            </td>
+                            <td className="py-3">
+                               <div className="flex items-center gap-1.5 flex-wrap">
+                                 <p className="text-[11px] font-black text-slate-800 dark:text-slate-100 uppercase leading-tight">{log.note || 'Expense'}</p>
+                                 <span className={`text-[6px] px-1 py-0.5 rounded font-black uppercase leading-none ${log.type === "inflow" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400" : "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-450"}`}>
+                                   {log.type === "inflow" ? "Inflow" : "Outflow"}
+                                 </span>
+                               </div>
+                               <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">By {log.userName || log.collectedByName || 'System'}</p>
+                            </td>
+                            <td className="py-3 text-right">
+                               <div className="flex items-center gap-2 justify-end">
+                                 {(userData?.role === 'super_admin' || userData?.role === 'admin' || log.collectedById === userData?.uid) && (
+                                   <div className="flex items-center gap-0.5 mr-1">
+                                     <Button 
+                                       variant="ghost" 
+                                       size="icon" 
+                                       className="h-6 w-6 text-slate-400 hover:text-indigo-600 hover:bg-slate-100/50"
+                                       onClick={() => {
+                                         setEditingExpense(log);
+                                         setEditInput({ amount: String(log.amount), note: log.note });
+                                       }}
+                                     >
+                                       <Edit3 size={11} />
+                                     </Button>
+                                     <Button 
+                                       variant="ghost" 
+                                       size="icon" 
+                                       className="h-6 w-6 text-slate-400 hover:text-rose-600 hover:bg-slate-100/50"
+                                       onClick={() => handleDeleteExpense(log)}
+                                     >
+                                       <Trash2 size={11} />
+                                     </Button>
+                                   </div>
+                                 )}
+                                 <div>
+                                   <span className={`text-[11px] font-black italic ${log.type === "inflow" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500"}`}>
+                                     {log.type === "inflow" ? "+" : "-"}{formatCurrency(log.amount)}
+                                   </span>
+                                   <span className="text-[9px] font-black text-slate-450 dark:text-slate-500 block text-right mt-0.5">
+                                     Bal: {log.runningBalance >= 0 ? "+" : ""}{formatCurrency(log.runningBalance)}
+                                   </span>
+                                 </div>
+                               </div>
+                            </td>
+                          </>
+                        )}
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={3} className="py-10 text-center text-slate-400 italic text-[10px] font-black uppercase tracking-widest">
-                        No telemetry found
-                      </td>
-                    </tr>
-                  )}
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>

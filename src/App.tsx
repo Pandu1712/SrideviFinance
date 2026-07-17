@@ -48,6 +48,7 @@ import ExtraAmount from "@/pages/ExtraAmount";
 import CompletedCustomers from "@/pages/CompletedCustomers";
 import ActiveCustomers from "@/pages/ActiveCustomers";
 import Profits from "@/pages/Profits";
+import CompanyAccount from "@/pages/CompanyAccount";
 
 const queryClient = new QueryClient();
 
@@ -82,6 +83,7 @@ const App = () => (
                   <Route path="/ledger" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><Ledger /></ProtectedRoute>} />
                   <Route path="/reports" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><Reports /></ProtectedRoute>} />
                   <Route path="/profits" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><Profits /></ProtectedRoute>} />
+                  <Route path="/company-account" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><CompanyAccount /></ProtectedRoute>} />
                   <Route path="/advanced-lists" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><AdvancedLists /></ProtectedRoute>} />
                   <Route path="/dwm-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><DWMBook /></ProtectedRoute>} />
                   <Route path="/collection-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><CollectionBook /></ProtectedRoute>} />

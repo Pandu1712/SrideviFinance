@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 export type Language = "en" | "te";
 
 export type TranslationKey = 
-  | "dashboard" | "dailyPosting" | "dailyCollection" | "masterLedger" | "collectionBook" | "newAccount" | "extraAmount" | "membersRegistry" | "verifyPostings" | "searchArchives" | "manageVillages" | "manageAgents" | "reportsEngine" | "profitsCenter" | "adminControl" | "logout" | "channel" | "systemControls" | "language" | "english" | "telugu" | "shiftAccounts"
+  | "dashboard" | "dailyPosting" | "dailyCollection" | "masterLedger" | "collectionBook" | "newAccount" | "extraAmount" | "membersRegistry" | "verifyPostings" | "searchArchives" | "manageVillages" | "manageAgents" | "reportsEngine" | "profitsCenter" | "adminControl" | "logout" | "channel" | "systemControls" | "language" | "english" | "telugu" | "shiftAccounts" | "companyAccount"
   // General UI labels
   | "accountNo" | "name" | "village" | "amount" | "paid" | "balance" | "totalDebt" | "recovered" | "repaymentVelocity" | "options" | "actions" | "save" | "cancel" | "loading" | "outstanding" | "notes" | "note" | "search" | "submit" | "date" | "status" | "add" | "edit" | "delete" | "verify"
   // Section Titles
@@ -28,6 +28,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
     manageAgents: "Manage Agents",
     reportsEngine: "Reports Engine",
     profitsCenter: "Profits Center",
+    companyAccount: "Company Account",
     adminControl: "Admin Control",
     logout: "Logout",
     channel: "Channel",
@@ -90,6 +91,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
     manageAgents: "ఏజెంట్ల నిర్వహణ (Manage Agents)",
     reportsEngine: "నివేదికలు (Reports Engine)",
     profitsCenter: "లాభాల వివరాలు (Profits Center)",
+    companyAccount: "సంస్థ ఖాతా (Company Account)",
     adminControl: "అడ్మిన్ నియంత్రణ (Admin Control)",
     logout: "లాగ్ అవుట్ (Logout)",
     channel: "లైన్ / ఛానెల్",

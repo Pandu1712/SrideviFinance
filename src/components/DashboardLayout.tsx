@@ -166,24 +166,13 @@ const DashboardLayout = () => {
   const pageName = location.pathname.split('/').pop()?.replace('-', ' ') || 'Dashboard';
   const activeLineName = lines.find(l => l.id === selectedLineId)?.name || 'Full Portfolio';
 
-  // Focused Operative Mode: Bypass layout chrome for agents in the field
-  const isAgentRecovery = userData?.role === 'agent' && location.pathname === '/daily-collection';
-
-  if (isAgentRecovery) {
-    return (
-      <div className="h-screen bg-[#F5F7FB] dark:bg-[#0B0F19] overflow-hidden">
-        <Outlet />
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-screen overflow-hidden bg-[#F8FAFC] dark:bg-[#0B0F19] text-foreground">
       <AppSidebar />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Premium Top Bar */}
-        <header className="h-16 lg:h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 lg:px-6 flex items-center justify-between z-30 shrink-0">
+        <header className="hidden lg:flex h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-6 items-center justify-between z-30 shrink-0">
           <div className="flex items-center gap-3 lg:gap-4">
             <div className="h-8 w-8 lg:h-10 lg:w-10 rounded-lg lg:rounded-xl bg-slate-900 dark:bg-slate-800 flex items-center justify-center text-white shadow-lg">
               <MapPin size={16} className="text-accent lg:w-5 lg:h-5" />
@@ -295,58 +284,6 @@ const DashboardLayout = () => {
                 </motion.div>
               </button>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="h-10 w-10 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400 hover:text-primary transition-all relative">
-                    <Bell size={20} />
-                    {notifications.length > 0 && (
-                      <span className="absolute top-2.5 right-2.5 h-2 w-2 bg-red-500 rounded-full border-2 border-white animate-pulse" />
-                    )}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-80 glass-card border-slate-200 p-0 shadow-2xl z-[100] overflow-hidden">
-                  <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">Alert Center</h3>
-                    <button
-                      onClick={() => setNotifications([])}
-                      className="text-[10px] font-black uppercase text-accent hover:text-primary transition-colors"
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                  <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
-                    {notifications.length === 0 ? (
-                      <div className="p-10 text-center flex flex-col items-center justify-center text-slate-400">
-                        <Bell size={32} className="mb-3 opacity-10" />
-                        <span className="text-xs font-bold italic">No active alerts.</span>
-                      </div>
-                    ) : (
-                      notifications.map(n => (
-                        <div key={n.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-default group relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeNotification(n.id);
-                            }}
-                            className="absolute top-4 right-4 h-5 w-5 rounded-md flex items-center justify-center bg-slate-100 text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-rose-50 hover:text-rose-500 transition-all"
-                          >
-                            <X size={12} />
-                          </button>
-                          <div className="flex justify-between items-start mb-1 pr-6">
-                            <div className="flex items-center gap-1.5">
-                              <div className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-                              <span className="text-[10px] font-black uppercase tracking-tight text-slate-900">{n.title}</span>
-                            </div>
-                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">{n.time}</span>
-                          </div>
-                          <p className="text-[11px] font-medium text-slate-600 leading-relaxed">{n.message}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
               {(userData?.role === "super_admin" || userData?.role === "admin" || userData?.role === "partner") && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -402,7 +339,7 @@ const DashboardLayout = () => {
         </header>
 
         {/* Main Content with Page Transitions */}
-        <main className="flex-1 p-4 lg:p-8 pb-32 lg:pb-16 overflow-x-hidden overflow-y-auto bg-slate-50/30 dark:bg-slate-950/20">
+        <main className="flex-1 p-4 pt-20 lg:p-8 overflow-x-hidden overflow-y-auto pb-32 lg:pb-16 bg-slate-50/30 dark:bg-slate-950/20">
           <AnimatePresence>
             <motion.div
               key={location.pathname}

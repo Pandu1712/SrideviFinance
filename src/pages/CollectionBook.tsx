@@ -359,32 +359,30 @@ const CollectionBook = () => {
           <div className="relative overflow-x-auto max-w-full border-none">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-100 text-slate-700 text-xs font-black uppercase border-b border-slate-200">
-                  <th className="sticky left-0 bg-slate-100 z-30 min-w-[55px] max-w-[55px] p-3 text-center border-r border-slate-200 shadow-[2px_0_3px_rgba(0,0,0,0.03)]">S.No</th>
-                  <th className="sticky left-[55px] bg-slate-100 z-30 min-w-[95px] max-w-[95px] p-3 border-r border-slate-200 shadow-[2px_0_3px_rgba(0,0,0,0.03)]">Acc ID</th>
-                  <th className="sticky left-[150px] bg-slate-100 z-30 min-w-[160px] max-w-[160px] p-3 border-r border-slate-200 shadow-[3px_0_5px_rgba(0,0,0,0.05)]">Name</th>
+                <tr className="bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-black uppercase border-b border-slate-200 dark:border-slate-800">
+                  <th className="sticky left-0 bg-slate-100 dark:bg-slate-900 z-30 min-w-[150px] max-w-[150px] p-3 border-r border-slate-200 dark:border-slate-800 shadow-[3px_0_5px_rgba(0,0,0,0.05)] text-left pl-4">S.No / Date</th>
                   {daysArray.map(d => (
-                    <th key={d} className="p-3 text-center min-w-[50px] border-r border-slate-200">{d}</th>
+                    <th key={d} className="p-3 text-center min-w-[65px] border-r border-slate-200 dark:border-slate-800">
+                      {String(d).padStart(2, "0")}-{String(selectedMonth).padStart(2, "0")}
+                    </th>
                   ))}
-                  <th className="p-3 text-right pr-6 min-w-[110px] bg-slate-100">Month Total</th>
+                  <th className="p-3 text-right pr-6 min-w-[110px] bg-slate-100 dark:bg-slate-900">Month Total</th>
                 </tr>
-                <tr className="bg-indigo-50/70 text-indigo-900 text-xs font-black border-b border-indigo-100">
-                  <td className="sticky left-0 bg-indigo-50/90 z-25 p-3 text-center border-r border-indigo-100 shadow-[2px_0_3px_rgba(0,0,0,0.03)]">Total</td>
-                  <td className="sticky left-[55px] bg-indigo-50/90 z-25 p-3 border-r border-indigo-100 shadow-[2px_0_3px_rgba(0,0,0,0.03)]"></td>
-                  <td className="sticky left-[150px] bg-indigo-50/90 z-25 p-3 border-r border-indigo-100 shadow-[3px_0_5px_rgba(0,0,0,0.05)]">Day Collection</td>
+                <tr className="bg-indigo-50/70 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 text-xs font-black border-b border-indigo-100 dark:border-indigo-900/60">
+                  <td className="sticky left-0 bg-indigo-50/90 dark:bg-indigo-950/40 z-25 p-3 border-r border-indigo-100 dark:border-indigo-900/60 shadow-[3px_0_5px_rgba(0,0,0,0.05)] font-bold pl-4">Total Collection</td>
                   {daysArray.map(d => {
                     const totalDay = getDayTotal(d);
                     return (
-                      <td key={d} className="p-3 text-center border-r border-indigo-100 font-black tabular-nums">
+                      <td key={d} className="p-3 text-center border-r border-indigo-100 dark:border-indigo-900/40 font-black tabular-nums">
                         {totalDay > 0 ? (
-                          <span className="text-emerald-700 font-bold">{totalDay}</span>
+                          <span className="text-emerald-700 dark:text-emerald-400 font-bold">{totalDay}</span>
                         ) : (
-                          <span className="text-slate-300">-</span>
+                          <span className="text-slate-300 dark:text-slate-700">-</span>
                         )}
                       </td>
                     );
                   })}
-                  <td className="p-3 text-right pr-6 bg-indigo-50/90 font-black text-sm text-indigo-700 tabular-nums">
+                  <td className="p-3 text-right pr-6 bg-indigo-50/90 dark:bg-indigo-950/40 font-black text-sm text-indigo-700 dark:text-indigo-400 tabular-nums">
                     ₹{grandMonthTotal.toLocaleString("en-IN")}
                   </td>
                 </tr>
@@ -392,14 +390,14 @@ const CollectionBook = () => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={daysInMonth + 4} className="text-center py-20 bg-white">
-                      <div className="animate-spin h-8 w-8 border-4 border-slate-200 border-t-accent rounded-full mx-auto" />
+                    <td colSpan={daysInMonth + 2} className="text-center py-20 bg-white dark:bg-[#0B0F19]">
+                      <div className="animate-spin h-8 w-8 border-4 border-slate-200 dark:border-slate-800 border-t-accent rounded-full mx-auto" />
                       <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Compiling Collections Matrix...</p>
                     </td>
                   </tr>
                 ) : filteredAccounts.length === 0 ? (
                   <tr>
-                    <td colSpan={daysInMonth + 4} className="text-center py-20 bg-white text-slate-400 font-medium italic">
+                    <td colSpan={daysInMonth + 2} className="text-center py-20 bg-white dark:bg-[#0B0F19] text-slate-400 font-medium italic">
                       No matching accounts or payments found for this period.
                     </td>
                   </tr>
@@ -408,38 +406,32 @@ const CollectionBook = () => {
                     const rowTotal = getAccountMonthTotal(acc.accountNo);
                     return (
                       <tr key={acc.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 transition-colors">
-                        <td className="sticky left-0 bg-white dark:bg-[#0B0F19] group-hover:bg-slate-50 dark:group-hover:bg-slate-800/30 transition-colors z-20 p-3 text-center font-bold text-slate-400 border-r border-slate-100 dark:border-slate-800 shadow-[2px_0_3px_rgba(0,0,0,0.02)]">
-                          {String(index + 1).padStart(2, "0")}
-                        </td>
-                        <td className="sticky left-[55px] bg-white dark:bg-[#0B0F19] group-hover:bg-slate-50 dark:group-hover:bg-slate-800/30 transition-colors z-20 p-3 border-r border-slate-100 dark:border-slate-800 font-mono font-bold text-slate-700 dark:text-slate-300 uppercase shadow-[2px_0_3px_rgba(0,0,0,0.02)]">
-                          {acc.accountNo}
-                        </td>
-                        <td className="sticky left-[150px] bg-white dark:bg-[#0B0F19] group-hover:bg-slate-50 dark:group-hover:bg-slate-800/30 transition-colors z-20 p-3 border-r border-slate-200 dark:border-slate-800 shadow-[3px_0_5px_rgba(0,0,0,0.04)]">
-                          <div className="flex flex-col min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-slate-900 dark:text-white truncate leading-tight group-hover:text-accent transition-colors">{acc.name}</span>
-                              {acc.nameTelugu && (
-                                <span className="text-[10px] font-semibold text-slate-500 font-telugu whitespace-nowrap">
-                                  ({acc.nameTelugu})
-                                </span>
-                              )}
+                        <td className="sticky left-0 bg-white dark:bg-[#0B0F19] group-hover:bg-slate-50 dark:group-hover:bg-slate-800/30 transition-colors z-20 p-3 border-r border-slate-200 dark:border-slate-800 shadow-[3px_0_5px_rgba(0,0,0,0.04)] min-w-[150px] max-w-[150px]">
+                          <div className="flex items-start gap-2 pl-1">
+                            <span className="text-red-500 font-bold mt-0.5 text-[10px]">►</span>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-black text-slate-800 dark:text-white text-xs leading-none">
+                                {acc.accountNo}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-1 truncate">
+                                {acc.name} {acc.nameTelugu && <span className="font-telugu text-[9px] lowercase">({acc.nameTelugu})</span>}
+                              </span>
                             </div>
-                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter truncate mt-0.5">{acc.village || "N/A"}</span>
                           </div>
                         </td>
                         {daysArray.map(d => {
                           const amt = getPostingAmount(acc.accountNo, d);
                           return (
-                            <td key={d} className="p-3 text-center border-r border-slate-100 font-semibold text-slate-700 tabular-nums">
+                            <td key={d} className="p-3 text-center border-r border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200 tabular-nums text-xs min-w-[65px]">
                               {amt > 0 ? (
-                                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-xs font-bold">{amt}</span>
+                                amt.toLocaleString("en-IN")
                               ) : (
-                                <span className="text-slate-200">-</span>
+                                <span className="text-slate-200 dark:text-slate-850 font-normal">-</span>
                               )}
                             </td>
                           );
                         })}
-                        <td className="p-3 text-right pr-6 bg-slate-50/50 group-hover:bg-slate-100/50 font-black text-slate-900 text-xs tabular-nums">
+                        <td className="p-3 text-right pr-6 bg-slate-50/50 dark:bg-slate-900/30 group-hover:bg-slate-100/50 dark:group-hover:bg-slate-800/50 font-black text-slate-900 dark:text-slate-100 text-xs tabular-nums">
                           ₹{rowTotal.toLocaleString("en-IN")}
                         </td>
                       </tr>

@@ -111,15 +111,17 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
 
       unsubscribeExpenses = onSnapshot(summRef, (snapshot) => {
         let totalExp = 0;
+        let totalInflow = 0;
         let totalOpening = 0;
         snapshot.forEach(d => {
           const summ = d.data();
           if (userData.role !== 'agent') {
             totalExp += (summ.expenses || 0);
+            totalInflow += (summ.manualInflows || 0);
           }
           totalOpening += (summ.openingBalance || 0);
         });
-        setClosureStats(p => ({ ...p, expenses: totalExp, openingBalance: totalOpening }));
+        setClosureStats(p => ({ ...p, expenses: totalExp, manualInflows: totalInflow, openingBalance: totalOpening }));
       });
 
       // 3. Expense Log Listener
@@ -132,28 +134,50 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
         const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         let agentExp = 0;
         let adminExp = 0;
-        let personalTotal = 0;
+        let agentInflow = 0;
+        let adminInflow = 0;
+        let personalTotalExp = 0;
+        let personalTotalInflow = 0;
 
         logs.forEach((log: any) => {
           const amt = log.amount || 0;
-          if (log.userRole === 'super_admin' || log.userRole === 'admin') adminExp += amt;
-          else if (log.userRole === 'agent') agentExp += amt;
-          else {
-            if (adminIdsSet.has(log.collectedById)) adminExp += amt;
+          const isInflow = log.type === 'inflow';
+          const isAdmin = log.userRole === 'super_admin' || log.userRole === 'admin' || adminIdsSet.has(log.collectedById);
+
+          if (isAdmin) {
+            if (isInflow) adminInflow += amt;
+            else adminExp += amt;
+          } else {
+            if (isInflow) agentInflow += amt;
             else agentExp += amt;
           }
-          if (log.collectedById === userData.uid) personalTotal += amt;
+
+          if (log.collectedById === userData.uid) {
+            if (isInflow) personalTotalInflow += amt;
+            else personalTotalExp += amt;
+          }
         });
 
-        setClosureStats(p => ({ 
-          ...p, 
-          agentExpenses: agentExp, 
-          adminExpenses: adminExp,
-          expenses: userData.role === 'agent' ? personalTotal : p.expenses 
-        }));
+        setClosureStats(p => {
+          const updated = {
+            ...p,
+            agentExpenses: agentExp,
+            adminExpenses: adminExp
+          };
+          if (userData.role === 'agent') {
+            updated.expenses = personalTotalExp;
+            updated.manualInflows = personalTotalInflow;
+          } else {
+            // For admin/partner, manualInflows is already computed from day_summaries
+            // but we can also set adminExpenses / agentExpenses
+          }
+          return updated;
+        });
         setDailyExpenseLogs(logs);
       });
-    });
+      
+      // Let's complete the callback
+      });
 
     return () => {
       if (unsubscribePostings) unsubscribePostings();
@@ -191,10 +215,12 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
     try {
       const amount = parseFloat(expenseInput.amount);
       const lineId = selectedLineId || 'global';
+      const txType = expenseInput.type || 'outflow';
       
       await addDoc(collection(db, "expenses_log"), {
         amount,
-        note: expenseInput.note || "Daily Expense",
+        type: txType,
+        note: expenseInput.note || (txType === 'inflow' ? "Manual Inflow" : "Daily Expense"),
         date: effectiveDate,
         lineId,
         collectedById: userData?.uid,
@@ -208,18 +234,30 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
       const summSnap = await getDoc(summaryRef);
       
       if (summSnap.exists()) {
-        await updateDoc(summaryRef, { expenses: (summSnap.data().expenses || 0) + amount });
+        const updateData: any = {};
+        if (txType === 'inflow') {
+          updateData.manualInflows = (summSnap.data().manualInflows || 0) + amount;
+        } else {
+          updateData.expenses = (summSnap.data().expenses || 0) + amount;
+        }
+        await updateDoc(summaryRef, updateData);
       } else {
-        await setDoc(summaryRef, { expenses: amount, date: effectiveDate, lineId, openingBalance: 0 });
+        await setDoc(summaryRef, { 
+          expenses: txType === 'outflow' ? amount : 0, 
+          manualInflows: txType === 'inflow' ? amount : 0, 
+          date: effectiveDate, 
+          lineId, 
+          openingBalance: 0 
+        });
       }
 
       if (userData) {
-        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_ADD", `Recorded expense of ${formatCurrency(amount)}: ${expenseInput.note}`, lineId);
+        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_ADD", `Recorded ${txType}: ${formatCurrency(amount)} - ${expenseInput.note}`, lineId);
       }
 
-      sonnerToast.success("Expense Recorded");
+      sonnerToast.success(txType === 'inflow' ? "Inflow Recorded" : "Expense Recorded");
       setIsAddingExpense(false);
-      setExpenseInput({ amount: "", note: "" });
+      setExpenseInput({ amount: "", note: "", type: "outflow" });
     } catch (err) {
       console.error("Add expense error:", err);
     }
@@ -229,27 +267,35 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
     if (!editingExpense || !editInput.amount || isNaN(parseFloat(editInput.amount))) return;
     try {
       const newAmount = parseFloat(editInput.amount);
-      const diff = newAmount - (editingExpense.amount || 0);
+      const oldAmount = editingExpense.amount || 0;
+      const diff = newAmount - oldAmount;
       const lineId = editingExpense.lineId || 'global';
+      const txType = editingExpense.type || 'outflow';
       
       await updateDoc(doc(db, "expenses_log", editingExpense.id), {
         amount: newAmount,
         note: editInput.note
       });
 
-      const summaryId = `${editingExpense.date}_${lineId}`;
+      const summaryId = `${editingExpense.date || effectiveDate}_${lineId}`;
       const summaryRef = doc(db, "day_summaries", summaryId);
       const summSnap = await getDoc(summaryRef);
       
       if (summSnap.exists()) {
-        await updateDoc(summaryRef, { expenses: (summSnap.data().expenses || 0) + diff });
+        const updateData: any = {};
+        if (txType === 'inflow') {
+          updateData.manualInflows = (summSnap.data().manualInflows || 0) + diff;
+        } else {
+          updateData.expenses = (summSnap.data().expenses || 0) + diff;
+        }
+        await updateDoc(summaryRef, updateData);
       }
 
       if (userData) {
-        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_UPDATE", `Updated expense from ${formatCurrency(editingExpense.amount)} to ${formatCurrency(newAmount)}: ${editInput.note}`, lineId);
+        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_UPDATE", `Updated ${txType} from ${formatCurrency(oldAmount)} to ${formatCurrency(newAmount)}: ${editInput.note}`, lineId);
       }
 
-      sonnerToast.success("Expense Updated");
+      sonnerToast.success("Transaction Updated");
       setEditingExpense(null);
     } catch (err) {
       console.error("Update expense error:", err);
@@ -258,35 +304,40 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
   };
 
   const handleDeleteExpense = async (log: any) => {
-    if (!window.confirm("Are you sure you want to delete this expense record?")) return;
+    if (!window.confirm("Are you sure you want to delete this record?")) return;
     try {
       const lineId = log.lineId || 'global';
-      await updateDoc(doc(db, "expenses_log", log.id), { amount: 0, deleted: true }); // Soft delete or just delete?
-      await updateDoc(doc(db, "expenses_log", log.id), { status: 'deleted' }); // Let's actually delete it if we want it gone from total.
-      // Wait, if I delete the doc, onSnapshot will pick it up.
+      const txType = log.type || 'outflow';
+      const amount = log.amount || 0;
       
       await deleteDoc(doc(db, "expenses_log", log.id));
 
-      const summaryId = `${log.date}_${lineId}`;
+      const summaryId = `${log.date || effectiveDate}_${lineId}`;
       const summaryRef = doc(db, "day_summaries", summaryId);
       const summSnap = await getDoc(summaryRef);
       
       if (summSnap.exists()) {
-        await updateDoc(summaryRef, { expenses: Math.max(0, (summSnap.data().expenses || 0) - (log.amount || 0)) });
+        const updateData: any = {};
+        if (txType === 'inflow') {
+          updateData.manualInflows = Math.max(0, (summSnap.data().manualInflows || 0) - amount);
+        } else {
+          updateData.expenses = Math.max(0, (summSnap.data().expenses || 0) - amount);
+        }
+        await updateDoc(summaryRef, updateData);
       }
 
       if (userData) {
-        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_DELETE", `Deleted expense of ${formatCurrency(log.amount)}: ${log.note}`, lineId);
+        logActivity(userData.uid, userData.name, userData.role, "EXPENSE_DELETE", `Deleted ${txType} of ${formatCurrency(amount)}: ${log.note}`, lineId);
       }
 
-      sonnerToast.success("Expense Deleted");
+      sonnerToast.success("Record Deleted");
     } catch (err) {
       console.error("Delete expense error:", err);
       sonnerToast.error("Deletion failed");
     }
   };
 
-  const netFlow = (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses);
+  const netFlow = (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol + (closureStats.manualInflows || 0) - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses);
   const closingCash = closureStats.openingBalance + netFlow;
 
   return (
@@ -312,32 +363,49 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
             </div>
           ) : isAddingExpense ? (
             <div className="flex items-center gap-2">
+              <select
+                value={expenseInput.type || "outflow"}
+                onChange={e => setExpenseInput(prev => ({ ...prev, type: e.target.value }))}
+                className="h-8 px-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg text-[10px] font-bold text-slate-700 dark:text-slate-250 outline-none shadow-sm focus:border-accent"
+              >
+                <option value="outflow">- Outflow / Expense</option>
+                <option value="inflow">+ Inflow / Income</option>
+              </select>
               <Input 
                 type="text"
                 inputMode="decimal"
                 placeholder="Amount" 
                 value={expenseInput.amount}
                 onChange={e => setExpenseInput(prev => ({ ...prev, amount: e.target.value }))}
-                className="h-8 w-24 text-xs font-bold rounded-lg border-slate-200"
+                className="h-8 w-20 text-xs font-bold rounded-lg border-slate-200 dark:border-slate-800"
               />
               <Input 
                 placeholder="Note..." 
                 value={expenseInput.note}
                 onChange={e => setExpenseInput(prev => ({ ...prev, note: e.target.value }))}
-                className="h-8 w-32 text-xs font-bold rounded-lg border-slate-200"
+                className="h-8 w-28 text-xs font-bold rounded-lg border-slate-200 dark:border-slate-800"
               />
-              <Button onClick={handleAddExpense} className="h-8 px-3 bg-rose-500 text-white font-black text-[9px] uppercase">Record</Button>
+              <Button 
+                onClick={handleAddExpense} 
+                className={`h-8 px-3 text-white font-black text-[9px] uppercase transition-all ${
+                  expenseInput.type === "inflow" 
+                    ? "bg-emerald-600 hover:bg-emerald-700" 
+                    : "bg-rose-500 hover:bg-rose-600"
+                }`}
+              >
+                {expenseInput.type === "inflow" ? "Add" : "Record"}
+              </Button>
               <Button onClick={() => setIsAddingExpense(false)} variant="ghost" className="h-8 px-2 text-slate-400">Cancel</Button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
               {(userData?.role === "super_admin" || userData?.role === "admin") && (
-                <Button onClick={() => setIsSettingOpening(true)} variant="outline" className="h-8 border-slate-200 font-black text-[9px] uppercase tracking-widest bg-white">
+                <Button onClick={() => setIsSettingOpening(true)} variant="outline" className="h-8 border-slate-200 dark:border-slate-800 font-black text-[9px] uppercase tracking-widest bg-white dark:bg-slate-850 dark:text-white">
                   Set Opening Balance
                 </Button>
               )}
-              <Button onClick={() => setIsAddingExpense(true)} variant="outline" className="h-8 border-rose-100 text-rose-500 font-black text-[9px] uppercase tracking-widest bg-rose-50/50 hover:bg-rose-50">
-                Add Expense
+              <Button onClick={() => setIsAddingExpense(true)} variant="outline" className="h-8 border-rose-100 text-rose-500 font-black text-[9px] uppercase tracking-widest bg-rose-50/50 hover:bg-rose-55 dark:bg-rose-950/20 dark:hover:bg-rose-950/30">
+                Add Transaction
               </Button>
             </div>
           )}
@@ -374,10 +442,14 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Penalty Fees</span>
                 <span className="text-sm font-black text-rose-500">+{formatCurrency(closureStats.penalties)}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Extra Collections</span>
-                <span className="text-sm font-black text-indigo-500">+{formatCurrency(closureStats.extraCol)}</span>
-              </div>
+               <div className="flex justify-between items-center">
+                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Extra Collections</span>
+                 <span className="text-sm font-black text-indigo-500">+{formatCurrency(closureStats.extraCol)}</span>
+               </div>
+               <div className="flex justify-between items-center border-t border-slate-100 dark:border-slate-800/40 pt-2 mt-2">
+                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Other Inflows</span>
+                 <span className="text-sm font-black text-emerald-700 dark:text-emerald-400">+{formatCurrency(closureStats.manualInflows)}</span>
+               </div>
            </div>
         </Card>
 
@@ -445,87 +517,119 @@ const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
           <div className="bg-slate-900 p-6 text-white">
              <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
                 <FileText size={20} className="text-accent" />
-                Expense Registry
+                Transaction Registry
              </DialogTitle>
              <DialogDescription className="text-slate-400 text-xs mt-1">
-                Detailed expenditure logs for {formatDate(effectiveDate)}
+                Detailed expenditure and inflow logs for {formatDate(effectiveDate)}
              </DialogDescription>
           </div>
           <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
-             {dailyExpenseLogs.length === 0 ? (
-               <div className="py-10 text-center space-y-3">
-                  <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-300">
-                     <Info size={24} />
-                  </div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No expenses recorded for this session</p>
-               </div>
-             ) : dailyExpenseLogs.map((log: any) => (
-               <div key={log.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex justify-between items-start group hover:bg-white hover:shadow-md transition-all">
-                  {editingExpense?.id === log.id ? (
-                    <div className="flex-1 space-y-3">
-                      <div className="flex gap-2">
-                        <Input 
-                          type="text"
-                          inputMode="decimal"
-                          value={editInput.amount}
-                          onChange={e => setEditInput(p => ({ ...p, amount: e.target.value }))}
-                          className="h-8 w-24 text-xs font-bold"
-                          placeholder="Amount"
-                        />
-                        <Input 
-                          value={editInput.note}
-                          onChange={e => setEditInput(p => ({ ...p, note: e.target.value }))}
-                          className="h-8 flex-1 text-xs font-bold"
-                          placeholder="Note"
-                        />
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button onClick={() => setEditingExpense(null)} variant="ghost" size="sm" className="h-7 text-[9px] uppercase">Cancel</Button>
-                        <Button onClick={handleUpdateExpense} size="sm" className="h-7 bg-emerald-500 text-white text-[9px] uppercase font-black"><Check size={12} className="mr-1" /> Update</Button>
-                      </div>
+             {(() => {
+                const sortedLogs = [...dailyExpenseLogs].sort((a, b) => {
+                  const timeA = a.createdAt || a.timestamp || "";
+                  const timeB = b.createdAt || b.timestamp || "";
+                  return timeA.localeCompare(timeB);
+                });
+                let running = 0;
+                const displayLogs = sortedLogs.map(log => {
+                  const amt = log.amount || 0;
+                  if (log.type === "inflow") {
+                    running += amt;
+                  } else {
+                    running -= amt;
+                  }
+                  return { ...log, runningBalance: running };
+                }).reverse();
+
+                if (displayLogs.length === 0) {
+                  return (
+                    <div className="py-10 text-center space-y-3">
+                       <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-300">
+                          <Info size={24} />
+                       </div>
+                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No transactions recorded for this session</p>
                     </div>
-                  ) : (
-                    <>
-                      <div className="space-y-1">
-                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{log.collectedByName || "System"}</p>
-                         <h4 className="font-black text-slate-900 uppercase text-xs">{log.note}</h4>
-                         <p className="text-[8px] font-bold text-slate-400">{new Date(log.createdAt).toLocaleTimeString()}</p>
-                      </div>
-                      <div className="text-right">
-                         <div className="flex items-center gap-2 justify-end mb-1">
-                            {(userData?.role === 'super_admin' || userData?.role === 'admin') && (
-                              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="h-6 w-6 text-slate-400 hover:text-indigo-600"
-                                  onClick={() => {
-                                    setEditingExpense(log);
-                                    setEditInput({ amount: String(log.amount), note: log.note });
-                                  }}
-                                >
-                                  <Edit2 size={12} />
-                                </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="h-6 w-6 text-slate-400 hover:text-rose-600"
-                                  onClick={() => handleDeleteExpense(log)}
-                                >
-                                  <Trash2 size={12} />
-                                </Button>
-                              </div>
-                            )}
-                            <p className="text-md font-black text-rose-500">-{formatCurrency(log.amount)}</p>
-                         </div>
-                         <Badge className="text-[8px] bg-slate-200 text-slate-600 border-none font-black uppercase">
-                            {log.userRole === 'super_admin' ? 'Admin' : 'Agent'}
-                         </Badge>
-                      </div>
-                    </>
-                  )}
-               </div>
-             ))}
+                  );
+                }
+
+                return displayLogs.map((log: any) => (
+                  <div key={log.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800/60 flex justify-between items-start group hover:bg-white dark:hover:bg-slate-800 hover:shadow-md transition-all">
+                   {editingExpense?.id === log.id ? (
+                     <div className="flex-1 space-y-3">
+                       <div className="flex gap-2">
+                         <Input 
+                           type="text"
+                           inputMode="decimal"
+                           value={editInput.amount}
+                           onChange={e => setEditInput(p => ({ ...p, amount: e.target.value }))}
+                           className="h-8 w-24 text-xs font-bold bg-white dark:bg-slate-800"
+                           placeholder="Amount"
+                         />
+                         <Input 
+                           value={editInput.note}
+                           onChange={e => setEditInput(p => ({ ...p, note: e.target.value }))}
+                           className="h-8 flex-1 text-xs font-bold bg-white dark:bg-slate-800"
+                           placeholder="Note"
+                         />
+                       </div>
+                       <div className="flex justify-end gap-2">
+                         <Button onClick={() => setEditingExpense(null)} variant="ghost" size="sm" className="h-7 text-[9px] uppercase">Cancel</Button>
+                         <Button onClick={handleUpdateExpense} size="sm" className="h-7 bg-emerald-500 text-white text-[9px] uppercase font-black"><Check size={12} className="mr-1" /> Update</Button>
+                       </div>
+                     </div>
+                   ) : (
+                     <>
+                       <div className="space-y-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{log.collectedByName || "System"}</p>
+                          <h4 className="font-black text-slate-900 dark:text-slate-100 uppercase text-xs">{log.note}</h4>
+                          <p className="text-[8px] font-bold text-slate-400">{new Date(log.createdAt).toLocaleTimeString()}</p>
+                       </div>
+                       <div className="text-right">
+                          <div className="flex items-center gap-2 justify-end mb-1">
+                             {(userData?.role === 'super_admin' || userData?.role === 'admin') && (
+                               <div className="flex items-center gap-0.5">
+                                 <Button 
+                                   variant="ghost" 
+                                   size="icon" 
+                                   className="h-6 w-6 text-slate-400 hover:text-indigo-600 hover:bg-slate-100/50"
+                                   onClick={() => {
+                                     setEditingExpense(log);
+                                     setEditInput({ amount: String(log.amount), note: log.note });
+                                   }}
+                                 >
+                                   <Edit2 size={12} />
+                                 </Button>
+                                 <Button 
+                                   variant="ghost" 
+                                   size="icon" 
+                                   className="h-6 w-6 text-slate-400 hover:text-rose-600 hover:bg-slate-100/50"
+                                   onClick={() => handleDeleteExpense(log)}
+                                 >
+                                   <Trash2 size={12} />
+                                 </Button>
+                               </div>
+                             )}
+                             <p className={`text-md font-black ${log.type === "inflow" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500"}`}>
+                               {log.type === "inflow" ? "+" : "-"}{formatCurrency(log.amount)}
+                             </p>
+                             <p className="text-[9px] font-black text-slate-450 dark:text-slate-500 mt-0.5 text-right">
+                               Bal: {log.runningBalance >= 0 ? "+" : ""}{formatCurrency(log.runningBalance)}
+                             </p>
+                          </div>
+                          <div className="flex items-center gap-1 justify-end flex-wrap">
+                            <Badge className="text-[7px] bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-350 border-none font-black uppercase px-1 py-0.5 leading-none">
+                               {log.userRole === 'super_admin' ? 'Admin' : 'Agent'}
+                            </Badge>
+                            <Badge className={`text-[7px] border-none font-black uppercase px-1 py-0.5 leading-none ${log.type === "inflow" ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400" : "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400"}`}>
+                               {log.type === "inflow" ? "Inflow" : "Outflow"}
+                            </Badge>
+                          </div>
+                       </div>
+                     </>
+                   )}
+                </div>
+                ));
+             })()}
           </div>
         </DialogContent>
       </Dialog>

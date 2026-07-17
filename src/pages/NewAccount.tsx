@@ -43,6 +43,7 @@ const accountSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters"),
   nameTelugu: z.string().optional(),
   fatherHusbandName: z.string().optional(),
+  fatherHusbandNameTelugu: z.string().optional(),
   phone: z.string().regex(/^[0-9]{10}$/, "Invalid phone number").optional().or(z.literal("")),
   village: z.string().optional(),
   occupation: z.string().optional(),
@@ -118,6 +119,7 @@ const NewAccount = () => {
     setValue("name", data.name || "");
     setValue("nameTelugu", data.nameTelugu || "");
     setValue("fatherHusbandName", data.fatherHusbandName || "");
+    setValue("fatherHusbandNameTelugu", data.fatherHusbandNameTelugu || "");
     setValue("phone", data.phone || "");
     setValue("village", data.village || "");
     setValue("occupation", data.occupation || "");
@@ -192,6 +194,8 @@ const NewAccount = () => {
       creationDate: new Date().toISOString().split("T")[0],
       name: "",
       nameTelugu: "",
+      fatherHusbandName: "",
+      fatherHusbandNameTelugu: "",
       phone: "",
       village: "",
       occupation: "",
@@ -318,6 +322,7 @@ const NewAccount = () => {
       documentCharge: "0",
       altPhone: "",
       creationDate: new Date().toISOString().split("T")[0],
+      fatherHusbandNameTelugu: "",
     },
   });
 
@@ -395,6 +400,25 @@ const NewAccount = () => {
     }, 1000); // 1s debounce
     return () => clearTimeout(timer);
   }, [watch("name"), setValue]);
+
+  // Transliteration logic for Father/Husband Name
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const fatherVal = watch("fatherHusbandName");
+      if (fatherVal && fatherVal.length > 2) {
+        try {
+          const res = await fetch(`https://inputtools.google.com/request?text=${encodeURIComponent(fatherVal)}&itc=te-t-i0-und&num=1&cp=0&cs=1&ie=utf-8&oe=utf-8&app=test`);
+          const data = await res.json();
+          if (data && data[0] === "SUCCESS" && data[1][0][1][0]) {
+            setValue("fatherHusbandNameTelugu", data[1][0][1][0]);
+          }
+        } catch (err) {
+          console.error("Father transliteration failed", err);
+        }
+      }
+    }, 1000); // 1s debounce
+    return () => clearTimeout(timer);
+  }, [watch("fatherHusbandName"), setValue]);
 
   // Calculate End Date based on Total Amount, Installment, and Frequency
   useEffect(() => {
@@ -796,6 +820,7 @@ const NewAccount = () => {
           nameTelugu: "",
           phone: "",
           fatherHusbandName: "",
+          fatherHusbandNameTelugu: "",
           occupation: "",
           altPhone: "",
           documentsTaken: "",
@@ -946,6 +971,7 @@ const NewAccount = () => {
                             const oldData = snap.docs[0].data();
                             setValue("nameTelugu", oldData.nameTelugu || "");
                             setValue("fatherHusbandName", oldData.fatherHusbandName || "");
+                            setValue("fatherHusbandNameTelugu", oldData.fatherHusbandNameTelugu || "");
                             setValue("phone", oldData.phone || "");
                             setValue("village", oldData.village || "");
                             setValue("occupation", oldData.occupation || "");
@@ -987,6 +1013,15 @@ const NewAccount = () => {
               </div>
 
               <div className="space-y-2">
+                <Label className="text-sm font-semibold">Father / Husband Name (Telugu)</Label>
+                <Input 
+                  {...register("fatherHusbandNameTelugu")} 
+                  className="finance-input font-telugu text-lg" 
+                  placeholder="తెలుగులో తండ్రి/భర్త పేరు" 
+                />
+              </div>
+
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-semibold">Phone Number</Label>
                   {(userData?.role === 'super_admin' || userData?.role === 'admin') && (
@@ -1019,6 +1054,7 @@ const NewAccount = () => {
                             setValue("name", oldData.name || "");
                             setValue("nameTelugu", oldData.nameTelugu || "");
                             setValue("fatherHusbandName", oldData.fatherHusbandName || "");
+                            setValue("fatherHusbandNameTelugu", oldData.fatherHusbandNameTelugu || "");
                             setValue("village", oldData.village || "");
                             setValue("occupation", oldData.occupation || "");
                             setValue("altPhone", oldData.altPhone || "");

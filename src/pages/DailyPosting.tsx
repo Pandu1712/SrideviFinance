@@ -31,6 +31,11 @@ import {
   AlertDialogTitle 
 } from "@/components/ui/alert-dialog";
 
+const cleanAccountNo = (accNo: string) => {
+  if (!accNo) return "";
+  return accNo.split("_deleted")[0];
+};
+
 const DailyPosting = () => {
   const { userData } = useAuth();
   const { selectedLineId } = useLine();
@@ -696,12 +701,12 @@ const DailyPosting = () => {
               >
                 <Card className="glass-card h-[calc(100vh-250px)] overflow-hidden flex flex-col border-none shadow-2xl transition-all">
                   <CardHeader className="border-b border-border/40 bg-slate-50/50 dark:bg-slate-900/20 py-4 flex flex-col gap-3">
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <CardTitle className="text-sm font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
                         <Users className="h-4 w-4 text-accent" />
                         Portfolio
                       </CardTitle>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
                         <Select value={timelineFilter} onValueChange={setTimelineFilter}>
                           <SelectTrigger className="h-8 w-20 sm:w-24 text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm">
                             <SelectValue placeholder="Freq" />
@@ -1147,7 +1152,7 @@ const DailyPosting = () => {
                         <div key={m.id} className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between gap-3 hover:bg-slate-100/50 transition-colors">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="h-9 w-9 shrink-0 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-black">
-                              {m.accountNo}
+                              {cleanAccountNo(m.accountNo)}
                             </div>
                             <div className="min-w-0">
                               <p className="text-xs font-black text-slate-800 truncate uppercase">{m.name}</p>
