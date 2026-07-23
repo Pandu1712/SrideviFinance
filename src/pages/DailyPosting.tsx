@@ -64,6 +64,7 @@ const DailyPosting = () => {
 
   const [availableVillages, setAvailableVillages] = useState<string[]>([]);
   const [todayPostings, setTodayPostings] = useState<Set<string>>(new Set());
+  const [todayPostingsList, setTodayPostingsList] = useState<any[]>([]);
   const [mobileView, setMobileView] = useState<"list" | "form">("list");
   const [form, setForm] = useState({ 
     accountNo: "", 
@@ -140,10 +141,13 @@ const DailyPosting = () => {
     );
 
     const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs
+        .filter(d => d.data().lineId === selectedLineId)
+        .map(d => ({ id: d.id, ...d.data() }));
+      setTodayPostingsList(list);
+
       const postedIds = new Set(
-        snap.docs
-          .filter(d => d.data().lineId === selectedLineId)
-          .map(d => d.data().accountId)
+        list.map(p => p.accountId)
       );
       setTodayPostings(postedIds);
     }, (err) => {
@@ -157,7 +161,10 @@ const DailyPosting = () => {
     setAccountInfo(member);
     setForm(prev => ({ ...prev, accountNo: member.accountNo, amount: String(member.installmentAmount || "") }));
     
-    if (todayPostings.has(member.id)) {
+    const isPayLater = todayPostingsList.some(p => p.accountId === member.id && p.payMode === 'pay_later');
+    if (isPayLater) {
+      toast.info(`Selected: ${member.name} (Pay Later recorded today)`);
+    } else if (todayPostings.has(member.id)) {
       toast.error(`ALERT: A payment has already been recorded for ${member.name} today!`, { duration: 5000, icon: '🚨' });
     } else {
       toast.info(`Selected: ${member.name}`);
@@ -313,7 +320,7 @@ const DailyPosting = () => {
           penaltyAmount: penaltyAmount,
           status: form.status,
           payMode: form.payMode,
-          note: (form.payMode === 'bank' || form.payMode === 'upi') ? (form.note || "") : "",
+          note: (form.payMode === 'bank' || form.payMode === 'upi' || form.payMode === 'pay_later') ? (form.note || "") : "",
           lineId: accountInfo.lineId,
           adminId: accountInfo.adminId || "",
           memberName: accountInfo.name,
@@ -325,7 +332,7 @@ const DailyPosting = () => {
           createdAt: new Date().toISOString(),
         });
 
-        if (isVerified) {
+        if (isVerified && form.payMode !== 'pay_later') {
           const newPaid = (accData.paid || 0) + postingAmount;
           const newBalance = (accData.totalAmount || 0) - newPaid;
           const newStatus = newBalance <= 0 ? "completed" : "active";
@@ -359,28 +366,27 @@ const DailyPosting = () => {
         toast.success("Collection submitted! Awaiting admin approval.");
       } else {
         toast.success("Posted and finalized successfully");
-      }
-
-      setAccountInfo(prev => {
+           setAccountInfo(prev => {
         if (!prev) return null;
-        const addAmount = userData?.role !== 'agent' ? postingAmount : 0;
+        const addAmount = (userData?.role !== 'agent' && form.payMode !== 'pay_later') ? postingAmount : 0;
         const newPaid = (prev.paid || 0) + addAmount;
         const newBalance = Math.max(0, (prev.totalAmount || 0) - newPaid);
         const newStatus = newBalance <= 0 ? "completed" : prev.status;
         return { 
           ...prev, 
-          lastPostingDate: form.date,
+          lastPostingDate: form.payMode !== 'pay_later' ? form.date : prev.lastPostingDate,
           paid: newPaid, 
           balance: newBalance,
           status: newStatus,
           unhidden: newStatus === 'completed' ? false : (prev.unhidden || false)
         };
       });
-
+ 
       if (userData?.role !== 'agent') {
         setAssignedMembers(prev => prev.map(m => {
           if (m.id === accountInfo.id) {
-            const newPaid = (m.paid || 0) + postingAmount;
+            const addAmount = form.payMode !== 'pay_later' ? postingAmount : 0;
+            const newPaid = (m.paid || 0) + addAmount;
             const newBalance = Math.max(0, (m.totalAmount || 0) - newPaid);
             const newStatus = newBalance <= 0 ? "completed" : m.status;
             return {
@@ -389,12 +395,12 @@ const DailyPosting = () => {
               balance: newBalance,
               status: newStatus,
               unhidden: newStatus === 'completed' ? false : (m.unhidden || false),
-              lastPostingDate: form.date
+              lastPostingDate: form.payMode !== 'pay_later' ? form.date : m.lastPostingDate
             };
           }
           return m;
         }));
-      }
+      }     }
 
       setForm(prev => ({ 
         ...prev, 
@@ -655,22 +661,23 @@ const DailyPosting = () => {
                             <SelectItem value="cash">Cash</SelectItem>
                             <SelectItem value="bank">Bank</SelectItem>
                             <SelectItem value="upi">UPI</SelectItem>
+                            <SelectItem value="pay_later">Pay Later</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
 
-                      {(form.payMode === 'bank' || form.payMode === 'upi') && (
+                      {(form.payMode === 'bank' || form.payMode === 'upi' || form.payMode === 'pay_later') && (
                         <motion.div 
                           initial={{ opacity: 0, y: -5 }}
                           animate={{ opacity: 1, y: 0 }}
                           className="space-y-1.5"
                         >
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("note")} / Reference (Optional)</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{form.payMode === 'pay_later' ? "Pay Later Note (Optional)" : t("note") + " / Reference (Optional)"}</Label>
                           <Input 
                             type="text" 
                             value={form.note} 
                             onChange={e => handleChange("note", e.target.value)} 
-                            placeholder="Enter transaction ref, bank name or note..." 
+                            placeholder={form.payMode === 'pay_later' ? "e.g. will pay today night" : "Enter transaction ref, bank name or note..."} 
                             className="h-11 bg-white border-slate-200 focus-visible:ring-accent font-medium text-slate-900" 
                           />
                         </motion.div>
@@ -708,7 +715,7 @@ const DailyPosting = () => {
                       </CardTitle>
                       <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
                         <Select value={timelineFilter} onValueChange={setTimelineFilter}>
-                          <SelectTrigger className="h-8 w-20 sm:w-24 text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm">
+                          <SelectTrigger className="h-8 w-28 sm:w-32 text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm">
                             <SelectValue placeholder="Freq" />
                           </SelectTrigger>
                           <SelectContent>
@@ -716,6 +723,8 @@ const DailyPosting = () => {
                             <SelectItem value="daily">Daily Only</SelectItem>
                             <SelectItem value="weekly">Weekly Only</SelectItem>
                             <SelectItem value="monthly">Monthly Only</SelectItem>
+                            <SelectItem value="expired_pending">Expired Pending</SelectItem>
+                            <SelectItem value="pay_later">Pay Later</SelectItem>
                           </SelectContent>
                         </Select>
                         <Select value={villageFilter} onValueChange={setVillageFilter}>
@@ -761,7 +770,23 @@ const DailyPosting = () => {
                         ) : assignedMembers
                             .filter(m => {
                               const matchesVillage = villageFilter === 'all' || m.village === villageFilter;
-                              const matchesFreq = timelineFilter === 'all' || m.paymentFrequency === timelineFilter;
+                              const matchesFreq = (() => {
+                                if (timelineFilter === 'all') return true;
+                                if (timelineFilter === 'expired_pending') {
+                                  if (!m.endDate) return false;
+                                  const [yr, mo, dy] = m.endDate.split("-").map(Number);
+                                  const expiryDate = new Date(yr, mo - 1, dy);
+                                  const today = new Date();
+                                  expiryDate.setHours(0, 0, 0, 0);
+                                  today.setHours(0, 0, 0, 0);
+                                  const balanceNum = parseFloat(String(m.balance || "0"));
+                                  return expiryDate <= today && balanceNum > 0 && m.status !== 'completed';
+                                }
+                                if (timelineFilter === 'pay_later') {
+                                  return todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later');
+                                }
+                                return m.paymentFrequency === timelineFilter;
+                              })();
                               const matchesSearch = !searchQuery || 
                                 m.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
                                 m.accountNo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -790,9 +815,11 @@ const DailyPosting = () => {
                                 ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
                                 : (m.status === 'completed' || m.balance <= 0)
                                   ? "bg-rose-50 border-rose-100 opacity-80"
-                                  : todayPostings.has(m.id)
-                                    ? "bg-emerald-50 border-emerald-100" 
-                                    : "hover:bg-slate-50 hover:border-slate-100"
+                                  : todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later')
+                                    ? "bg-amber-50 border-amber-100 dark:bg-amber-950/20"
+                                    : todayPostings.has(m.id)
+                                      ? "bg-emerald-50 border-emerald-100" 
+                                      : "hover:bg-slate-50 hover:border-slate-100"
                             )}
                           >
                              <div className="flex items-center justify-between gap-2 w-full">
@@ -801,28 +828,41 @@ const DailyPosting = () => {
                                    "h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[11px] font-black transition-all shadow-sm",
                                    accountInfo?.id === m.id ? "bg-white text-accent" : 
                                    (m.status === 'completed' || m.balance <= 0) ? "bg-rose-500 text-white" :
+                                   todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later') ? "bg-amber-500 text-white" :
                                    todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
                                  )}>
                                    {m.accountNo}
                                  </div>
                                  <div className="min-w-0">
-                                   <p className={cn("text-[13px] sm:text-[14px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : (m.status === 'completed' || m.balance <= 0) ? "text-rose-700 line-through decoration-rose-300" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>
+                                   <p className={cn("text-[13px] sm:text-[14px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : (m.status === 'completed' || m.balance <= 0) ? "text-rose-700 line-through decoration-rose-300" : todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later') ? "text-amber-800 dark:text-amber-300" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>
                                      {m.name}
                                    </p>
-                                   <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
-                                     {m.nameTelugu && (
-                                       <span className={cn("text-[9px] sm:text-[10px] font-black truncate", accountInfo?.id === m.id ? "text-white/90" : "text-slate-600")}>
-                                         {m.nameTelugu}
+                                   <div className="flex flex-col gap-0.5">
+                                     <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
+                                       {m.nameTelugu && (
+                                         <span className={cn("text-[9px] sm:text-[10px] font-black truncate", accountInfo?.id === m.id ? "text-white/90" : "text-slate-600")}>
+                                           {m.nameTelugu}
+                                         </span>
+                                       )}
+                                       <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-60 shrink-0", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                         #{m.accountNo}
                                        </span>
-                                     )}
-                                     <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-60 shrink-0", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                       #{m.accountNo}
-                                     </span>
-                                     {m.village && (
-                                       <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                         • {m.village}
-                                       </span>
-                                     )}
+                                       {m.village && (
+                                         <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                           • {m.village}
+                                         </span>
+                                       )}
+                                     </div>
+                                     {(() => {
+                                       const payLaterPost = todayPostingsList.find(p => p.accountId === m.id && p.payMode === 'pay_later');
+                                       if (!payLaterPost) return null;
+                                       return (
+                                         <p className={cn("text-[10px] font-bold mt-1 uppercase tracking-tight flex items-center gap-1.5", accountInfo?.id === m.id ? "text-white/90" : "text-amber-700")}>
+                                           <span className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900/50 rounded text-[7px] font-black uppercase shrink-0">Pay Later</span>
+                                           <span className="truncate italic">"{payLaterPost.note || "No note"}"</span>
+                                         </p>
+                                       );
+                                     })()}
                                    </div>
                                  </div>
                                </div>

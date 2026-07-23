@@ -87,7 +87,7 @@ const CollectionBook = () => {
         const postList: DocumentData[] = [];
         postSnap.forEach(d => {
           const data = d.data();
-          if (data.lineId === selectedLineId) {
+          if (data.lineId === selectedLineId && data.status === "collection") {
             postList.push({ id: d.id, ...data });
           }
         });

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc, orderBy, limit } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc, orderBy, limit, deleteDoc, writeBatch } from "firebase/firestore";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -646,22 +646,162 @@ const NewAccount = () => {
 
       if (isEdit && id) {
         const docRef = doc(db, "accounts", id);
-        const docSnap = await getDoc(docRef);
-        let existingPaid = 0;
-        if (docSnap.exists()) {
-          existingPaid = docSnap.data().paid || 0;
-        }
 
-        const newBalance = Math.max(0, total - existingPaid);
+        // Fetch associated postings in Firestore
+        const postingsRef = collection(db, "postings");
+        const qPostings = query(postingsRef, where("accountId", "==", id));
+        const snapPostings = await getDocs(qPostings);
+
+        // Find subsequent collection postings (status === "collection", isInitial !== true, verified !== false)
+        const subsequentCollections = snapPostings.docs.filter(d => {
+          const pData = d.data();
+          return pData.status === "collection" && pData.isInitial !== true && pData.verified !== false;
+        });
+
+        const subsequentPaid = subsequentCollections.reduce((sum, doc) => {
+          return sum + (parseFloat(String(doc.data().amount || "0")) || 0);
+        }, 0);
+
+        const newInitialPaid = parseFloat(data.initialPaid || "0");
+        const newPaid = newInitialPaid + subsequentPaid;
+        const newBalance = Math.max(0, total - newPaid);
         const newStatus = newBalance <= 0 ? "completed" : "active";
 
         const editPayload = {
           ...payload,
+          paid: newPaid,
           balance: newBalance,
           status: newStatus,
         };
 
         await updateDoc(docRef, editPayload);
+
+        const batch = writeBatch(db);
+
+        // Find initial posting and update/create/delete
+        const initialPost = snapPostings.docs.find(d => d.data().isInitial === true);
+        if (newInitialPaid > 0) {
+          if (initialPost) {
+            batch.update(doc(db, "postings", initialPost.id), {
+              amount: newInitialPaid,
+              date: data.startDate,
+              payMode: data.paymentType,
+              accountNo: data.accountNo,
+              lineId: data.lineId,
+              memberName: data.name,
+              nameTelugu: data.nameTelugu || "",
+            });
+          } else {
+            const newInitialPostRef = doc(collection(db, "postings"));
+            batch.set(newInitialPostRef, {
+              accountId: id,
+              accountNo: data.accountNo,
+              date: data.startDate,
+              amount: newInitialPaid,
+              status: "collection",
+              payMode: data.paymentType,
+              lineId: data.lineId,
+              memberName: data.name,
+              nameTelugu: data.nameTelugu || "",
+              collectedByRole: userData?.role,
+              collectedById: userData?.uid,
+              collectedByName: userData?.name,
+              createdAt: new Date().toISOString(),
+              isInitial: true,
+              verified: true
+            });
+          }
+        } else if (initialPost) {
+          batch.delete(doc(db, "postings", initialPost.id));
+        }
+
+        // Find disbursement posting and update/create
+        const disbursementPost = snapPostings.docs.find(d => d.data().status === "disbursement");
+        const loanAmt = parseFloat(data.loanAmount);
+        if (loanAmt > 0) {
+          if (disbursementPost) {
+            batch.update(doc(db, "postings", disbursementPost.id), {
+              amount: loanAmt,
+              date: data.startDate,
+              payMode: data.paymentType,
+              accountNo: data.accountNo,
+              lineId: data.lineId,
+              memberName: data.name,
+              nameTelugu: data.nameTelugu || "",
+            });
+          } else {
+            const newDisbursementPostRef = doc(collection(db, "postings"));
+            batch.set(newDisbursementPostRef, {
+              accountId: id,
+              accountNo: data.accountNo,
+              date: data.startDate,
+              amount: loanAmt,
+              status: "disbursement",
+              payMode: data.paymentType,
+              lineId: data.lineId,
+              memberName: data.name,
+              nameTelugu: data.nameTelugu || "",
+              collectedByRole: userData?.role,
+              collectedById: userData?.uid,
+              collectedByName: userData?.name,
+              createdAt: new Date().toISOString(),
+              isSystem: true
+            });
+          }
+        }
+
+        // Find charge posting and update/create/delete
+        const chargePost = snapPostings.docs.find(d => d.data().status === "charge");
+        const docCharge = parseFloat(data.documentCharge || "0");
+        if (docCharge > 0) {
+          if (chargePost) {
+            batch.update(doc(db, "postings", chargePost.id), {
+              amount: docCharge,
+              date: data.startDate,
+              accountNo: data.accountNo,
+              lineId: data.lineId,
+              memberName: data.name,
+              nameTelugu: data.nameTelugu || "",
+            });
+          } else {
+            const newChargePostRef = doc(collection(db, "postings"));
+            batch.set(newChargePostRef, {
+              accountId: id,
+              accountNo: data.accountNo,
+              date: data.startDate,
+              amount: docCharge,
+              status: "charge",
+              payMode: "cash",
+              lineId: data.lineId,
+              memberName: data.name,
+              nameTelugu: data.nameTelugu || "",
+              collectedByRole: userData?.role,
+              collectedById: userData?.uid,
+              collectedByName: userData?.name,
+              createdAt: new Date().toISOString(),
+              isSystem: true
+            });
+          }
+        } else if (chargePost) {
+          batch.delete(doc(db, "postings", chargePost.id));
+        }
+
+        // Update common fields on all other postings for this account
+        snapPostings.docs.forEach((postDoc) => {
+          const postData = postDoc.data();
+          if (postData.isInitial === true || postData.status === "disbursement" || postData.status === "charge") {
+            return;
+          }
+          batch.update(doc(db, "postings", postDoc.id), {
+            accountNo: data.accountNo,
+            lineId: data.lineId,
+            memberName: data.name,
+            nameTelugu: data.nameTelugu || "",
+          });
+        });
+
+        await batch.commit();
+
         toast.success("Account updated successfully");
 
         if (userData) {

@@ -24,7 +24,6 @@ import ExportPage from "@/pages/ExportPage";
 import ManageAdmins from "@/pages/ManageAdmins";
 import ManageAgents from "@/pages/ManageAgents";
 import BookPrint from "@/pages/BookPrint";
-import DWMBook from "@/pages/DWMBook";
 import WeeklyBook from "@/pages/WeeklyBook";
 import WeeklyLineA4 from "@/pages/WeeklyLineA4";
 import CollectionBook from "@/pages/CollectionBook";
@@ -85,7 +84,6 @@ const App = () => (
                   <Route path="/profits" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><Profits /></ProtectedRoute>} />
                   <Route path="/company-account" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><CompanyAccount /></ProtectedRoute>} />
                   <Route path="/advanced-lists" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><AdvancedLists /></ProtectedRoute>} />
-                  <Route path="/dwm-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><DWMBook /></ProtectedRoute>} />
                   <Route path="/collection-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><CollectionBook /></ProtectedRoute>} />
                   <Route path="/weekly-book" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><WeeklyBook /></ProtectedRoute>} />
                   <Route path="/weekly-line-a4" element={<ProtectedRoute allowedRoles={["super_admin", "admin"]}><WeeklyLineA4 /></ProtectedRoute>} />

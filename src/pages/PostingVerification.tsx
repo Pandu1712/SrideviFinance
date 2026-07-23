@@ -207,7 +207,7 @@ const PostingVerification = () => {
         date: editDate,
         payMode: editPayMode,
         status: editStatus,
-        note: (editPayMode === 'bank' || editPayMode === 'upi') ? editNote : ""
+        note: (editPayMode === 'bank' || editPayMode === 'upi' || editPayMode === 'pay_later') ? editNote : ""
       };
       await updateDoc(postingRef, updates);
       toast.success("Entry updated successfully");
@@ -472,6 +472,7 @@ const PostingVerification = () => {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="bank">Bank</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="pay_later">Pay Later</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -488,7 +489,7 @@ const PostingVerification = () => {
               </div>
             </div>
 
-            {(editPayMode === 'bank' || editPayMode === 'upi') && (
+            {(editPayMode === 'bank' || editPayMode === 'upi' || editPayMode === 'pay_later') && (
               <div className="space-y-2">
                 <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Note / Reference (Optional)</Label>
                 <Input 

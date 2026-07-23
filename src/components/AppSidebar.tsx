@@ -38,7 +38,6 @@ const menuSections: MenuSection[] = [
       { label: "Daily Posting", labelKey: "dailyPosting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
       { label: "Master Ledger", labelKey: "masterLedger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Collection Book", labelKey: "collectionBook", path: "/collection-book", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
-      { label: "DWM Book", labelKey: "collectionBook", path: "/dwm-book", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Members Registry", labelKey: "membersRegistry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Extra Amount", labelKey: "extraAmount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
     ]
