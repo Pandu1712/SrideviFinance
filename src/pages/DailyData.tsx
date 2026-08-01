@@ -1,205 +1,460 @@
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { useState, useEffect } from "react";
+import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData, doc, runTransaction } from "firebase/firestore";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { collection, query, onSnapshot, addDoc, updateDoc, deleteDoc, doc, where } from "firebase/firestore";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { BookOpen, Calendar as CalendarIcon, ArrowLeftRight, Trash2, Edit2, PlayCircle, Plus } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const formatToDDMMYY = (dateStr: any) => {
+  if (!dateStr) return "-";
+  try {
+    const dObj = new Date(dateStr);
+    if (!isNaN(dObj.getTime())) {
+      const day = String(dObj.getDate()).padStart(2, "0");
+      const month = String(dObj.getMonth() + 1).padStart(2, "0");
+      const year = String(dObj.getFullYear()).slice(2);
+      return `${day}-${month}-${year}`;
+    }
+  } catch (e) {}
+  return String(dateStr);
+};
 
 const DailyData = () => {
+  const navigate = useNavigate();
+  const { selectedLineId, lines } = useLine();
   const { userData } = useAuth();
-  const [postings, setPostings] = useState<DocumentData[]>([]);
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [loading, setLoading] = useState(true);
+  
+  const currentLine = lines.find(l => l.id === selectedLineId);
+  const lineName = currentLine ? currentLine.name : "GENERAL";
 
-  const fetchPostings = async () => {
-    if (!userData) return;
-    setLoading(true);
-    let q;
-    if (userData.role === "super_admin") q = query(collection(db, "postings"), where("date", "==", date));
-    else if (userData.role === "admin") q = query(collection(db, "postings"), where("adminId", "==", userData.uid), where("date", "==", date));
-    else q = query(collection(db, "postings"), where("lineId", "==", userData.lineId || ""), where("date", "==", date));
-    try {
-      const snap = await getDocs(q);
-      const list: DocumentData[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...(d.data() as Record<string, any>) }));
-      setPostings(list);
-    } catch { setPostings([]); }
-    setLoading(false);
-  };
+  // Data states
+  const [postings, setPostings] = useState<any[]>([]);
+  const [ledgerAccounts, setLedgerAccounts] = useState<any[]>([]);
+  const [allLinePostings, setAllLinePostings] = useState<any[]>([]);
 
+  // Selection/Form states
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [postingDate, setPostingDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedPosting, setSelectedPosting] = useState<any | null>(null);
+  const [targetAccount, setTargetAccount] = useState<any | null>(null);
+  const [jamaVal, setJamaVal] = useState("");
+  const [kharchuVal, setKharchuVal] = useState("");
+
+  // Fetch accounts of line
   useEffect(() => {
-    fetchPostings();
-  }, [userData, date]);
+    if (!selectedLineId) return;
+    const q = query(
+      collection(db, "ledger_accounts"),
+      where("lineId", "==", selectedLineId)
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      list.sort((a, b) => (parseInt(a.acNo) || 0) - (parseInt(b.acNo) || 0));
+      setLedgerAccounts(list);
+      if (list.length > 0 && !targetAccount) {
+        setTargetAccount(list[0]);
+      }
+    });
+    return () => unsubscribe();
+  }, [selectedLineId]);
 
-  const handleDeletePosting = async (posting: DocumentData) => {
-    if (userData?.role !== "super_admin") return;
-    if (!window.confirm(`Are you sure you want to delete this payment of ₹${posting.amount}? The member's balance will be REVERSED (increased).`)) return;
+  // Sync postings for selected date
+  useEffect(() => {
+    if (!selectedLineId || !selectedDate) return;
+    const q = query(
+      collection(db, "ledger_postings"),
+      where("lineId", "==", selectedLineId),
+      where("date", "==", selectedDate)
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setPostings(list);
+    });
+    return () => unsubscribe();
+  }, [selectedLineId, selectedDate]);
 
-    setLoading(true);
-    try {
-      const accountRef = doc(db, "accounts", posting.accountId);
-      const postingRef = doc(db, "postings", posting.id);
+  // Sync all postings for cash balance calculation
+  useEffect(() => {
+    if (!selectedLineId) return;
+    const q = query(
+      collection(db, "ledger_postings"),
+      where("lineId", "==", selectedLineId)
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setAllLinePostings(list);
+    });
+    return () => unsubscribe();
+  }, [selectedLineId]);
 
-      await runTransaction(db, async (transaction) => {
-        const accDoc = await transaction.get(accountRef);
-        if (!accDoc.exists()) throw new Error("Account not found");
+  // Calculate opening/closing balances based on date comparison
+  const { openingBalance, closingBalance } = useMemo(() => {
+    let opening = 0;
+    let closing = 0;
 
-        const accData = accDoc.data();
-        const postingAmount = posting.amount || 0;
-        const principalAmount = posting.principal || (postingAmount - (posting.lateFee || 0));
-        
-        const newPaid = (accData.paid || 0) - postingAmount;
-        const newBalance = (accData.balance || 0) + principalAmount;
-        const newStatus = newBalance > 0 ? "active" : "completed";
+    allLinePostings.forEach(p => {
+      const pDate = p.date || "";
+      const pJama = parseFloat(p.jama) || 0;
+      const pKharchu = parseFloat(p.kharchu) || 0;
+      const val = pJama - pKharchu;
 
-        transaction.update(accountRef, {
-          paid: newPaid,
-          balance: newBalance,
-          status: newStatus
-        });
-
-        transaction.delete(postingRef);
-      });
-
-      toast.success("Transaction deleted and balance reconciled.");
-      fetchPostings();
-    } catch (err: any) {
-      console.error("Delete Posting Error:", err);
-      toast.error("Failed to delete transaction: " + err.message);
-      setLoading(false);
-    }
-  };
-
-  const totalAmount = postings.reduce((s, p) => s + (p.amount || 0), 0);
-
-  const exportPDF = () => {
-    if (postings.length === 0) { toast.error("No data"); return; }
-    
-    const doc = new jsPDF();
-    doc.setFontSize(22);
-    doc.setTextColor(15, 23, 42);
-    doc.text("SRIDEVIGROUPS OF FINANCE", 14, 22);
-    
-    doc.setFontSize(14);
-    doc.text(`Daily Transaction Audit - ${date}`, 14, 30);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 38);
-    doc.text(`Total Entries: ${postings.length}`, 14, 43);
-
-    const tableColumn = ["Acc No", "Name", "Amount", "Status", "Mode", "Date"];
-    const tableRows = postings.map(p => [
-      p.accountNo,
-      p.memberName,
-      formatCurrency(p.amount),
-      p.status.toUpperCase(),
-      p.payMode.toUpperCase() + (p.note ? ` (${p.note})` : ""),
-      formatDate(p.date)
-    ]);
-
-    autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: 50,
-      theme: 'striped',
-      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 8, cellPadding: 3 },
-      columnStyles: {
-        2: { halign: 'right', fontStyle: 'bold' }
+      if (pDate < selectedDate) {
+        opening += val;
+      }
+      if (pDate <= selectedDate) {
+        closing += val;
       }
     });
 
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    doc.setFontSize(12);
-    doc.setTextColor(15, 23, 42);
-    doc.text(`Daily Total: ${formatCurrency(totalAmount)}`, 14, finalY);
+    return { openingBalance: opening, closingBalance: closing };
+  }, [allLinePostings, selectedDate]);
 
-    doc.save(`Daily_Audit_${date}.pdf`);
-    toast.success("Daily Audit exported as PDF");
+  // Merge postings with account details
+  const displayPostings = useMemo(() => {
+    return postings.map(p => {
+      const acc = ledgerAccounts.find(a => a.id === p.ledgerId);
+      return {
+        ...p,
+        acNo: acc?.acNo || "-",
+        acName: acc?.acName || "Unknown Account"
+      };
+    }).sort((a, b) => (parseInt(a.acNo) || 0) - (parseInt(b.acNo) || 0));
+  }, [postings, ledgerAccounts]);
+
+  const handleSavePosting = async () => {
+    if (!targetAccount) {
+      toast.error("Please select a ledger account first.");
+      return;
+    }
+    const jama = parseFloat(jamaVal) || 0;
+    const kharchu = parseFloat(kharchuVal) || 0;
+    if (jama <= 0 && kharchu <= 0) {
+      toast.error("Please enter a valid Jama or Kharchu amount.");
+      return;
+    }
+
+    try {
+      if (selectedPosting) {
+        // Update existing posting
+        const docRef = doc(db, "ledger_postings", selectedPosting.id);
+        await updateDoc(docRef, {
+          ledgerId: targetAccount.id,
+          jama,
+          kharchu,
+          date: postingDate
+        });
+        toast.success("Transaction updated successfully!");
+        setSelectedPosting(null);
+      } else {
+        // Create new posting
+        const payload = {
+          ledgerId: targetAccount.id,
+          date: postingDate,
+          jama,
+          kharchu,
+          description: "Manual Entry",
+          lineId: selectedLineId || ""
+        };
+        await addDoc(collection(db, "ledger_postings"), payload);
+        toast.success("Transaction saved successfully!");
+      }
+      setJamaVal("");
+      setKharchuVal("");
+    } catch (err) {
+      toast.error("Failed to save transaction");
+    }
   };
 
+  const handleDeletePosting = async () => {
+    if (!selectedPosting) return;
+    try {
+      await deleteDoc(doc(db, "ledger_postings", selectedPosting.id));
+      toast.success("Transaction deleted!");
+      setSelectedPosting(null);
+      setJamaVal("");
+      setKharchuVal("");
+    } catch (err) {
+      toast.error("Failed to delete transaction");
+    }
+  };
+
+  const handleSelectRow = (p: any) => {
+    setSelectedPosting(p);
+    setPostingDate(p.date || selectedDate);
+    setJamaVal(p.jama ? p.jama.toString() : "");
+    setKharchuVal(p.kharchu ? p.kharchu.toString() : "");
+    const acc = ledgerAccounts.find(a => a.id === p.ledgerId);
+    if (acc) {
+      setTargetAccount(acc);
+    }
+  };
+
+  const handleClear = () => {
+    setSelectedPosting(null);
+    setJamaVal("");
+    setKharchuVal("");
+    if (ledgerAccounts.length > 0) {
+      setTargetAccount(ledgerAccounts[0]);
+    }
+  };
+
+  const handleGetDate = () => {
+    setSelectedDate(postingDate);
+    toast.success(`Loaded transactions for ${formatToDDMMYY(postingDate)}`);
+  };
+
+  // Double-entry calculation aggregates for bottom summary footer
+  const totalJama = useMemo(() => displayPostings.reduce((s, p) => s + (parseFloat(p.jama) || 0), 0), [displayPostings]);
+  const totalKharchu = useMemo(() => displayPostings.reduce((s, p) => s + (parseFloat(p.kharchu) || 0), 0), [displayPostings]);
+
+  const cumCR = useMemo(() => (openingBalance >= 0 ? openingBalance : 0) + totalJama, [openingBalance, totalJama]);
+  const cumDR = useMemo(() => (openingBalance < 0 ? Math.abs(openingBalance) : 0) + totalKharchu, [openingBalance, totalKharchu]);
+  const netDiff = useMemo(() => cumCR - cumDR, [cumCR, cumDR]);
+
   return (
-    <div>
-      <h1 className="mb-4 text-2xl font-bold">Daily Data</h1>
-      <div className="mb-4 flex flex-wrap items-center gap-4">
-        <div className="space-y-1"><Label>Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-48" /></div>
-        <div className="flex items-end"><Button onClick={exportPDF} variant="outline"><Download className="mr-2 h-4 w-4" />Export PDF</Button></div>
-        <div className="pt-6 text-sm font-medium">Total: ₹{totalAmount.toLocaleString("en-IN")} ({postings.length} entries)</div>
+    <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100 font-sans antialiased pb-12">
+      
+      {/* Header Banner */}
+      <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center print:hidden">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 bg-amber-500 rounded-lg flex items-center justify-center font-serif text-slate-950 font-black text-xl shadow-lg">
+            ₹
+          </div>
+          <div>
+            <h1 className="text-lg font-black tracking-tight text-white">SriDeviGroups Of Finance</h1>
+            <p className="text-[10px] text-amber-500 uppercase tracking-widest font-bold">Enterprise Hub</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 bg-slate-950/60 border border-slate-800/80 px-4 py-1.5 rounded-full text-xs font-bold text-slate-400">
+          <CalendarIcon className="h-3.5 w-3.5 text-amber-500" />
+          <span>DATE: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+        </div>
       </div>
-      <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="finance-table w-full">
-            <thead>
-              <tr>
-                <th className="p-3">S.No</th>
-                <th className="p-3">Acc No</th>
-                <th className="p-3">Name</th>
-                <th className="p-3">Amount</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Mode</th>
-                {userData?.role === "super_admin" && <th className="p-3 text-right">Action</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</td></tr>
-              ) : postings.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No postings for this date</td></tr>
-              ) : postings.map((p, i) => (
-                <tr key={p.id}>
-                  <td>{i + 1}</td>
-                  <td className="font-mono">{p.accountNo}</td>
-                  <td>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-slate-900 dark:text-white">{p.memberName}</span>
-                      {p.nameTelugu && (
-                        <span className="text-[10px] font-bold text-slate-400 font-telugu mt-0.5">
-                          ({p.nameTelugu})
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>₹{(p.amount || 0).toLocaleString("en-IN")}</td>
-                  <td className="capitalize">{p.status}</td>
-                  <td>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="capitalize">{p.payMode}</span>
-                      {p.note && (
-                        <span className="text-[9px] text-slate-500 normal-case" title={p.note}>
-                          Note: {p.note}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  {userData?.role === "super_admin" && (
-                    <td className="text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-destructive/50 hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDeletePosting(p)}
+
+      <div className="flex-1 flex items-center justify-center p-2 sm:p-6">
+        
+        {/* Retro monitor style cabinet */}
+        <div className="w-full max-w-5xl bg-[#091515] border-[6px] border-double border-amber-500/80 rounded-[2.5rem] p-4 sm:p-6 shadow-[0_0_50px_rgba(245,158,11,0.15)] relative overflow-hidden flex flex-col min-h-[38rem]">
+          
+          {/* Corner symbols */}
+          <div className="absolute top-4 left-4 text-amber-500/30 text-xl font-serif">卐</div>
+          <div className="absolute top-4 right-4 text-amber-500/30 text-xl font-serif">卐</div>
+          <div className="absolute bottom-4 left-4 text-amber-500/30 text-xl font-serif">卐</div>
+          <div className="absolute bottom-4 right-4 text-amber-500/30 text-xl font-serif">卐</div>
+
+          {/* Title Header */}
+          <div className="text-center mb-4 border-b border-amber-500/20 pb-2 flex justify-between items-center px-4">
+            <h2 className="text-lg sm:text-xl font-bold tracking-widest text-amber-500 font-serif animate-pulse">
+              {lineName.toUpperCase()} DAILY DATA ENTRY
+            </h2>
+            <span className="text-[10px] text-slate-500 tracking-wider">Sri Devi Groups</span>
+          </div>
+
+          {/* Date Selector Row */}
+          <div className="bg-zinc-300 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 p-3 rounded-md shadow-md mb-4 flex flex-wrap items-center justify-between gap-3 text-slate-900 font-bold">
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-slate-800">DATE:</span>
+              <input
+                type="date"
+                value={postingDate}
+                onChange={e => setPostingDate(e.target.value)}
+                className="bg-white px-2 py-1 border-2 border-t-zinc-600 border-l-zinc-600 border-r-white border-b-white rounded font-mono text-xs"
+              />
+              <button
+                type="button"
+                onClick={handleGetDate}
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1 border-2 border-t-white border-l-white border-r-amber-700 border-b-amber-700 rounded text-xs uppercase tracking-wider shadow"
+              >
+                GET
+              </button>
+            </div>
+            
+            <button
+              type="button"
+              onClick={() => navigate("/accounts")}
+              className="bg-zinc-200 hover:bg-zinc-100 text-slate-800 px-3 py-1 border-2 border-t-white border-l-white border-r-zinc-500 border-b-zinc-500 rounded text-xs uppercase tracking-wider"
+            >
+              Add Accounts
+            </button>
+          </div>
+
+          {/* Two Section Layout: Top Table, Bottom Form */}
+          <div className="flex-1 flex flex-col gap-4 text-slate-950 font-sans text-xs">
+            
+            {/* Table Panel */}
+            <div className="flex-1 bg-zinc-300 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 p-3 sm:p-4 rounded-md shadow-2xl flex flex-col justify-between h-[20rem]">
+              
+              {/* Central Grid */}
+              <div className="flex-1 bg-white border border-zinc-400 rounded-sm overflow-hidden flex flex-col h-full">
+                
+                {/* Headers */}
+                <div className="bg-zinc-100 border-b border-zinc-300 grid grid-cols-12 px-2 py-1.5 font-bold text-[10px] text-slate-600 text-center">
+                  <span className="col-span-3">CR</span>
+                  <span className="col-span-2">ACNO</span>
+                  <span className="col-span-4">ACNAME</span>
+                  <span className="col-span-3">DR</span>
+                </div>
+
+                {/* Table Scrollable Body */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar font-mono text-[10px]">
+                  
+                  {/* Row 1: Opening Balance Row */}
+                  <div className="grid grid-cols-12 px-2 py-2 text-center border-b border-zinc-300 bg-zinc-100 font-black">
+                    <span className="col-span-3 text-slate-900">{openingBalance >= 0 ? `₹${openingBalance.toFixed(2)}` : "-"}</span>
+                    <span className="col-span-6 text-center text-slate-800 tracking-wider">Opening Balance</span>
+                    <span className="col-span-3 text-slate-900">{openingBalance < 0 ? `₹${Math.abs(openingBalance).toFixed(2)}` : "-"}</span>
+                  </div>
+
+                  {/* Transaction Rows */}
+                  {displayPostings.length === 0 ? (
+                    <p className="text-slate-400 text-center py-10 italic">No manual entries on this date</p>
+                  ) : (
+                    displayPostings.map((p, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectRow(p)}
+                        className={`grid grid-cols-12 px-2 py-1.5 text-center border-b border-zinc-100 hover:bg-zinc-200 cursor-pointer select-none transition-colors ${
+                          selectedPosting?.id === p.id ? "bg-amber-100 font-black border-l-4 border-amber-500" : ""
+                        }`}
                       >
-                        <Trash2 size={14} />
-                      </Button>
-                    </td>
+                        <span className="col-span-3 text-emerald-700 font-bold">{p.jama > 0 ? `₹${p.jama}` : "-"}</span>
+                        <span className="col-span-2 font-black text-slate-600">{p.acNo}</span>
+                        <span className="col-span-4 truncate text-left font-sans">{p.acName}</span>
+                        <span className="col-span-3 text-red-700 font-bold">{p.kharchu > 0 ? `₹${p.kharchu}` : "-"}</span>
+                      </div>
+                    ))
                   )}
-                </tr>
-              ))}
-              {postings.length > 0 && (
-                <tr className="font-bold bg-muted"><td colSpan={3} className="text-right p-3">Total:</td><td className="p-3">₹{totalAmount.toLocaleString("en-IN")}</td><td colSpan={2}></td></tr>
-              )}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+
+                </div>
+
+                {/* Double Entry Summary Footer Blocks matching legacy screenshots */}
+                <div className="bg-zinc-100 border-t border-zinc-300 font-mono text-[10px] font-bold text-slate-700 divide-y divide-zinc-200">
+                  
+                  {/* Row 1: Transaction Total */}
+                  <div className="grid grid-cols-12 px-2 py-1.5 text-center">
+                    <span className="col-span-3 text-emerald-700">{totalJama > 0 ? `₹${totalJama.toFixed(2)}` : "-"}</span>
+                    <span className="col-span-6 text-slate-500 uppercase tracking-widest text-[9px] text-center">Transaction Total</span>
+                    <span className="col-span-3 text-red-700">{totalKharchu > 0 ? `₹${totalKharchu.toFixed(2)}` : "-"}</span>
+                  </div>
+
+                  {/* Row 2: Cumulative Subtotal */}
+                  <div className="grid grid-cols-12 px-2 py-1.5 text-center bg-zinc-200/40">
+                    <span className="col-span-3 text-slate-900">{cumCR > 0 ? `₹${cumCR.toFixed(2)}` : "-"}</span>
+                    <span className="col-span-6 text-slate-500 uppercase tracking-widest text-[9px] text-center">Cumulative Subtotal</span>
+                    <span className="col-span-3 text-slate-900">{cumDR > 0 ? `₹${cumDR.toFixed(2)}` : "-"}</span>
+                  </div>
+
+                  {/* Row 3: Closing Balance Row (Splits cash dynamically to CR or DR column) */}
+                  <div className="grid grid-cols-12 px-2 py-2 text-center bg-amber-50 font-black border-t border-zinc-300">
+                    <span className="col-span-3 text-emerald-700">{netDiff >= 0 ? `₹${netDiff.toFixed(2)}` : "-"}</span>
+                    <span className="col-span-6 text-center text-slate-800 tracking-wider">Closing Balance</span>
+                    <span className="col-span-3 text-red-700">{netDiff < 0 ? `₹${Math.abs(netDiff).toFixed(2)}` : "-"}</span>
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Bottom Form and Bevel Buttons Controls */}
+            <div className="bg-zinc-300 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 p-3 sm:p-4 rounded-md shadow-2xl flex flex-col md:flex-row gap-4 items-center justify-between">
+              
+              {/* Form Input fields */}
+              <div className="w-full md:flex-1 grid grid-cols-1 sm:grid-cols-4 gap-3 items-center">
+                
+                <div className="flex flex-col gap-1 col-span-2">
+                  <Label className="font-bold text-slate-800">Select Ledger Account</Label>
+                  <select
+                    value={targetAccount?.id || ""}
+                    onChange={e => {
+                      const acc = ledgerAccounts.find(a => a.id === e.target.value);
+                      if (acc) setTargetAccount(acc);
+                    }}
+                    className="w-full bg-white px-2 py-1 border-2 border-t-zinc-600 border-l-zinc-600 border-r-white border-b-white rounded font-bold text-xs"
+                  >
+                    {ledgerAccounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.acNo} - {acc.acName} ({acc.acType})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <Label className="font-bold text-slate-800 text-center">JAMA (CR)</Label>
+                  <input
+                    type="number"
+                    value={jamaVal}
+                    onChange={e => setJamaVal(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-white px-2 py-1 border-2 border-t-zinc-600 border-l-zinc-600 border-r-white border-b-white rounded font-mono font-bold text-xs text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <Label className="font-bold text-slate-800 text-center">KHARCHU (DR)</Label>
+                  <input
+                    type="number"
+                    value={kharchuVal}
+                    onChange={e => setKharchuVal(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-white px-2 py-1 border-2 border-t-zinc-600 border-l-zinc-600 border-r-white border-b-white rounded font-mono font-bold text-xs text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+              </div>
+
+              {/* Action Buttons list (Bevel details) */}
+              <div className="flex flex-wrap md:flex-nowrap gap-1.5 w-full md:w-auto pt-2 md:pt-0">
+                <button
+                  type="button"
+                  onClick={handleSavePosting}
+                  className="flex-1 md:flex-none px-4 py-2 bg-[#a7f3d0] hover:bg-[#86efac] text-emerald-950 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 font-bold uppercase text-[10px] tracking-wider shadow shadow-inner active:border-t-zinc-600 active:border-l-zinc-600 active:border-r-white active:border-b-white transition-all whitespace-nowrap"
+                >
+                  {selectedPosting ? "SAVE / UPDATE" : "SAVE"}
+                </button>
+
+                {selectedPosting && (
+                  <button
+                    type="button"
+                    onClick={handleDeletePosting}
+                    className="flex-1 md:flex-none px-4 py-2 bg-red-200 hover:bg-red-300 text-red-950 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 font-bold uppercase text-[10px] tracking-wider active:border-t-zinc-600 active:border-l-zinc-600 active:border-r-white active:border-b-white transition-all"
+                  >
+                    DELETE
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="flex-1 md:flex-none px-4 py-2 bg-zinc-300 hover:bg-zinc-200 text-slate-800 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 font-bold uppercase text-[10px] tracking-wider active:border-t-zinc-600 active:border-l-zinc-600 active:border-r-white active:border-b-white transition-all"
+                >
+                  CLEAR
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigate("/dashboard")}
+                  className="flex-1 md:flex-none px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 border-2 border-t-white border-l-white border-r-amber-700 border-b-amber-700 font-bold uppercase text-[10px] tracking-wider active:border-t-amber-700 active:border-l-amber-700 active:border-r-white active:border-b-white transition-all"
+                >
+                  MAIN MENU
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
     </div>
   );
 };

@@ -18,11 +18,13 @@ import { logActivity } from "@/lib/audit";
 
 interface DailyReconciliationProps {
   targetDate?: string;
+  lineId?: string | null;
 }
 
-const DailyReconciliation = ({ targetDate }: DailyReconciliationProps) => {
+const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconciliationProps) => {
   const { userData } = useAuth();
-  const { selectedLineId } = useLine();
+  const { selectedLineId: contextLineId } = useLine();
+  const selectedLineId = propLineId !== undefined ? propLineId : contextLineId;
   const [closureStats, setClosureStats] = useState({ 
     openingBalance: 0, 
     agentCol: 0, 

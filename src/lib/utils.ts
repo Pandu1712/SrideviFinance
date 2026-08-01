@@ -84,11 +84,11 @@ export function playSuccessSound() {
 
     const now = audioCtx.currentTime;
     
-    // Ascending arpeggio chime (PhonePe/Paytm style)
-    playBell(1046.50, now, 0.35, 0.08);        // C6
-    playBell(1318.51, now + 0.06, 0.35, 0.08); // E6
-    playBell(1567.98, now + 0.12, 0.35, 0.08); // G6
-    playBell(2093.00, now + 0.18, 0.55, 0.12); // C7
+    // Ascending arpeggio chime (PhonePe/Paytm style) with increased volumes for a loud, clear sound
+    playBell(1046.50, now, 0.35, 0.45);        // C6
+    playBell(1318.51, now + 0.06, 0.35, 0.45); // E6
+    playBell(1567.98, now + 0.12, 0.35, 0.45); // G6
+    playBell(2093.00, now + 0.18, 0.55, 0.65); // C7
     
   } catch (error) {
     console.warn("Web Audio API not supported or blocked:", error);

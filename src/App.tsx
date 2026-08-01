@@ -12,6 +12,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import NewAccount from "@/pages/NewAccount";
+import Accounts from "@/pages/Accounts";
 import DailyPosting from "@/pages/DailyPosting";
 import Members from "@/pages/Members";
 import PostingSearch from "@/pages/PostingSearch";
@@ -68,6 +69,7 @@ const App = () => (
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/accounts" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><Accounts /></ProtectedRoute>} />
                   <Route path="/accounts/new" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner", "agent"]}><NewAccount /></ProtectedRoute>} />
                   <Route path="/accounts/edit/:id" element={<ProtectedRoute allowedRoles={["super_admin", "admin", "partner"]}><NewAccount /></ProtectedRoute>} />
                   <Route path="/daily-posting" element={<DailyPosting />} />

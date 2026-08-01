@@ -34,9 +34,11 @@ const menuSections: MenuSection[] = [
     titleKey: "loanOperations",
     items: [
       { label: "Dashboard", labelKey: "dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
+      { label: "Accounts", labelKey: "accounts", path: "/accounts", icon: <Database size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "New Account", labelKey: "newAccount", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Daily Posting", labelKey: "dailyPosting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Master Ledger", labelKey: "masterLedger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Daily Sheet", labelKey: "dailyData", path: "/daily-data", icon: <FileText size={18} />, roles: ["super_admin", "admin"] },
+      { label: "Customer Statement", labelKey: "masterLedger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Collection Book", labelKey: "collectionBook", path: "/collection-book", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Members Registry", labelKey: "membersRegistry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Extra Amount", labelKey: "extraAmount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
@@ -46,7 +48,7 @@ const menuSections: MenuSection[] = [
     title: "Analytics & Reporting",
     titleKey: "analyticsReporting",
     items: [
-      { label: "Company Account", labelKey: "companyAccount", path: "/company-account", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Ledger", labelKey: "companyAccount", path: "/company-account", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "partner"] },
       { label: "Reports Engine", labelKey: "reportsEngine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Profits Center", labelKey: "profitsCenter", path: "/profits", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin", "partner"] },
     ]
@@ -78,7 +80,7 @@ const AppSidebar = () => {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
-  
+
   const activeLine = lines.find(l => l.id === selectedLineId);
   const activeLineName = activeLine?.name || "Full Portfolio";
 
@@ -107,7 +109,7 @@ const AppSidebar = () => {
       {(userData?.role === "super_admin" || userData?.role === "admin" || (userData?.role === "agent" && (userData.lineIds?.length || 0) > 1)) && (
         <div className="px-6 py-6 border-b border-white/5 bg-white/5">
           <h3 className="text-[10px] font-black text-slate-400 mb-4">{t("channel")}</h3>
-          <button 
+          <button
             onClick={() => {
               setSelectedLineId(null);
               localStorage.removeItem("lineSelectedOnce");
@@ -132,7 +134,7 @@ const AppSidebar = () => {
       {/* Navigation Space */}
       <nav className="flex-1 overflow-y-auto px-4 py-8 custom-scrollbar space-y-10">
         {menuSections.map((section, sidx) => {
-          const authorizedItems = section.items.filter(item => 
+          const authorizedItems = section.items.filter(item =>
             userData ? isMenuAllowed(item.path, userData, item.roles) : false
           );
 
@@ -149,6 +151,7 @@ const AppSidebar = () => {
                   <NavLink
                     key={item.path}
                     to={item.path}
+                    end
                     onClick={() => setMobileOpen(false)}
                     className={({ isActive }) => {
                       const isExactlyActive = isActive && (item.path.includes('?') ? location.search === item.path.split('?')[1] || `?${item.path.split('?')[1]}` === location.search : true);
@@ -163,7 +166,7 @@ const AppSidebar = () => {
                     <span className="transition-all group-hover:scale-110 duration-500 opacity-80 group-hover:opacity-100">{item.icon}</span>
                     <span className="flex-1 truncate tracking-tight font-black text-[12px]">{t(item.labelKey)}</span>
                     <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-500" />
-                    
+
                     {/* Active Glow */}
                     <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                   </NavLink>
@@ -204,7 +207,7 @@ const AppSidebar = () => {
             <span className="font-black text-white text-md tracking-tighter">SriDeviGroups Of Finance</span>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* Language Switcher */}
           <button
@@ -240,12 +243,12 @@ const AppSidebar = () => {
 
       <AnimatePresence>
         {mobileOpen && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md lg:hidden" 
-            onClick={() => setMobileOpen(false)} 
+            className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md lg:hidden"
+            onClick={() => setMobileOpen(false)}
           />
         )}
       </AnimatePresence>

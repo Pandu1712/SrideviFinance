@@ -21,7 +21,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 
 const Ledger = () => {
   const { userData, loading: authLoading } = useAuth();
-  const { selectedLineId } = useLine();
+  const { selectedLineId, lines } = useLine();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [accountNo, setAccountNo] = useState(searchParams.get("acc") || "");
@@ -77,7 +77,7 @@ const Ledger = () => {
 
   const saveTransferPosting = async () => {
     if (!selectedPostingForTransfer || !destAccountNo || !accountInfo) return;
-    
+
     if (destAccountNo === accountInfo.accountNo) {
       toast.error("Source and Destination accounts are the same");
       return;
@@ -169,7 +169,7 @@ const Ledger = () => {
       await runTransaction(db, async (transaction) => {
         const accRef = doc(db, "accounts", accountInfo.id);
         const accDoc = await transaction.get(accRef);
-        
+
         transaction.update(postingRef, {
           date: editPostDate,
           amount: newAmount
@@ -207,7 +207,7 @@ const Ledger = () => {
 
         const accData = accDoc.data();
         const postingAmount = posting.amount || 0;
-        
+
         // Reversal logic
         const newPaid = (accData.paid || 0) - postingAmount;
         const newBalance = (accData.balance || 0) + postingAmount;
@@ -244,44 +244,44 @@ const Ledger = () => {
       }
 
       q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("lineId", "==", selectedLineId));
-      
+
       if (userData.role === "admin") {
         q = query(q, where("adminId", "==", userData.uid));
       }
-      
+
       const accSnap = await getDocs(q);
       if (accSnap.empty) {
         setAccountInfo(null);
         setPostings([]);
         return;
       }
-      
+
       const accDoc = accSnap.docs[0];
       const acc = { id: accDoc.id, ...(accDoc.data() as any) };
       setAccountInfo(acc);
-      
+
       // Fetch all postings for this account, sorted by date
       const pq = query(
-        collection(db, "postings"), 
+        collection(db, "postings"),
         where("accountId", "==", acc.id)
       );
-      
+
       const pSnap = await getDocs(pq);
       const posts: DocumentData[] = pSnap.docs
         .map(d => ({ id: d.id, ...(d.data() as any) }))
         .filter(p => p.status === 'collection' || p.status === 'penalty' || p.status === 'extra_collection' || p.status === 'extra_transfer_out');
-        
+
       // Sort locally to avoid index requirement
       posts.sort((a, b) => (a.date > b.date ? 1 : -1));
       setPostings(posts);
-      
+
       const penaltySum = posts.reduce((sum, p) => sum + (p.penaltyAmount || 0), 0);
       setTotalPenalty(penaltySum);
-      
+
       const extraSum = posts.reduce((sum, p) => sum + (p.extraAmount || 0), 0);
       const surplus = Math.max(0, acc.paid - acc.totalAmount);
       setTotalExtra(extraSum + surplus);
-      
+
       toast.success("Ledger generated successfully");
     } catch (err) {
       console.error("Ledger Search Error:", err);
@@ -291,16 +291,159 @@ const Ledger = () => {
     }
   };
 
-  const filteredPostings = postings.filter(p => {
-    if (filterStartDate && p.date < filterStartDate) return false;
-    if (filterEndDate && p.date > filterEndDate) return false;
+  // Filter postings locally based on date picker inputs and build full schedule
+  const buildLedgerRows = () => {
+    if (!accountInfo) return [];
+
+    const start = new Date(accountInfo.startDate);
+    const freq = accountInfo.paymentFrequency || "weekly";
+    const total = accountInfo.totalAmount || 0;
+    const inst = accountInfo.installmentAmount || 1;
+
+    // Sort postings by date ascending
+    const sortedPostings = [...postings].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Determine latest posting date
+    let latestPostingDate = accountInfo.startDate;
+    if (sortedPostings.length > 0) {
+      latestPostingDate = sortedPostings[sortedPostings.length - 1].date;
+    }
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    const maxDateLimit = latestPostingDate > todayStr ? latestPostingDate : todayStr;
+
+    const rows: any[] = [];
+    let accumulatedPaid = 0;
+    let cycleIndex = 0;
+    let safetyCounter = 0;
+    
+    // Keep track of which postings have been placed to avoid duplicating
+    const placedPostingIds = new Set<string>();
+
+    while (safetyCounter < 500) {
+      safetyCounter++;
+
+      // Calculate start and end dates for this cycle
+      const cycleStartDateObj = new Date(start);
+      const nextCycleDateObj = new Date(start);
+
+      if (freq === "daily") {
+        cycleStartDateObj.setDate(start.getDate() + cycleIndex);
+        nextCycleDateObj.setDate(start.getDate() + cycleIndex + 1);
+      } else if (freq === "weekly") {
+        cycleStartDateObj.setDate(start.getDate() + cycleIndex * 7);
+        nextCycleDateObj.setDate(start.getDate() + (cycleIndex + 1) * 7);
+      } else if (freq === "monthly") {
+        cycleStartDateObj.setMonth(start.getMonth() + cycleIndex);
+        nextCycleDateObj.setMonth(start.getMonth() + cycleIndex + 1);
+      }
+
+      const cycleStartDateStr = cycleStartDateObj.toISOString().split("T")[0];
+      const nextCycleDateStr = nextCycleDateObj.toISOString().split("T")[0];
+
+      // Filter postings that fall into this cycle's date range
+      // For the first cycle (cycleIndex === 0), also include any postings before the cycleStartDate
+      const cyclePostings = sortedPostings.filter(p => {
+        if (placedPostingIds.has(p.id)) return false;
+        const isAfterOrOnStart = cycleIndex === 0 ? true : p.date >= cycleStartDateStr;
+        const isBeforeEnd = p.date < nextCycleDateStr;
+        return isAfterOrOnStart && isBeforeEnd;
+      });
+
+      if (cyclePostings.length > 0) {
+        for (const p of cyclePostings) {
+          placedPostingIds.add(p.id);
+          accumulatedPaid += p.amount || 0;
+          rows.push({
+            id: p.id,
+            type: "posting",
+            date: p.date,
+            amount: p.amount,
+            penaltyAmount: p.penaltyAmount || 0,
+            extraAmount: p.extraAmount || 0,
+            payMode: p.payMode,
+            collectedByName: p.collectedByName,
+            collectedByRole: p.collectedByRole,
+            status: p.status,
+            note: p.note,
+            purpose: p.purpose,
+            transferredFrom: p.transferredFrom,
+            rawPosting: p,
+            runningTotal: accumulatedPaid,
+          });
+        }
+      } else {
+        // Missed / Escape payment row
+        rows.push({
+          id: `missed-${cycleIndex}-${cycleStartDateStr}`,
+          type: "missed",
+          date: cycleStartDateStr,
+          amount: 0,
+          penaltyAmount: 0,
+          extraAmount: 0,
+          payMode: "-",
+          collectedByName: "-",
+          collectedByRole: "",
+          status: "missed",
+          note: "Missed Payment",
+          purpose: "",
+          runningTotal: accumulatedPaid,
+        });
+      }
+
+      // Check termination conditions:
+      // 1. All postings are placed
+      const allPostingsPlaced = sortedPostings.every(p => placedPostingIds.has(p.id));
+      
+      // 2. We have covered up to maxDateLimit
+      const coveredTime = cycleStartDateStr >= maxDateLimit;
+
+      // 3. Accumulated paid meets or exceeds totalAmount (fully paid)
+      const isFullyPaid = accumulatedPaid >= total;
+
+      if (allPostingsPlaced && (isFullyPaid || coveredTime)) {
+        break;
+      }
+
+      cycleIndex++;
+    }
+
+    // Fallback: If there are still any postings that were not placed (e.g. outside range), add them at the end
+    const unplacedPostings = sortedPostings.filter(p => !placedPostingIds.has(p.id));
+    for (const p of unplacedPostings) {
+      accumulatedPaid += p.amount || 0;
+      rows.push({
+        id: p.id,
+        type: "posting",
+        date: p.date,
+        amount: p.amount,
+        penaltyAmount: p.penaltyAmount || 0,
+        extraAmount: p.extraAmount || 0,
+        payMode: p.payMode,
+        collectedByName: p.collectedByName,
+        collectedByRole: p.collectedByRole,
+        status: p.status,
+        note: p.note,
+        purpose: p.purpose,
+        transferredFrom: p.transferredFrom,
+        rawPosting: p,
+        runningTotal: accumulatedPaid,
+      });
+    }
+
+    return rows;
+  };
+
+  const ledgerRows = buildLedgerRows();
+
+  const filteredLedgerRows = ledgerRows.filter(row => {
+    if (filterStartDate && row.date < filterStartDate) return false;
+    if (filterEndDate && row.date > filterEndDate) return false;
     return true;
   });
 
-  let runningTotal = 0;
-
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
@@ -311,7 +454,7 @@ const Ledger = () => {
             <BookOpen className="text-white h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-primary">Account Ledger</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight text-primary">Customer Statement </h1>
             <p className="text-muted-foreground">Comprehensive transaction history and repayment tracking.</p>
           </div>
         </div>
@@ -324,79 +467,88 @@ const Ledger = () => {
               toast.error("Please search and load an account first");
               return;
             }
-            
+
             const doc = new jsPDF();
-            
+
             // Header Section
             doc.setFontSize(22);
-            doc.setTextColor(15, 23, 42); 
+            doc.setTextColor(15, 23, 42);
             doc.text("SRIDEVIGROUPS OF FINANCE", 14, 22);
-            
+
             doc.setFontSize(14);
             doc.text("Official Account Statement", 14, 30);
-            
+
             doc.setFontSize(8);
-            doc.setTextColor(100, 116, 139); 
+            doc.setTextColor(100, 116, 139);
             doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 38);
 
+            const activeLine = lines.find(l => l.id === accountInfo.lineId);
+            const lineName = activeLine?.name || "Consolidated Portfolio";
+
             // Member Info Box
-            doc.setDrawColor(226, 232, 240); 
+            doc.setDrawColor(226, 232, 240);
             doc.line(14, 42, 196, 42);
-            
+
             doc.setFontSize(9);
             doc.setTextColor(15, 23, 42);
             doc.text(`Subscriber: ${accountInfo.name.toUpperCase()}`, 14, 50);
             doc.text(`Account No: ${accountInfo.accountNo}`, 14, 56);
-            doc.text(`Village: ${accountInfo.village || "N/A"}`, 14, 62);
-            doc.text(`Registered: ${accountInfo.creationDate || formatDate(accountInfo.createdAt)}`, 14, 68);
-            
+            doc.text(`Line: ${lineName}`, 14, 62);
+            doc.text(`Village: ${accountInfo.village || "N/A"}`, 14, 68);
+            doc.text(`Registered: ${accountInfo.creationDate || formatDate(accountInfo.createdAt)}`, 14, 74);
+
             doc.text(`Total Loan: ${formatCurrencyPDF(accountInfo.totalAmount)}`, 120, 50);
             doc.text(`Total Paid: ${formatCurrencyPDF(accountInfo.paid)}`, 120, 56);
             doc.text(`Net Balance: ${formatCurrencyPDF(accountInfo.balance)}`, 120, 62);
             doc.text(`Current Status: ${accountInfo.status.toUpperCase()}`, 120, 68);
 
-            const tableColumn = ["Sl No", "Date", "Amount", "Mode", "Collected By"];
-            const tableRows = filteredPostings.map((p, i) => [
-              i + 1, 
-              formatDate(p.date), 
-              formatCurrencyPDF(p.amount), 
-              p.payMode.toUpperCase() + (p.note ? ` (${p.note})` : ""), 
-              p.collectedByName || "System"
+            const tableColumn = ["Sl No", "Date", "Amount", "Running Total", "Mode", "Collected By"];
+            const tableRows = filteredLedgerRows.map((row, i) => [
+              i + 1,
+              formatDate(row.date),
+              row.type === "missed" ? "Rs. 0" : formatCurrencyPDF(row.amount),
+              formatCurrencyPDF(row.runningTotal),
+              row.type === "missed" ? "MISSED / ESCAPE" : row.payMode.toUpperCase() + (row.note ? ` (${row.note})` : ""),
+              row.type === "missed" ? "-" : row.collectedByName || "System"
             ]);
 
             autoTable(doc, {
               head: [tableColumn],
               body: tableRows,
-              startY: 75,
+              startY: 82,
               theme: 'striped',
               headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
               styles: { fontSize: 8, cellPadding: 3 },
               columnStyles: {
-                2: { halign: 'right', fontStyle: 'bold' } 
+                2: { halign: 'right', fontStyle: 'bold' },
+                3: { halign: 'right', fontStyle: 'bold' }
               }
             });
 
-            doc.save(`Ledger_${accountNo}_${new Date().toISOString().split("T")[0]}.pdf`);
+            doc.save(`Ledger_${accountNo}_Line_${lineName.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`);
             toast.success("Ledger Exported as PDF");
           }}>
             <Download className="h-4 w-4" /> PDF
           </Button>
           <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-emerald-600 font-bold hover:bg-emerald-50 hover:border-emerald-200 transition-all" onClick={() => {
-            if (!accountInfo || filteredPostings.length === 0) {
+            if (!accountInfo || filteredLedgerRows.length === 0) {
               toast.error("No data to export");
               return;
             }
-            
-            const data = filteredPostings.map((p, i) => ({
+
+            const data = filteredLedgerRows.map((row, i) => ({
               "Sl No": i + 1,
-              "Date": formatDate(p.date),
-              "Description": p.status?.toUpperCase() || "PAYMENT",
-              "Amount": p.amount || 0,
-              "Mode": (p.payMode || "CASH").toUpperCase() + (p.note ? ` (${p.note})` : ""),
-              "Collected By": p.collectedByName || "System"
+              "Date": formatDate(row.date),
+              "Description": row.type === "missed" ? "MISSED / ESCAPE" : row.rawPosting?.status?.toUpperCase() || "PAYMENT",
+              "Amount": row.type === "missed" ? 0 : row.amount || 0,
+              "Running Total": row.runningTotal || 0,
+              "Mode": row.type === "missed" ? "-" : (row.payMode || "CASH").toUpperCase() + (row.note ? ` (${row.note})` : ""),
+              "Collected By": row.type === "missed" ? "-" : row.collectedByName || "System"
             }));
 
-            exportToExcel(data, `Ledger_${accountNo}`, "Ledger");
+            const activeLine = lines.find(l => l.id === accountInfo.lineId);
+            const lineName = activeLine?.name || "Consolidated_Portfolio";
+            exportToExcel(data, `Ledger_${accountNo}_Line_${lineName.replace(/\s+/g, "_")}`, "Ledger");
             toast.success("Ledger Exported as Excel");
           }}>
             <FileSpreadsheet className="h-4 w-4" /> Excel
@@ -412,19 +564,19 @@ const Ledger = () => {
               <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Search Account</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  value={accountNo} 
-                  onChange={e => setAccountNo(e.target.value)} 
-                  placeholder="Enter Account No (e.g. ACC-1001)" 
+                <Input
+                  value={accountNo}
+                  onChange={e => setAccountNo(e.target.value)}
+                  placeholder="Enter Account No (e.g. ACC-1001)"
                   className="pl-9 finance-input"
                   onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                 />
               </div>
             </div>
-            
+
             <div className="space-y-1 w-full">
               <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Start Date</Label>
-              <Input 
+              <Input
                 type="date"
                 value={filterStartDate}
                 onChange={e => setFilterStartDate(e.target.value)}
@@ -434,7 +586,7 @@ const Ledger = () => {
 
             <div className="space-y-1 w-full">
               <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">End Date</Label>
-              <Input 
+              <Input
                 type="date"
                 value={filterEndDate}
                 onChange={e => setFilterEndDate(e.target.value)}
@@ -442,9 +594,9 @@ const Ledger = () => {
               />
             </div>
           </div>
-          
+
           <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100 print:hidden">
-            <Button 
+            <Button
               variant="outline"
               size="sm"
               onClick={() => {
@@ -545,48 +697,48 @@ const Ledger = () => {
                   <div className="space-y-1">
                     <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Assignment Profile</p>
                     <div className="flex items-center gap-2">
-                       <div className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center font-black text-[10px] text-accent">
-                          {agents.find(a => a.id === accountInfo.agentId)?.name?.substring(0,2).toUpperCase() || "SY"}
-                       </div>
-                       <div className="flex flex-col">
-                          <span className="text-xs font-black text-primary uppercase">
-                            {agents.find(a => a.id === accountInfo.agentId)?.name || accountInfo.lastCollectedByName || 'System Auto-Assigned'}
-                          </span>
-                          <span className="text-[9px] font-bold text-slate-400">Dedicated Collection Agent</span>
-                       </div>
+                      <div className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center font-black text-[10px] text-accent">
+                        {agents.find(a => a.id === accountInfo.agentId)?.name?.substring(0, 2).toUpperCase() || "SY"}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs font-black text-primary uppercase">
+                          {agents.find(a => a.id === accountInfo.agentId)?.name || accountInfo.lastCollectedByName || 'System Auto-Assigned'}
+                        </span>
+                        <span className="text-[9px] font-bold text-slate-400">Dedicated Collection Agent</span>
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">
-                     <Badge className="bg-white text-primary border-slate-200 font-bold mb-1">ACTIVE LOAN</Badge>
-                     <p className="text-[10px] font-bold text-slate-400">PLAN: {accountInfo.paymentFrequency?.toUpperCase()}</p>
+                    <Badge className="bg-white text-primary border-slate-200 font-bold mb-1">ACTIVE LOAN</Badge>
+                    <p className="text-[10px] font-bold text-slate-400">PLAN: {accountInfo.paymentFrequency?.toUpperCase()}</p>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="bg-slate-50 border-slate-200 shadow-inner">
                 <CardContent className="p-4 flex items-center justify-between">
-                   <div className="space-y-1">
-                      <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Loan Timeline</p>
-                      <div className="flex items-center gap-4 text-xs font-black text-primary">
-                         <div className="space-y-0.5">
-                            <span className="text-[8px] text-slate-400 block uppercase">Created Date</span>
-                            {accountInfo.creationDate ? formatDate(accountInfo.creationDate) : formatDate(accountInfo.createdAt)}
-                         </div>
-                         <div className="h-8 w-px bg-slate-200" />
-                         <div className="space-y-0.5">
-                            <span className="text-[8px] text-slate-400 block uppercase">Loan Started</span>
-                            {formatDate(accountInfo.startDate)}
-                         </div>
-                         <div className="h-8 w-px bg-slate-200" />
-                         <div className="space-y-0.5">
-                            <span className="text-[8px] text-slate-400 block uppercase">Maturity Date</span>
-                            {accountInfo.endDate ? formatDate(accountInfo.endDate) : 'Not Set'}
-                         </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Loan Timeline</p>
+                    <div className="flex items-center gap-4 text-xs font-black text-primary">
+                      <div className="space-y-0.5">
+                        <span className="text-[8px] text-slate-400 block uppercase">Created Date</span>
+                        {accountInfo.creationDate ? formatDate(accountInfo.creationDate) : formatDate(accountInfo.createdAt)}
                       </div>
-                   </div>
-                   <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-white border border-slate-200">
-                      <Calendar className="h-5 w-5 text-accent" />
-                   </div>
+                      <div className="h-8 w-px bg-slate-200" />
+                      <div className="space-y-0.5">
+                        <span className="text-[8px] text-slate-400 block uppercase">Loan Started</span>
+                        {formatDate(accountInfo.startDate)}
+                      </div>
+                      <div className="h-8 w-px bg-slate-200" />
+                      <div className="space-y-0.5">
+                        <span className="text-[8px] text-slate-400 block uppercase">Maturity Date</span>
+                        {accountInfo.endDate ? formatDate(accountInfo.endDate) : 'Not Set'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-white border border-slate-200">
+                    <Calendar className="h-5 w-5 text-accent" />
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -605,24 +757,24 @@ const Ledger = () => {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {accountInfo.documents.map((doc: any, idx: number) => (
-                    <motion.div 
+                    <motion.div
                       key={idx}
                       whileHover={{ y: -2 }}
                       className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-4 group transition-all hover:shadow-md hover:border-accent/20"
                     >
                       <div className="h-12 w-12 rounded-xl bg-slate-50 flex items-center justify-center shrink-0 group-hover:bg-accent/5 transition-colors">
-                         {doc.url.match(/\.(jpg|jpeg|png|webp)$/i) ? (
-                           <ImageIcon size={20} className="text-slate-300 group-hover:text-accent" />
-                         ) : (
-                           <File size={20} className="text-slate-300 group-hover:text-accent" />
-                         )}
+                        {doc.url.match(/\.(jpg|jpeg|png|webp)$/i) ? (
+                          <ImageIcon size={20} className="text-slate-300 group-hover:text-accent" />
+                        ) : (
+                          <File size={20} className="text-slate-300 group-hover:text-accent" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-black uppercase text-accent tracking-widest">{doc.type}</p>
                         <p className="text-xs font-bold text-slate-900 truncate mt-0.5">{doc.description || 'Verified Record'}</p>
-                        <a 
-                          href={doc.url} 
-                          target="_blank" 
+                        <a
+                          href={doc.url}
+                          target="_blank"
                           rel="noreferrer"
                           className="text-[9px] font-black uppercase text-slate-400 hover:text-primary transition-colors flex items-center gap-1 mt-2"
                         >
@@ -642,7 +794,7 @@ const Ledger = () => {
                   Transaction Statement
                 </CardTitle>
                 <div className="text-xs font-medium text-muted-foreground">
-                  Showing {filteredPostings.length} entries
+                  Showing {filteredLedgerRows.length} entries
                 </div>
               </CardHeader>
               <CardContent className="p-0 overflow-x-auto">
@@ -660,7 +812,7 @@ const Ledger = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-primary/5">
-                    {filteredPostings.length === 0 ? (
+                    {filteredLedgerRows.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="text-center py-20 text-muted-foreground italic bg-slate-50/50">
                           <User className="h-12 w-12 mx-auto mb-3 text-muted-foreground/20" />
@@ -668,124 +820,154 @@ const Ledger = () => {
                         </td>
                       </tr>
                     ) : (
-                      filteredPostings.map((p, i) => {
-                        runningTotal += p.amount || 0;
+                      filteredLedgerRows.map((row, i) => {
+                        if (row.type === "missed") {
+                          return (
+                            <motion.tr
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.05 }}
+                              key={row.id}
+                              className="bg-rose-50/10 dark:bg-rose-950/5 hover:bg-rose-50/20 transition-colors group"
+                            >
+                              <td className="p-4 text-xs font-mono text-slate-400">{i + 1}</td>
+                              <td className="p-4">
+                                <span className="text-sm font-medium text-slate-400">{formatDate(row.date)}</span>
+                              </td>
+                              <td className="p-4 text-sm font-bold text-right text-slate-400">
+                                ₹0
+                              </td>
+                              <td className="p-4 text-sm font-bold text-right text-slate-400">
+                                {formatCurrency(row.runningTotal)}
+                              </td>
+                              <td className="p-4 text-xs font-medium text-slate-400">-</td>
+                              <td className="p-4 text-xs font-medium text-slate-400">-</td>
+                              <td className="p-4 text-center">
+                                <span className="text-[9px] font-black uppercase py-1 px-2 rounded-md bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                                  MISSED / ESCAPE
+                                </span>
+                              </td>
+                              <td className="p-4 text-right text-slate-400">-</td>
+                            </motion.tr>
+                          );
+                        }
+
+                        const p = row.rawPosting;
                         return (
-                          <motion.tr 
+                          <motion.tr
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: i * 0.05 }}
-                            key={p.id} 
+                            key={row.id}
                             className="hover:bg-primary/5 transition-colors group"
                           >
                             <td className="p-4 text-xs font-mono text-muted-foreground">{i + 1}</td>
                             <td className="p-4">
-                               <div className="flex flex-col">
-                                  <span className="text-sm font-medium">{formatDate(p.date)}</span>
-                                  {p.transferredFrom && (
-                                    <Badge variant="outline" className="w-fit text-[7px] bg-blue-50 text-blue-600 border-blue-100 font-black uppercase tracking-tighter mt-1">
-                                      Shifted from {p.transferredFrom}
-                                    </Badge>
-                                  )}
-                               </div>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium">{formatDate(p.date)}</span>
+                                {p.transferredFrom && (
+                                  <Badge variant="outline" className="w-fit text-[7px] bg-blue-50 text-blue-600 border-blue-100 font-black uppercase tracking-tighter mt-1">
+                                    Shifted from {p.transferredFrom}
+                                  </Badge>
+                                )}
+                              </div>
                             </td>
                             <td className="p-4 text-sm font-bold text-right text-emerald-600">
                               <div className="flex flex-col">
-                                 <span>{formatCurrency(p.amount)}</span>
-                                 {p.penaltyAmount > 0 && (
-                                   <span className="text-[9px] text-rose-500 font-black">+ {formatCurrency(p.penaltyAmount)} Fine</span>
-                                 )}
-                                 {p.extraAmount !== 0 && (
-                                   <span className={`text-[9px] font-black ${p.extraAmount > 0 ? 'text-indigo-500' : 'text-rose-500'}`}>
-                                     {p.extraAmount > 0 ? '+' : '-'} {formatCurrency(Math.abs(p.extraAmount))} Extra
-                                   </span>
-                                 )}
+                                <span>{formatCurrency(p.amount)}</span>
+                                {p.penaltyAmount > 0 && (
+                                  <span className="text-[9px] text-rose-500 font-black">+ {formatCurrency(p.penaltyAmount)} Fine</span>
+                                )}
+                                {p.extraAmount !== 0 && (
+                                  <span className={`text-[9px] font-black ${p.extraAmount > 0 ? 'text-indigo-500' : 'text-rose-500'}`}>
+                                    {p.extraAmount > 0 ? '+' : '-'} {formatCurrency(Math.abs(p.extraAmount))} Extra
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="p-4 text-sm font-bold text-right text-primary group-hover:text-accent transition-colors">
-                              {formatCurrency(runningTotal + filteredPostings.slice(0, i + 1).reduce((s, x) => s + (x.penaltyAmount || 0), 0))}
+                              {formatCurrency(row.runningTotal)}
                             </td>
-                              <td className="p-4">
-                                <div className="flex flex-col gap-1">
-                                  <span className="text-[10px] font-bold uppercase py-1 px-2 rounded-md bg-slate-100 text-slate-600 w-max">
-                                    {p.payMode}
+                            <td className="p-4">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] font-bold uppercase py-1 px-2 rounded-md bg-slate-100 text-slate-600 w-max">
+                                  {p.payMode}
+                                </span>
+                                {p.note && (
+                                  <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={p.note}>
+                                    Note: {p.note}
                                   </span>
-                                  {p.note && (
-                                    <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={p.note}>
-                                      Note: {p.note}
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="p-4">
-                                <div className="flex flex-col">
-                                  <span className="text-xs font-black text-slate-700 uppercase leading-none">
-                                    {p.collectedByName || "System"}
-                                  </span>
-                                  <span className={`text-[8px] font-bold uppercase mt-1 ${p.collectedByRole === 'super_admin' ? 'text-indigo-500' : 'text-emerald-500'}`}>
-                                    {p.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'}
-                                  </span>
-                                </div>
-                              </td>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-black text-slate-700 uppercase leading-none">
+                                  {p.collectedByName || "System"}
+                                </span>
+                                <span className={`text-[8px] font-bold uppercase mt-1 ${p.collectedByRole === 'super_admin' ? 'text-indigo-500' : 'text-emerald-500'}`}>
+                                  {p.collectedByRole === 'super_admin' ? 'Admin' : 'Agent'}
+                                </span>
+                              </div>
+                            </td>
                             <td className="p-4 text-center">
-                               <div className="flex flex-col items-center">
-                                 <span className={`text-[10px] font-bold uppercase py-1 px-2 rounded-md ${
-                                   p.status === 'penalty' ? 'bg-amber-100 text-amber-700' : 
-                                   p.status === 'extra_collection' ? 'bg-purple-100 text-purple-700' : 
-                                   p.status === 'extra_transfer_out' ? 'bg-rose-100 text-rose-700' : 
-                                   'bg-blue-100 text-blue-700'
-                                 }`}>
-                                   {(p.collectedByRole || 'Agent').replace('_', ' ')} {p.status?.replace('_', ' ')}
-                                 </span>
-                                 {p.purpose && <span className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{p.purpose}</span>}
-                               </div>
+                              <div className="flex flex-col items-center">
+                                <span className={`text-[10px] font-bold uppercase py-1 px-2 rounded-md ${p.status === 'penalty' ? 'bg-amber-100 text-amber-700' :
+                                    p.status === 'extra_collection' ? 'bg-purple-100 text-purple-700' :
+                                      p.status === 'extra_transfer_out' ? 'bg-rose-100 text-rose-700' :
+                                        'bg-blue-100 text-blue-700'
+                                  }`}>
+                                  {(p.collectedByRole || 'Agent').replace('_', ' ')} {p.status?.replace('_', ' ')}
+                                </span>
+                                {p.purpose && <span className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{p.purpose}</span>}
+                              </div>
                             </td>
                             <td className="p-4 text-right">
-                                {userData?.role === "super_admin" && (
-                                  <div className="flex justify-end gap-1">
-                                    <Button 
-                                      variant="ghost" 
-                                      size="icon" 
-                                      title="Transfer Posting"
-                                      className="h-8 w-8 text-slate-300 hover:text-blue-500 hover:bg-blue-50"
-                                      onClick={() => handleTransferInit(p)}
-                                    >
-                                      <ArrowRightLeft size={14} />
-                                    </Button>
-                                    {userData?.role === "super_admin" && (
-                                      <>
-                                        <Button 
-                                          variant="ghost" 
-                                          size="icon" 
-                                          className="h-8 w-8 text-slate-300 hover:text-accent hover:bg-accent/5"
-                                          onClick={() => handleEditPosting(p)}
-                                        >
-                                          <Edit size={14} />
-                                        </Button>
-                                        <Button 
-                                          variant="ghost" 
-                                          size="icon" 
-                                          className="h-8 w-8 text-slate-300 hover:text-destructive hover:bg-destructive/5"
-                                          onClick={() => handleDeletePosting(p)}
-                                        >
-                                          <Trash2 size={14} />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-                              </td>
+                              {userData?.role === "super_admin" && (
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Transfer Posting"
+                                    className="h-8 w-8 text-slate-300 hover:text-blue-500 hover:bg-blue-50"
+                                    onClick={() => handleTransferInit(p)}
+                                  >
+                                    <ArrowRightLeft size={14} />
+                                  </Button>
+                                  {userData?.role === "super_admin" && (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-slate-300 hover:text-accent hover:bg-accent/5"
+                                        onClick={() => handleEditPosting(p)}
+                                      >
+                                        <Edit size={14} />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-slate-300 hover:text-destructive hover:bg-destructive/5"
+                                        onClick={() => handleDeletePosting(p)}
+                                      >
+                                        <Trash2 size={14} />
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                           </motion.tr>
                         );
                       })
                     )}
                   </tbody>
-                  {filteredPostings.length > 0 && (
+                  {filteredLedgerRows.length > 0 && (
                     <tfoot className="bg-primary hover:bg-primary transition-colors">
                       <tr>
                         <td colSpan={2} className="p-4 text-xs font-bold text-primary-foreground uppercase tracking-widest">Final Total Summarized</td>
-                        <td className="p-4 text-lg font-black text-white text-right">{formatCurrency(runningTotal)}</td>
-                        <td className="p-4 text-lg font-black text-accent text-right">{formatCurrency(runningTotal)}</td>
+                        <td className="p-4 text-lg font-black text-white text-right">{formatCurrency(postings.reduce((sum, p) => sum + (p.amount || 0), 0))}</td>
+                        <td className="p-4 text-lg font-black text-accent text-right">{formatCurrency(postings.reduce((sum, p) => sum + (p.amount || 0), 0))}</td>
                         <td colSpan={4}></td>
                       </tr>
                     </tfoot>
@@ -796,43 +978,43 @@ const Ledger = () => {
 
             {/* Payment Progress Visualization */}
             <Card className="border-none shadow-xl bg-[#0F172A] text-white p-8 overflow-hidden relative rounded-3xl">
-               <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                     <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Recovery Maturity Lifecycle</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-black text-emerald-400 italic">
-                      {Math.round(((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}%
-                    </p>
-                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Recovered</p>
-                  </div>
-               </div>
-               
-               <div className="h-4 w-full bg-white/5 rounded-full overflow-hidden mb-8 border border-white/5">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(100, ((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}%` }}
-                    className="h-full bg-premium-gradient shadow-[0_0_30px_rgba(245,158,11,0.4)] relative"
-                  >
-                    <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent)] animate-[shimmer_2s_infinite]" />
-                  </motion.div>
-               </div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Recovery Maturity Lifecycle</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black text-emerald-400 italic">
+                    {Math.round(((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}%
+                  </p>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Recovered</p>
+                </div>
+              </div>
 
-               <div className="grid grid-cols-3 gap-8">
-                  <div className="space-y-1">
-                     <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Total Collected</p>
-                     <p className="text-2xl font-black text-emerald-400 italic">{formatCurrency(accountInfo.paid)}</p>
-                  </div>
-                  <div className="space-y-1">
-                     <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Principal Owed</p>
-                     <p className="text-2xl font-black text-rose-400 italic">{formatCurrency(accountInfo.balance)}</p>
-                  </div>
-                  <div className="space-y-1">
-                     <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Agreement Value</p>
-                     <p className="text-2xl font-black text-white italic">{formatCurrency(accountInfo.totalAmount)}</p>
-                  </div>
-               </div>
+              <div className="h-4 w-full bg-white/5 rounded-full overflow-hidden mb-8 border border-white/5">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, ((accountInfo.totalAmount - accountInfo.balance) / (accountInfo.totalAmount || 1)) * 100)}%` }}
+                  className="h-full bg-premium-gradient shadow-[0_0_30px_rgba(245,158,11,0.4)] relative"
+                >
+                  <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent)] animate-[shimmer_2s_infinite]" />
+                </motion.div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-8">
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Total Collected</p>
+                  <p className="text-2xl font-black text-emerald-400 italic">{formatCurrency(accountInfo.paid)}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Principal Owed</p>
+                  <p className="text-2xl font-black text-rose-400 italic">{formatCurrency(accountInfo.balance)}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest">Agreement Value</p>
+                  <p className="text-2xl font-black text-white italic">{formatCurrency(accountInfo.totalAmount)}</p>
+                </div>
+              </div>
             </Card>
           </motion.div>
         )}
@@ -864,11 +1046,11 @@ const Ledger = () => {
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Correct Amount</Label>
               <div className="relative">
                 <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input 
-                  type="number" 
-                  value={editPostAmount} 
-                  onChange={e => setEditPostAmount(e.target.value)} 
-                  className="pl-9 h-12 finance-input font-black text-lg" 
+                <Input
+                  type="number"
+                  value={editPostAmount}
+                  onChange={e => setEditPostAmount(e.target.value)}
+                  className="pl-9 h-12 finance-input font-black text-lg"
                 />
               </div>
             </div>
@@ -876,11 +1058,11 @@ const Ledger = () => {
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">New Transaction Date</Label>
               <div className="relative">
                 <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input 
-                  type="date" 
-                  value={editPostDate} 
-                  onChange={e => setEditPostDate(e.target.value)} 
-                  className="pl-9 h-12 finance-input font-bold" 
+                <Input
+                  type="date"
+                  value={editPostDate}
+                  onChange={e => setEditPostDate(e.target.value)}
+                  className="pl-9 h-12 finance-input font-bold"
                 />
               </div>
             </div>
@@ -909,36 +1091,36 @@ const Ledger = () => {
           </div>
           <div className="p-6 space-y-5">
             <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 flex items-center gap-3">
-               <div className="h-10 w-10 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm font-black text-sm">
-                  {selectedPostingForTransfer?.amount}
-               </div>
-               <div className="flex-1">
-                  <p className="text-[10px] font-black uppercase text-blue-400 leading-none">Moving Amount</p>
-                  <p className="text-xs font-bold text-blue-700 mt-1">{formatDate(selectedPostingForTransfer?.date)}</p>
-               </div>
-               <MoveRight className="text-blue-300" />
+              <div className="h-10 w-10 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm font-black text-sm">
+                {selectedPostingForTransfer?.amount}
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-black uppercase text-blue-400 leading-none">Moving Amount</p>
+                <p className="text-xs font-bold text-blue-700 mt-1">{formatDate(selectedPostingForTransfer?.date)}</p>
+              </div>
+              <MoveRight className="text-blue-300" />
             </div>
 
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Destination Account No</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input 
-                  placeholder="Enter ACC-XXXX" 
-                  value={destAccountNo} 
-                  onChange={e => setDestAccountNo(e.target.value.toUpperCase())} 
-                  className="pl-9 h-12 finance-input font-black text-lg" 
+                <Input
+                  placeholder="Enter ACC-XXXX"
+                  value={destAccountNo}
+                  onChange={e => setDestAccountNo(e.target.value.toUpperCase())}
+                  className="pl-9 h-12 finance-input font-black text-lg"
                 />
               </div>
               <p className="text-[9px] font-medium text-slate-400 px-1 italic">Balances will be automatically adjusted on both accounts.</p>
             </div>
-            
+
             <div className="flex gap-3 pt-2">
               <Button variant="outline" onClick={() => setTransferPostingOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
                 Cancel
               </Button>
-              <Button 
-                onClick={saveTransferPosting} 
+              <Button
+                onClick={saveTransferPosting}
                 disabled={loading || !destAccountNo}
                 className="flex-1 h-12 rounded-xl bg-blue-600 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700"
               >

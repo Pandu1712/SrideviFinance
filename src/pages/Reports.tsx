@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { CustomDatePicker } from "@/components/ui/CustomDatePicker";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -265,7 +266,10 @@ const Reports = () => {
       "Creation Date": item.creationDate || ""
     }));
 
-    exportToExcel(excelData, `Financial_Report_${date}`, "Report");
+    const activeLine = lines.find(l => l.id === selectedLineId);
+    const lineName = activeLine?.name || "Consolidated_Portfolio";
+
+    exportToExcel(excelData, `Financial_Report_${lineName.replace(/\s+/g, "_")}_${date}`, "Report");
     toast.success("Excel Report Exported Successfully");
   };
 
@@ -286,21 +290,7 @@ const Reports = () => {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-          <div className="relative group">
-            <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors z-10" />
-            <Input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="absolute inset-0 opacity-0 cursor-pointer z-20"
-            />
-            <div className="pl-9 h-10 w-40 glass-card flex items-center text-[10px] font-black text-slate-700 bg-white shadow-sm border border-slate-200 rounded-xl">
-              {(() => {
-                const [y, m, d] = date.split('-');
-                return `${d}/${m}/${y}`;
-              })()}
-            </div>
-          </div>
+          <CustomDatePicker value={date} onChange={setDate} />
           <Button 
             variant="outline" 
             size="sm" 

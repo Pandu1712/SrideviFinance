@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 export type Language = "en" | "te";
 
 export type TranslationKey = 
-  | "dashboard" | "dailyPosting" | "dailyCollection" | "masterLedger" | "collectionBook" | "newAccount" | "extraAmount" | "membersRegistry" | "verifyPostings" | "searchArchives" | "manageVillages" | "manageAgents" | "reportsEngine" | "profitsCenter" | "adminControl" | "logout" | "channel" | "systemControls" | "language" | "english" | "telugu" | "shiftAccounts" | "companyAccount"
+  | "dashboard" | "dailyPosting" | "dailyCollection" | "masterLedger" | "collectionBook" | "newAccount" | "extraAmount" | "membersRegistry" | "verifyPostings" | "searchArchives" | "manageVillages" | "manageAgents" | "reportsEngine" | "profitsCenter" | "adminControl" | "logout" | "channel" | "systemControls" | "language" | "english" | "telugu" | "shiftAccounts" | "companyAccount" | "accounts" | "dailyData"
   // General UI labels
   | "accountNo" | "name" | "village" | "amount" | "paid" | "balance" | "totalDebt" | "recovered" | "repaymentVelocity" | "options" | "actions" | "save" | "cancel" | "loading" | "outstanding" | "notes" | "note" | "search" | "submit" | "date" | "status" | "add" | "edit" | "delete" | "verify"
   // Section Titles
@@ -14,9 +14,10 @@ export type TranslationKey =
 const translations: Record<Language, Record<TranslationKey, string>> = {
   en: {
     dashboard: "Dashboard",
+    accounts: "Accounts",
     dailyPosting: "Daily Posting",
     dailyCollection: "Daily Collection",
-    masterLedger: "Master Ledger",
+    masterLedger: "Customer Statement",
     collectionBook: "Collection Book",
     newAccount: "New Account",
     extraAmount: "Extra Amount",
@@ -28,7 +29,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
     manageAgents: "Manage Agents",
     reportsEngine: "Reports Engine",
     profitsCenter: "Profits Center",
-    companyAccount: "Company Account",
+    companyAccount: "Ledger",
     adminControl: "Admin Control",
     logout: "Logout",
     channel: "Channel",
@@ -36,6 +37,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
     language: "Language",
     english: "English",
     telugu: "Telugu (తెలుగు)",
+    dailyData: "Daily Sheet",
     accountNo: "Account No",
     name: "Name",
     village: "Village",
@@ -77,9 +79,10 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
   },
   te: {
     dashboard: "డ్యాష్‌బోర్డ్ (Dashboard)",
+    accounts: "ఖాతాలు (Accounts)",
     dailyPosting: "రోజువారీ పోస్టింగ్ (Daily Posting)",
     dailyCollection: "రోజువారీ కలెక్షన్ (Daily Collection)",
-    masterLedger: "ఖాతా పుస్తకం (Master Ledger)",
+    masterLedger: "కస్టమర్ స్టేట్‌మెంట్ (Customer Statement)",
     collectionBook: "వసూలు పుస్తకం (Collection Book)",
     newAccount: "కొత్త खाता (New Account)",
     extraAmount: "అదనపు మొత్తం (Extra Amount)",
@@ -91,7 +94,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
     manageAgents: "ఏజెంట్ల నిర్వహణ (Manage Agents)",
     reportsEngine: "నివేదికలు (Reports Engine)",
     profitsCenter: "లాభాల వివరాలు (Profits Center)",
-    companyAccount: "సంస్థ ఖాతా (Company Account)",
+    companyAccount: "లెడ్జర్ (Ledger)",
     adminControl: "అడ్మిన్ నియంత్రణ (Admin Control)",
     logout: "లాగ్ అవుట్ (Logout)",
     channel: "లైన్ / ఛానెల్",
@@ -99,6 +102,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
     language: "భాష (Language)",
     english: "English",
     telugu: "తెలుగు (Telugu)",
+    dailyData: "డైలీ షీట్ (Daily Data)",
     accountNo: "ఖాతా సంఖ్య",
     name: "పేరు",
     village: "గ్రామం",

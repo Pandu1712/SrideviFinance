@@ -57,6 +57,7 @@ const accountSchema = z.object({
   customerLocation: z.string().optional(),
   paymentFrequency: z.enum(["daily", "weekly", "monthly"]),
   installmentAmount: z.string().min(1, "Required"),
+  installmentsCount: z.string().optional(),
   totalAmount: z.string().min(1, "Total amount is required"),
   startDate: z.string().min(1, "Required"),
   endDate: z.string().min(1, "Required"),
@@ -323,6 +324,7 @@ const NewAccount = () => {
       altPhone: "",
       creationDate: new Date().toISOString().split("T")[0],
       fatherHusbandNameTelugu: "",
+      installmentsCount: "",
     },
   });
 
@@ -352,6 +354,7 @@ const NewAccount = () => {
   const interestAmount = watch("interestAmount");
   const paymentFrequency = watch("paymentFrequency");
   const installmentAmount = watch("installmentAmount");
+  const installmentsCount = watch("installmentsCount");
   const totalAmount = watch("totalAmount");
   const creationDate = watch("creationDate");
   const paymentType = watch("paymentType");
@@ -381,6 +384,36 @@ const NewAccount = () => {
       }
     }
   }, [totalAmount, interestAmount, setValue]);
+
+  // 1. Calculate Installment Amount based on Total Amount and Installments Count
+  useEffect(() => {
+    if (totalAmount && installmentsCount) {
+      const total = parseFloat(totalAmount);
+      const count = parseFloat(installmentsCount);
+      if (!isNaN(total) && !isNaN(count) && count > 0) {
+        const inst = Math.ceil(total / count);
+        const currentInst = watch("installmentAmount");
+        if (currentInst !== inst.toString()) {
+          setValue("installmentAmount", inst.toString());
+        }
+      }
+    }
+  }, [totalAmount, installmentsCount, setValue]);
+
+  // 2. Calculate Installments Count based on Total Amount and Installment Amount
+  useEffect(() => {
+    if (totalAmount && installmentAmount) {
+      const total = parseFloat(totalAmount);
+      const inst = parseFloat(installmentAmount);
+      if (!isNaN(total) && !isNaN(inst) && inst > 0) {
+        const count = Math.round(total / inst);
+        const currentCount = watch("installmentsCount");
+        if (currentCount !== count.toString()) {
+          setValue("installmentsCount", count.toString());
+        }
+      }
+    }
+  }, [totalAmount, installmentAmount, setValue]);
   
   // Transliteration logic for Telugu Name
   useEffect(() => {
@@ -460,6 +493,7 @@ const NewAccount = () => {
             loanAmount: String(data.loanAmount || ""),
             interestAmount: String(data.interestAmount || ""),
             installmentAmount: String(data.installmentAmount || ""),
+            installmentsCount: data.installmentsCount ? String(data.installmentsCount) : (data.totalAmount && data.installmentAmount ? String(Math.round(data.totalAmount / data.installmentAmount)) : ""),
             totalAmount: String(data.totalAmount || ""),
             commission: String(data.commission || "0"),
             documentCharge: String(data.documentCharge || "0"),
@@ -635,6 +669,7 @@ const NewAccount = () => {
       const payload = {
         ...data,
         installmentAmount: parseFloat(data.installmentAmount),
+        installmentsCount: data.installmentsCount ? parseInt(data.installmentsCount, 10) : null,
         totalAmount: total,
         loanAmount: parseFloat(data.loanAmount),
         interestAmount: parseFloat(data.interestAmount),
@@ -1412,6 +1447,21 @@ const NewAccount = () => {
                       <SelectItem value="monthly">Monthly</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Installments Count (Tenure)</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
+                    <Input 
+                      type="text"
+                      inputMode="numeric"
+                      {...register("installmentsCount")} 
+                      className="pl-9 finance-input" 
+                      placeholder={paymentFrequency === "daily" ? "e.g. 10 Days" : paymentFrequency === "weekly" ? "e.g. 10 Weeks" : "e.g. 10 Months"}
+                    />
+                  </div>
+                  {errors.installmentsCount && <p className="text-[10px] text-destructive">{errors.installmentsCount.message}</p>}
                 </div>
 
                 <div className="space-y-2">

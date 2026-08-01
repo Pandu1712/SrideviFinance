@@ -14,6 +14,7 @@ import { formatCurrency, formatDate, formatCurrencyPDF, playSuccessSound } from 
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { CustomDatePicker } from "@/components/ui/CustomDatePicker";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { 
   AlertDialog, 
@@ -1427,7 +1428,7 @@ const DailyCollection = () => {
                          <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                               <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">Entry Date</Label>
-                              <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} disabled={!checkPermission(userData, 'canChangeDate')} className="w-full h-12 rounded-xl bg-slate-50 border border-slate-100 px-3 text-[11px] font-black text-slate-700 focus:outline-none uppercase" />
+                              <CustomDatePicker value={payDate} onChange={setPayDate} disabled={!checkPermission(userData, 'canChangeDate')} className="w-full h-12 bg-slate-50 border-slate-100" />
                             </div>
                             <div className="space-y-1.5">
                               <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">Mode</Label>
@@ -1642,7 +1643,7 @@ const DailyCollection = () => {
              </>
 
           )}
-          <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-11 w-44 glass-card border-none shadow-sm font-bold text-[#5f259f]" />
+          <CustomDatePicker value={date} onChange={setDate} className="h-11 w-44 glass-card border-none shadow-sm text-[#5f259f]" />
           <Button onClick={handleSearch} className="bg-[#5f259f] hover:bg-[#4a1c7c] text-white h-11 px-6 shadow-lg font-bold" disabled={loading}>{loading ? "Syncing..." : "Sync Matrix"}</Button>
         </div>
       </div>
@@ -1942,7 +1943,7 @@ const DailyCollection = () => {
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <Label className="text-[9px] font-black uppercase text-slate-500">Date</Label>
-                            <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} disabled={!checkPermission(userData, 'canChangeDate')} className="h-11 rounded-xl bg-slate-50 uppercase text-xs font-bold" />
+                            <CustomDatePicker value={payDate} onChange={setPayDate} disabled={!checkPermission(userData, 'canChangeDate')} className="h-11 w-full rounded-xl bg-slate-50" />
                           </div>
                           <div className="space-y-1.5">
                             <Label className="text-[9px] font-black uppercase text-slate-500">Mode</Label>
@@ -2021,15 +2022,7 @@ const DailyCollection = () => {
             </div>
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Adjusted Date</Label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input 
-                  type="date" 
-                  value={editPostDate} 
-                  onChange={e => setEditPostDate(e.target.value)} 
-                  className="pl-9 h-12 finance-input font-bold" 
-                />
-              </div>
+              <CustomDatePicker value={editPostDate} onChange={setEditPostDate} className="h-12 w-full" />
             </div>
             <div className="flex gap-3 pt-2">
               <Button variant="outline" onClick={() => setEditPostingOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
@@ -2057,15 +2050,7 @@ const DailyCollection = () => {
           <div className="p-6 space-y-6">
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Destination Date</Label>
-              <div className="relative text-slate-900">
-                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input 
-                  type="date" 
-                  value={batchNewDate} 
-                  onChange={e => setBatchNewDate(e.target.value)} 
-                  className="pl-9 h-12 finance-input font-bold text-slate-900" 
-                />
-              </div>
+              <CustomDatePicker value={batchNewDate} onChange={setBatchNewDate} className="h-12 w-full text-slate-900" />
             </div>
             
             <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">

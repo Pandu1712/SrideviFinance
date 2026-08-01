@@ -15,7 +15,8 @@ import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Ba
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { CustomDatePicker } from "@/components/ui/CustomDatePicker";
+import DailyReconciliation from "@/components/DailyReconciliation";
 
 const StatCard = ({ title, value, icon, color, trend, index }: { title: string; value: string | number; icon: React.ReactNode; color: string; trend?: string; index: number }) => (
   <motion.div
@@ -46,6 +47,9 @@ const Dashboard = () => {
   const { selectedLineId, setSelectedLineId, lines } = useLine();
   const [logs, setLogs] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [todayCollectionsByLine, setTodayCollectionsByLine] = useState<Record<string, number>>({});
+  const [accountCountsByLine, setAccountCountsByLine] = useState<Record<string, number>>({});
+  const [activeTabLineId, setActiveTabLineId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     totalAdmins: 0,
     totalAgents: 0,
@@ -108,6 +112,7 @@ const Dashboard = () => {
       unsubscribePostings = onSnapshot(postRef, (snapshot) => {
         let totalCol = 0; let agCol = 0; let adCol = 0;
         let chartCol: any = {};
+        const todayColByLine: Record<string, number> = {};
 
         snapshot.forEach(d => {
           const data = d.data();
@@ -127,6 +132,10 @@ const Dashboard = () => {
                  if (adminIdsSet.has(data.collectedById)) adCol += itemTotal;
                  else agCol += itemTotal;
                }
+
+               if (data.lineId) {
+                 todayColByLine[data.lineId] = (todayColByLine[data.lineId] || 0) + itemTotal;
+               }
             }
           }
           
@@ -141,6 +150,7 @@ const Dashboard = () => {
           .slice(0, 100);
         
         setRecentPostings(recent);
+        setTodayCollectionsByLine(todayColByLine);
         
         if (userData.role === 'super_admin') {
           const allKeys = Array.from(new Set([...Object.keys(chartCol)]));
@@ -169,11 +179,15 @@ const Dashboard = () => {
 
         unsubscribeAccounts = onSnapshot(accountsRef, (snapshot) => {
           let spent = 0; let balance = 0; let expected = 0; let totalAcc = 0;
+          const countByLine: Record<string, number> = {};
           snapshot.forEach(d => {
             const acc = d.data();
             const isDeleted = acc.status === "deleted";
             if (!isDeleted) {
               totalAcc++;
+              if (acc.lineId) {
+                countByLine[acc.lineId] = (countByLine[acc.lineId] || 0) + 1;
+              }
             }
             const isMatch = timeFilter === "all" || (timeFilter === "month" && acc.startDate >= startOfMonth) || (timeFilter === "year" && acc.startDate >= startOfYear);
             if (isMatch) { 
@@ -182,6 +196,7 @@ const Dashboard = () => {
               expected += (acc.totalAmount || 0); 
             }
           });
+          setAccountCountsByLine(countByLine);
           setStats(prev => ({ ...prev, totalAccounts: totalAcc, totalSpent: spent, totalBalance: balance, projectedProfit: expected - spent }));
         });
 
@@ -199,13 +214,18 @@ const Dashboard = () => {
         unsubscribeAccounts = onSnapshot(accountsRef, (snapshot) => {
           let pending = 0;
           let activeCount = 0;
+          const countByLine: Record<string, number> = {};
           snapshot.forEach(d => {
             const acc = d.data();
             if (acc.status !== "deleted") {
               activeCount++;
               pending += acc.balance || 0;
+              if (acc.lineId) {
+                countByLine[acc.lineId] = (countByLine[acc.lineId] || 0) + 1;
+              }
             }
           });
+          setAccountCountsByLine(countByLine);
           setStats(prev => ({ ...prev, totalAccounts: activeCount, pendingAmount: pending }));
         });
       } else if (userData.role === "agent") {
@@ -215,13 +235,18 @@ const Dashboard = () => {
         unsubscribeAccounts = onSnapshot(accQuery, (snapshot) => {
            let pendingCount = 0;
            let assignedCount = 0;
+           const countByLine: Record<string, number> = {};
            snapshot.forEach(d => {
              const acc = d.data();
              if (acc.status !== "deleted") {
                assignedCount++;
                if (acc.balance > 0) pendingCount++;
+               if (acc.lineId) {
+                 countByLine[acc.lineId] = (countByLine[acc.lineId] || 0) + 1;
+               }
              }
            });
+           setAccountCountsByLine(countByLine);
            setStats(prev => ({ ...prev, assignedAccounts: assignedCount, pendingAccounts: pendingCount }));
         });
       }
@@ -282,123 +307,193 @@ const Dashboard = () => {
             Neural Pulse Active
           </div>
           
-          <div className="flex items-center gap-2 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 shadow-sm">
-            <Calendar className="h-4 w-4 text-slate-400" />
-            <input 
-              type="date" 
-              value={currentDate}
-              onChange={(e) => setCurrentDate(e.target.value)}
-              className="bg-transparent border-none text-[11px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 dark:text-white w-[130px]"
-            />
-          </div>
+          <CustomDatePicker value={currentDate} onChange={setCurrentDate} />
         </div>
       </div>
 
       <div className="space-y-10">
         {userData && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {userData.role === 'agent' ? (
-                <>
-                  <StatCard index={0} title="Portfolio Registry" value={stats.assignedAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="bg-slate-900" />
-                  <StatCard index={1} title="Recovery Today" value={formatCurrency(stats.todayCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="premium-gradient" />
-                  <StatCard index={2} title="Deficit Count" value={stats.pendingAccounts} icon={<AlertCircle size={24} className="text-white" />} color="bg-rose-600" />
-                </>
-              ) : (
-                <>
-                  <StatCard index={0} title="Personnel Force" value={stats.totalAgents + stats.totalAdmins} icon={<Users className="h-7 w-7 text-white" />} color="bg-slate-900" />
-                  <StatCard index={1} title="Active Portfolio" value={stats.totalAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="premium-gradient" />
-                  <StatCard index={2} title="Global Recovery" value={formatCurrency(userData.role === 'super_admin' ? stats.totalCollection : stats.dailyCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="bg-[#5f259f]" />
-                </>
-              )}
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-3">
-              <Card className="lg:col-span-2 glass-card border-none shadow-2xl relative overflow-hidden">
-                <div className="absolute top-6 right-8 p-0 z-20">
-                   <Select value={timeFilter} onValueChange={setTimeFilter}>
-                      <SelectTrigger className="w-[140px] bg-slate-100/50 backdrop-blur-sm border-none font-black text-[9px] uppercase tracking-widest h-8 rounded-lg">
-                         <SelectValue placeholder="Timeline" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-xl border-none shadow-2xl">
-                         <SelectItem value="all">Full Timeline</SelectItem>
-                         <SelectItem value="month">Monthly Audit</SelectItem>
-                         <SelectItem value="year">Annual View</SelectItem>
-                      </SelectContent>
-                   </Select>
+            {selectedLineId !== null && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {userData.role === 'agent' ? (
+                    <>
+                      <StatCard index={0} title="Portfolio Registry" value={stats.assignedAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="bg-slate-900" />
+                      <StatCard index={1} title="Recovery Today" value={formatCurrency(stats.todayCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="premium-gradient" />
+                      <StatCard index={2} title="Deficit Count" value={stats.pendingAccounts} icon={<AlertCircle size={24} className="text-white" />} color="bg-rose-600" />
+                    </>
+                  ) : (
+                    <>
+                      <StatCard index={0} title="Personnel Force" value={stats.totalAgents + stats.totalAdmins} icon={<Users className="h-7 w-7 text-white" />} color="bg-slate-900" />
+                      <StatCard index={1} title="Active Portfolio" value={stats.totalAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="premium-gradient" />
+                      <StatCard index={2} title="Global Recovery" value={formatCurrency(userData.role === 'super_admin' ? stats.totalCollection : stats.dailyCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="bg-[#5f259f]" />
+                    </>
+                  )}
                 </div>
-                <CardHeader className="pb-8">
-                  <CardTitle className="text-2xl font-black flex items-center gap-2 uppercase tracking-tighter italic">
-                    <TrendingUp className="h-6 w-6 text-accent" />
-                    Dynamic Recovery Analytics
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[350px] w-full">
-                    {chartData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} />
-                          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(v) => `₹${v/1000}k`} />
-                          <Tooltip 
-                            contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)', padding: '16px' }}
-                            itemStyle={{ fontWeight: 900, fontSize: '12px', textTransform: 'uppercase' }}
-                          />
-                          <Bar dataKey="collected" name="Recovered Amount" fill="#0f172a" radius={[6, 6, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">
-                        Initializing Telemetry Data...
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
 
-              <Card className="glass-card border-none shadow-2xl overflow-hidden flex flex-col">
-                <CardHeader className="border-b border-slate-100 bg-slate-50/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-widest italic whitespace-nowrap">
-                    <Database size={16} className="text-accent" />
-                    Recovery Stream
-                  </CardTitle>
-                  <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 shadow-sm w-full sm:w-auto">
-                    <Calendar className="h-3 w-3 text-slate-400 shrink-0" />
-                    <input 
-                       type="date" 
-                       value={streamDate}
-                       onChange={(e) => setStreamDate(e.target.value)}
-                       className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:ring-0 text-slate-900 dark:text-white w-full sm:w-[110px] p-0"
-                    />
+                <div className="grid gap-6 lg:grid-cols-3">
+                  <Card className="lg:col-span-2 glass-card border-none shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-6 right-8 p-0 z-20">
+                       <Select value={timeFilter} onValueChange={setTimeFilter}>
+                          <SelectTrigger className="w-[140px] bg-slate-100/50 backdrop-blur-sm border-none font-black text-[9px] uppercase tracking-widest h-8 rounded-lg">
+                             <SelectValue placeholder="Timeline" />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-xl border-none shadow-2xl">
+                             <SelectItem value="all">Full Timeline</SelectItem>
+                             <SelectItem value="month">Monthly Audit</SelectItem>
+                             <SelectItem value="year">Annual View</SelectItem>
+                          </SelectContent>
+                       </Select>
+                    </div>
+                    <CardHeader className="pb-8">
+                      <CardTitle className="text-2xl font-black flex items-center gap-2 uppercase tracking-tighter italic">
+                        <TrendingUp className="h-6 w-6 text-accent" />
+                        Dynamic Recovery Analytics
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[350px] w-full">
+                        {chartData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} />
+                              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(v) => `₹${v/1000}k`} />
+                              <Tooltip 
+                                contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)', padding: '16px' }}
+                                itemStyle={{ fontWeight: 900, fontSize: '12px', textTransform: 'uppercase' }}
+                              />
+                              <Bar dataKey="collected" name="Recovered Amount" fill="#0f172a" radius={[6, 6, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+                            Initializing Telemetry Data...
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="glass-card border-none shadow-2xl overflow-hidden flex flex-col">
+                    <CardHeader className="border-b border-slate-100 bg-slate-50/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-widest italic whitespace-nowrap">
+                        <Database size={16} className="text-accent" />
+                        Recovery Stream
+                      </CardTitle>
+                      <CustomDatePicker value={streamDate} onChange={setStreamDate} />
+                    </CardHeader>
+                    <CardContent className="p-0 flex-1 overflow-y-auto">
+                       <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {recentPostings.filter(p => p.date === streamDate).length === 0 ? (
+                            <div className="p-10 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
+                              No transactions for this date
+                            </div>
+                          ) : recentPostings
+                              .filter(p => p.date === streamDate)
+                              .map((p: any) => (
+                            <div key={p.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex justify-between items-center group">
+                               <div>
+                                  <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase">{p.memberName}</p>
+                                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">#{p.accountNo} • {formatDate(p.date)}</p>
+                               </div>
+                               <div className="text-right">
+                                  <p className="text-xs font-black text-emerald-600">+{formatCurrency(p.amount)}</p>
+                                  <Badge className="text-[7px] h-4 bg-slate-100 text-slate-500 border-none font-black uppercase">
+                                    {(p.collectedByRole || 'Agent').replace('_', ' ')} {p.status || 'Collection'}
+                                  </Badge>
+                               </div>
+                            </div>
+                          ))}
+                       </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
+            )}
+
+            {selectedLineId === null && (
+              <div className="space-y-6 pt-6 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-black uppercase tracking-widest italic text-slate-900 dark:text-white flex items-center gap-2">
+                    <Database className="h-5 w-5 text-amber-500" />
+                    Operative Channels
+                  </h2>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Master / Combined Card */}
+                  <motion.div
+                    whileHover={{ y: -4 }}
+                    onClick={() => setActiveTabLineId(null)}
+                    className={`cursor-pointer p-6 rounded-2xl border transition-all duration-300 ${
+                      activeTabLineId === null
+                        ? "border-amber-500 bg-amber-500/[0.08] shadow-[0_0_20px_rgba(245,158,11,0.15)] dark:bg-amber-500/[0.04]"
+                        : "border-slate-250 dark:border-slate-800 bg-white/50 dark:bg-slate-900/40 hover:border-slate-350 dark:hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-500">MASTER</span>
+                      <Badge className="bg-amber-500 text-white border-none text-[8px] font-bold">ALL</Badge>
+                    </div>
+                    <h3 className="text-lg font-black uppercase italic tracking-tighter text-slate-900 dark:text-white">Combined View</h3>
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-550 uppercase tracking-tighter">
+                        <span>Recovery Today</span>
+                        <span className="text-emerald-600 font-black">+{formatCurrency(Object.values(todayCollectionsByLine).reduce((a, b) => a + b, 0))}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] font-bold text-slate-550 uppercase tracking-tighter">
+                        <span>Active Accounts</span>
+                        <span className="text-slate-900 dark:text-white font-black">{stats.totalAccounts}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+
+                  {/* Individual Lines */}
+                  {lines.map((line) => {
+                    const lineTodayCol = todayCollectionsByLine[line.id] || 0;
+                    const lineAccCount = accountCountsByLine[line.id] || 0;
+                    const isActive = activeTabLineId === line.id;
+                    return (
+                      <motion.div
+                        key={line.id}
+                        whileHover={{ y: -4 }}
+                        onClick={() => setActiveTabLineId(line.id)}
+                        className={`cursor-pointer p-6 rounded-2xl border transition-all duration-300 ${
+                          isActive
+                            ? "border-amber-500 bg-amber-500/[0.08] shadow-[0_0_20px_rgba(245,158,11,0.15)] dark:bg-amber-500/[0.04]"
+                            : "border-slate-250 dark:border-slate-800 bg-white/50 dark:bg-slate-900/40 hover:border-slate-350 dark:hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{line.number || "LINE"}</span>
+                          <Badge className="bg-slate-100 dark:bg-slate-800 text-slate-500 border-none text-[8px] font-bold">CH</Badge>
+                        </div>
+                        <h3 className="text-lg font-black uppercase italic tracking-tighter text-slate-900 dark:text-white truncate">{line.name}</h3>
+                        <div className="mt-4 space-y-2">
+                          <div className="flex justify-between text-[10px] font-bold text-slate-550 uppercase tracking-tighter">
+                            <span>Recovery Today</span>
+                            <span className="text-emerald-600 font-black">+{formatCurrency(lineTodayCol)}</span>
+                          </div>
+                          <div className="flex justify-between text-[10px] font-bold text-slate-555 uppercase tracking-tighter">
+                            <span>Active Accounts</span>
+                            <span className="text-slate-900 dark:text-white font-black">{lineAccCount}</span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                {/* Daily Shift Reconciliation widget for selected line */}
+                <div className="pt-8 border-t border-slate-200 dark:border-slate-800 mt-8">
+                  <div className="p-4 bg-amber-500/5 border border-amber-500/10 rounded-2xl mb-6 text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-500">
+                    Viewing reconciliation for: {activeTabLineId ? lines.find(l => l.id === activeTabLineId)?.name : "Combined Portfolio"}
                   </div>
-                </CardHeader>
-                <CardContent className="p-0 flex-1 overflow-y-auto">
-                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {recentPostings.filter(p => p.date === streamDate).length === 0 ? (
-                        <div className="p-10 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
-                          No transactions for this date
-                        </div>
-                      ) : recentPostings
-                          .filter(p => p.date === streamDate)
-                          .map((p: any) => (
-                        <div key={p.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex justify-between items-center group">
-                           <div>
-                              <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase">{p.memberName}</p>
-                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">#{p.accountNo} • {formatDate(p.date)}</p>
-                           </div>
-                           <div className="text-right">
-                              <p className="text-xs font-black text-emerald-600">+{formatCurrency(p.amount)}</p>
-                              <Badge className="text-[7px] h-4 bg-slate-100 text-slate-500 border-none font-black uppercase">
-                                {(p.collectedByRole || 'Agent').replace('_', ' ')} {p.status || 'Collection'}
-                              </Badge>
-                           </div>
-                        </div>
-                      ))}
-                   </div>
-                </CardContent>
-              </Card>
-            </div>
+                  <DailyReconciliation lineId={activeTabLineId} targetDate={currentDate} />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
