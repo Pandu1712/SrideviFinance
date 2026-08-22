@@ -80,20 +80,28 @@ const PostingVerification = () => {
         if (!accDoc.exists()) throw new Error("Account no longer exists");
 
         const accData = accDoc.data();
-        const postingAmount = parseFloat(posting.amount);
+        const isPayLater = posting.payMode === 'pay_later';
+        const postingAmount = isPayLater ? 0 : parseFloat(posting.amount);
         
-        const newPaid = (accData.paid || 0) + postingAmount;
-        const newBalance = (accData.totalAmount || 0) - newPaid;
-        const newStatus = newBalance <= 0 ? "completed" : "active";
+        if (!isPayLater) {
+          const newPaid = (accData.paid || 0) + postingAmount;
+          const newBalance = (accData.totalAmount || 0) - newPaid;
+          const newStatus = newBalance <= 0 ? "completed" : "active";
 
-        transaction.update(accountRef, {
-          paid: newPaid,
-          balance: Math.max(0, newBalance),
-          status: newStatus,
-          lastPostingDate: posting.date,
-          lastCollectedByName: posting.collectedByName || "Agent",
-          lastCollectedByRole: posting.collectedByRole || "agent"
-        });
+          transaction.update(accountRef, {
+            paid: newPaid,
+            balance: Math.max(0, newBalance),
+            status: newStatus,
+            lastPostingDate: posting.date,
+            lastCollectedByName: posting.collectedByName || "Agent",
+            lastCollectedByRole: posting.collectedByRole || "agent"
+          });
+        } else {
+          transaction.update(accountRef, {
+            lastCollectedByName: posting.collectedByName || "Agent",
+            lastCollectedByRole: posting.collectedByRole || "agent"
+          });
+        }
 
         transaction.update(postingRef, { verified: true });
       });
@@ -146,20 +154,28 @@ const PostingVerification = () => {
           if (!accDoc.exists()) return;
 
           const accData = accDoc.data();
-          const postingAmount = parseFloat(String(p.amount));
+          const isPayLater = p.payMode === 'pay_later';
+          const postingAmount = isPayLater ? 0 : parseFloat(String(p.amount));
           
-          const newPaid = (accData.paid || 0) + postingAmount;
-          const newBalance = (accData.totalAmount || 0) - newPaid;
-          const newStatus = newBalance <= 0 ? "completed" : "active";
+          if (!isPayLater) {
+            const newPaid = (accData.paid || 0) + postingAmount;
+            const newBalance = (accData.totalAmount || 0) - newPaid;
+            const newStatus = newBalance <= 0 ? "completed" : "active";
 
-          transaction.update(accountRef, {
-            paid: newPaid,
-            balance: Math.max(0, newBalance),
-            status: newStatus,
-            lastPostingDate: p.date,
-            lastCollectedByName: p.collectedByName || "Agent",
-            lastCollectedByRole: p.collectedByRole || "agent"
-          });
+            transaction.update(accountRef, {
+              paid: newPaid,
+              balance: Math.max(0, newBalance),
+              status: newStatus,
+              lastPostingDate: p.date,
+              lastCollectedByName: p.collectedByName || "Agent",
+              lastCollectedByRole: p.collectedByRole || "agent"
+            });
+          } else {
+            transaction.update(accountRef, {
+              lastCollectedByName: p.collectedByName || "Agent",
+              lastCollectedByRole: p.collectedByRole || "agent"
+            });
+          }
 
           transaction.update(postingRef, { verified: true });
         });

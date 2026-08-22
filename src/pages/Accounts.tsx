@@ -874,7 +874,7 @@ const Accounts = () => {
             {/* Portal Title Header */}
             <div className="text-center mb-8 border-b-2 border-amber-500/30 pb-4 relative">
               <h2 className="text-3xl sm:text-4xl font-extrabold tracking-[0.25em] text-amber-500 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] font-serif">
-                AR-NDR
+                {lineName.toUpperCase()}
               </h2>
               <div className="absolute left-1/2 -bottom-[5px] -translate-x-1/2 w-24 h-[10px] bg-[#091515] flex items-center justify-center">
                 <span className="text-[10px] font-black tracking-widest text-amber-500/60 uppercase">Portal</span>
@@ -932,7 +932,7 @@ const Accounts = () => {
 
                 {/* Sub-label */}
                 <p className="mt-8 text-amber-500 font-bold uppercase tracking-[0.3em] text-xs text-center drop-shadow-md font-serif">
-                  Sri Devi Groups
+                  {lineName}
                 </p>
               </div>
 

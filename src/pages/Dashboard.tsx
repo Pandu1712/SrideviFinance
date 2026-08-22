@@ -1,5 +1,6 @@
 import { toast as sonnerToast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useLine } from "@/contexts/LineContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
@@ -43,6 +44,52 @@ const StatCard = ({ title, value, icon, color, trend, index }: { title: string; 
 );
 
 const Dashboard = () => {
+  const { language } = useLanguage();
+  const localTranslations = {
+    en: {
+      portfolioRegistry: "Portfolio Registry",
+      recoveryToday: "Recovery Today",
+      deficitCount: "Deficit Count",
+      recoveryAnalytics: "Dynamic Recovery Analytics",
+      recoveredAmount: "Recovered Amount",
+      switchLine: "Switch Logistics Line",
+      neuralPulse: "Neural Pulse Active",
+      fullTimeline: "Full Timeline",
+      monthlyAudit: "Monthly Audit",
+      annualView: "Annual View",
+      timeline: "Timeline",
+      activeAccounts: "Active Accounts",
+      combinedView: "Combined View",
+      viewReconciliationFor: "Viewing reconciliation for:",
+      personnelForce: "Personnel Force",
+      activePortfolio: "Active Portfolio",
+      globalRecovery: "Global Recovery"
+    },
+    te: {
+      portfolioRegistry: "ఖాతాల సంఖ్య",
+      recoveryToday: "నేటి వసూలు",
+      deficitCount: "మిగిలిన వసూళ్లు (Deficit)",
+      recoveryAnalytics: "రికవరీ విశ్లేషణ",
+      recoveredAmount: "వసూలైన మొత్తం",
+      switchLine: "లైన్ మార్చండి",
+      neuralPulse: "యాక్టివ్‌గా ఉంది",
+      fullTimeline: "పూర్తి టైమ్‌లైన్",
+      monthlyAudit: "నెలవారీ ఆడిట్",
+      annualView: "సంవత్సర వీక్షణ",
+      timeline: "టైమ్‌లైన్",
+      activeAccounts: "యాక్టివ్ ఖాతాలు",
+      combinedView: "సమ్మేళన వీక్షణ (Combined)",
+      viewReconciliationFor: "రికాన్సిలియేషన్ వీక్షణ:",
+      personnelForce: "సిబ్బంది సంఖ్య (Staff)",
+      activePortfolio: "యాక్టివ్ పోర్ట్‌ఫోలియో",
+      globalRecovery: "మొత్తం వసూలు (Global)"
+    }
+  };
+  const tLocal = (key) => {
+    const lang = language === "te" ? "te" : "en";
+    return localTranslations[lang][key] || localTranslations.en[key];
+  };
+
   const { userData } = useAuth();
   const { selectedLineId, setSelectedLineId, lines } = useLine();
   const [logs, setLogs] = useState<DocumentData[]>([]);
@@ -296,7 +343,7 @@ const Dashboard = () => {
               }}
               className="h-10 rounded-xl bg-white border-slate-200 text-slate-600 font-bold text-[10px] uppercase tracking-widest px-4 shadow-sm hover:bg-slate-50"
             >
-              <ArrowRightLeft className="h-4 w-4 mr-2" /> Switch Logistics Line
+              <ArrowRightLeft className="h-4 w-4 mr-2" /> {tLocal("switchLine")}
             </Button>
           )}
           <div className="flex items-center gap-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest shadow-sm">
@@ -304,7 +351,7 @@ const Dashboard = () => {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            Neural Pulse Active
+            {tLocal("neuralPulse")}
           </div>
           
           <CustomDatePicker value={currentDate} onChange={setCurrentDate} />
@@ -319,15 +366,15 @@ const Dashboard = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {userData.role === 'agent' ? (
                     <>
-                      <StatCard index={0} title="Portfolio Registry" value={stats.assignedAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="bg-slate-900" />
-                      <StatCard index={1} title="Recovery Today" value={formatCurrency(stats.todayCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="premium-gradient" />
-                      <StatCard index={2} title="Deficit Count" value={stats.pendingAccounts} icon={<AlertCircle size={24} className="text-white" />} color="bg-rose-600" />
+                      <StatCard index={0} title={tLocal("portfolioRegistry")} value={stats.assignedAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="bg-slate-900" />
+                      <StatCard index={1} title={tLocal("recoveryToday")} value={formatCurrency(stats.todayCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="premium-gradient" />
+                      <StatCard index={2} title={tLocal("deficitCount")} value={stats.pendingAccounts} icon={<AlertCircle size={24} className="text-white" />} color="bg-rose-600" />
                     </>
                   ) : (
                     <>
-                      <StatCard index={0} title="Personnel Force" value={stats.totalAgents + stats.totalAdmins} icon={<Users className="h-7 w-7 text-white" />} color="bg-slate-900" />
-                      <StatCard index={1} title="Active Portfolio" value={stats.totalAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="premium-gradient" />
-                      <StatCard index={2} title="Global Recovery" value={formatCurrency(userData.role === 'super_admin' ? stats.totalCollection : stats.dailyCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="bg-[#5f259f]" />
+                      <StatCard index={0} title={tLocal("personnelForce")} value={stats.totalAgents + stats.totalAdmins} icon={<Users className="h-7 w-7 text-white" />} color="bg-slate-900" />
+                      <StatCard index={1} title={tLocal("activePortfolio")} value={stats.totalAccounts} icon={<FileText className="h-7 w-7 text-white" />} color="premium-gradient" />
+                      <StatCard index={2} title={tLocal("globalRecovery")} value={formatCurrency(userData.role === 'super_admin' ? stats.totalCollection : stats.dailyCollection)} icon={<IndianRupee className="h-7 w-7 text-white" />} color="bg-[#5f259f]" />
                     </>
                   )}
                 </div>
@@ -337,19 +384,19 @@ const Dashboard = () => {
                     <div className="absolute top-6 right-8 p-0 z-20">
                        <Select value={timeFilter} onValueChange={setTimeFilter}>
                           <SelectTrigger className="w-[140px] bg-slate-100/50 backdrop-blur-sm border-none font-black text-[9px] uppercase tracking-widest h-8 rounded-lg">
-                             <SelectValue placeholder="Timeline" />
+                             <SelectValue placeholder={tLocal("timeline")} />
                           </SelectTrigger>
                           <SelectContent className="rounded-xl border-none shadow-2xl">
-                             <SelectItem value="all">Full Timeline</SelectItem>
-                             <SelectItem value="month">Monthly Audit</SelectItem>
-                             <SelectItem value="year">Annual View</SelectItem>
+                             <SelectItem value="all">{tLocal("fullTimeline")}</SelectItem>
+                             <SelectItem value="month">{tLocal("monthlyAudit")}</SelectItem>
+                             <SelectItem value="year">{tLocal("annualView")}</SelectItem>
                           </SelectContent>
                        </Select>
                     </div>
                     <CardHeader className="pb-8">
                       <CardTitle className="text-2xl font-black flex items-center gap-2 uppercase tracking-tighter italic">
                         <TrendingUp className="h-6 w-6 text-accent" />
-                        Dynamic Recovery Analytics
+                        {tLocal("recoveryAnalytics")}
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -364,7 +411,7 @@ const Dashboard = () => {
                                 contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)', padding: '16px' }}
                                 itemStyle={{ fontWeight: 900, fontSize: '12px', textTransform: 'uppercase' }}
                               />
-                              <Bar dataKey="collected" name="Recovered Amount" fill="#0f172a" radius={[6, 6, 0, 0]} />
+                              <Bar dataKey="collected" name={tLocal("recoveredAmount")} fill="#0f172a" radius={[6, 6, 0, 0]} />
                             </BarChart>
                           </ResponsiveContainer>
                         ) : (
@@ -436,14 +483,14 @@ const Dashboard = () => {
                       <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-500">MASTER</span>
                       <Badge className="bg-amber-500 text-white border-none text-[8px] font-bold">ALL</Badge>
                     </div>
-                    <h3 className="text-lg font-black uppercase italic tracking-tighter text-slate-900 dark:text-white">Combined View</h3>
+                    <h3 className="text-lg font-black uppercase italic tracking-tighter text-slate-900 dark:text-white">{tLocal("combinedView")}</h3>
                     <div className="mt-4 space-y-2">
                       <div className="flex justify-between text-[10px] font-bold text-slate-550 uppercase tracking-tighter">
-                        <span>Recovery Today</span>
+                        <span>{tLocal("recoveryToday")}</span>
                         <span className="text-emerald-600 font-black">+{formatCurrency(Object.values(todayCollectionsByLine).reduce((a, b) => a + b, 0))}</span>
                       </div>
                       <div className="flex justify-between text-[10px] font-bold text-slate-550 uppercase tracking-tighter">
-                        <span>Active Accounts</span>
+                        <span>{tLocal("activeAccounts")}</span>
                         <span className="text-slate-900 dark:text-white font-black">{stats.totalAccounts}</span>
                       </div>
                     </div>
@@ -472,11 +519,11 @@ const Dashboard = () => {
                         <h3 className="text-lg font-black uppercase italic tracking-tighter text-slate-900 dark:text-white truncate">{line.name}</h3>
                         <div className="mt-4 space-y-2">
                           <div className="flex justify-between text-[10px] font-bold text-slate-550 uppercase tracking-tighter">
-                            <span>Recovery Today</span>
+                            <span>{tLocal("recoveryToday")}</span>
                             <span className="text-emerald-600 font-black">+{formatCurrency(lineTodayCol)}</span>
                           </div>
                           <div className="flex justify-between text-[10px] font-bold text-slate-555 uppercase tracking-tighter">
-                            <span>Active Accounts</span>
+                            <span>{tLocal("activeAccounts")}</span>
                             <span className="text-slate-900 dark:text-white font-black">{lineAccCount}</span>
                           </div>
                         </div>
@@ -488,7 +535,7 @@ const Dashboard = () => {
                 {/* Daily Shift Reconciliation widget for selected line */}
                 <div className="pt-8 border-t border-slate-200 dark:border-slate-800 mt-8">
                   <div className="p-4 bg-amber-500/5 border border-amber-500/10 rounded-2xl mb-6 text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-500">
-                    Viewing reconciliation for: {activeTabLineId ? lines.find(l => l.id === activeTabLineId)?.name : "Combined Portfolio"}
+                    {tLocal("viewReconciliationFor")} {activeTabLineId ? lines.find(l => l.id === activeTabLineId)?.name : "Combined Portfolio"}
                   </div>
                   <DailyReconciliation lineId={activeTabLineId} targetDate={currentDate} />
                 </div>

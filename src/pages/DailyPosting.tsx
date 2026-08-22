@@ -37,6 +37,38 @@ const cleanAccountNo = (accNo: string) => {
 };
 
 const DailyPosting = () => {
+  const { language } = useLanguage();
+  const localTranslations = {
+    en: {
+      entryPortal: "Entry Portal",
+      category: "Category",
+      standardCollection: "Standard Collection",
+      finePenalty: "Fine / Penalty",
+      otherFees: "Other Fees",
+      extraPenaltyAmount: "Extra Penalty Amount (₹)",
+      paymentMode: "Payment Mode",
+      payLaterNote: "Pay Later Note (Optional)",
+      noteRefOptional: "Note / Reference (Optional)",
+      memberPortfolio: "Member Portfolio"
+    },
+    te: {
+      entryPortal: "నమోదు పోర్టల్ (Entry Portal)",
+      category: "వర్గం (Category)",
+      standardCollection: "సాధారణ వసూలు (Standard Collection)",
+      finePenalty: "జరిమానా (Fine / Penalty)",
+      otherFees: "ఇతర రుసుములు (Other Fees)",
+      extraPenaltyAmount: "అదనపు జరిమానా మొత్తం (₹)",
+      paymentMode: "చెల్లింపు పద్ధతి (Payment Mode)",
+      payLaterNote: "తరువాత చెల్లింపు నోట్ (Pay Later Note)",
+      noteRefOptional: "గమనిక / రెఫరెన్స్ (Optional)",
+      memberPortfolio: "ఖాతాదారుల జాబితా"
+    }
+  };
+  const tLocal = (key) => {
+    const lang = language === "te" ? "te" : "en";
+    return localTranslations[lang][key] || localTranslations.en[key];
+  };
+
   const { userData } = useAuth();
   const { selectedLineId } = useLine();
   const { t } = useLanguage();
@@ -529,7 +561,7 @@ const DailyPosting = () => {
               mobileView === "list" ? "bg-white text-primary shadow-sm" : "text-slate-400"
             )}
           >
-            Member Portfolio
+            {tLocal("memberPortfolio")}
           </button>
           <button 
             onClick={() => setMobileView("form")}
@@ -538,7 +570,7 @@ const DailyPosting = () => {
               mobileView === "form" ? "bg-white text-primary shadow-sm" : "text-slate-400"
             )}
           >
-            Entry Portal
+            {tLocal("entryPortal")}
           </button>
         </div>
       </div>
@@ -562,7 +594,7 @@ const DailyPosting = () => {
                   <CardHeader className="bg-slate-900 text-white py-4">
                     <CardTitle className="text-sm font-black flex items-center gap-2 uppercase tracking-[0.2em]">
                       <CreditCard className="h-4 w-4 text-accent" />
-                      Entry Portal
+                      {tLocal("entryPortal")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-6">
@@ -622,13 +654,13 @@ const DailyPosting = () => {
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Category</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{tLocal("category")}</Label>
                           <Select value={form.status} onValueChange={v => handleChange("status", v)}>
                             <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="collection">Standard Collection</SelectItem>
-                              <SelectItem value="penalty">Fine / Penalty</SelectItem>
-                              <SelectItem value="other">Other Fees</SelectItem>
+                              <SelectItem value="collection">{tLocal("standardCollection")}</SelectItem>
+                              <SelectItem value="penalty">{tLocal("finePenalty")}</SelectItem>
+                              <SelectItem value="other">{tLocal("otherFees")}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -640,7 +672,7 @@ const DailyPosting = () => {
                           animate={{ opacity: 1, height: 'auto' }}
                           className="space-y-1.5 bg-rose-50 p-4 rounded-xl border border-rose-100"
                         >
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-rose-500">Extra Penalty Amount (₹)</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-rose-500">{tLocal("extraPenaltyAmount")}</Label>
                           <Input 
                             type="text" 
                             inputMode="decimal"
@@ -654,7 +686,7 @@ const DailyPosting = () => {
                       )}
 
                       <div className="space-y-1.5">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Mode</Label>
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{tLocal("paymentMode")}</Label>
                         <Select value={form.payMode} onValueChange={v => handleChange("payMode", v)}>
                           <SelectTrigger className="h-11 finance-input font-bold"><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -666,22 +698,20 @@ const DailyPosting = () => {
                         </Select>
                       </div>
 
-                      {(form.payMode === 'bank' || form.payMode === 'upi' || form.payMode === 'pay_later') && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: -5 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="space-y-1.5"
-                        >
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{form.payMode === 'pay_later' ? "Pay Later Note (Optional)" : t("note") + " / Reference (Optional)"}</Label>
-                          <Input 
-                            type="text" 
-                            value={form.note} 
-                            onChange={e => handleChange("note", e.target.value)} 
-                            placeholder={form.payMode === 'pay_later' ? "e.g. will pay today night" : "Enter transaction ref, bank name or note..."} 
-                            className="h-11 bg-white border-slate-200 focus-visible:ring-accent font-medium text-slate-900" 
-                          />
-                        </motion.div>
-                      )}
+                      <motion.div 
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-1.5"
+                      >
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{form.payMode === 'pay_later' ? tLocal("payLaterNote") : tLocal("noteRefOptional")}</Label>
+                        <Input 
+                          type="text" 
+                          value={form.note} 
+                          onChange={e => handleChange("note", e.target.value)} 
+                          placeholder={form.payMode === 'pay_later' ? "e.g. will pay today night" : "Enter transaction ref, bank name or note..."} 
+                          className="h-11 bg-white border-slate-200 focus-visible:ring-accent font-medium text-slate-900" 
+                        />
+                      </motion.div>
 
                       <Button 
                         type="submit" 

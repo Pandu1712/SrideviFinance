@@ -75,6 +75,7 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
 
         snapshot.forEach(d => {
           const data = d.data();
+          if (data.payMode === 'pay_later') return;
           const amt = data.amount || 0;
           
           if (data.status === "disbursement") {

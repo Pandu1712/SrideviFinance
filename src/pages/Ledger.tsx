@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, DocumentData, orderBy, doc, runTransaction } from "firebase/firestore";
@@ -7,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File, FileSpreadsheet, Edit, IndianRupee, Calendar, ArrowRightLeft, MoveRight, Printer } from "lucide-react";
+import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File, FileSpreadsheet, Edit, IndianRupee, Calendar, ArrowRightLeft, MoveRight, Printer, Share2, MessageSquare } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatCurrency, formatDate, formatCurrencyPDF, checkPermission } from "@/lib/utils";
+import { formatCurrency, formatDate, formatCurrencyPDF, checkPermission, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -20,6 +21,72 @@ import { exportToExcel } from "@/lib/excel";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
 const Ledger = () => {
+  const { language } = useLanguage();
+  const localTranslations = {
+    en: {
+      customerStatement: "Customer Statement",
+      ledgerSubtitle: "Comprehensive transaction history and repayment tracking.",
+      subscriberProfile: "Subscriber Profile",
+      searchAccount: "Search Account",
+      enterAccountNo: "Enter Account No (e.g. ACC-1001)",
+      startDate: "Start Date",
+      endDate: "End Date",
+      clearDateFilters: "Clear Date Filters",
+      generateLedger: "Generate Ledger",
+      subscriberId: "Subscriber & ID",
+      totalAmountToPay: "Total Amount to Pay",
+      totalReceived: "Total Received",
+      outstanding: "Outstanding",
+      penaltyPaid: "Penalty Paid",
+      extraCollection: "Extra Collection",
+      timelineActivity: "Timeline Activity",
+      transactionStatement: "Transaction Statement",
+      showingEntries: "Showing {count} entries",
+      slNo: "Sl. No.",
+      date: "Date",
+      creditAmount: "Credit Amount",
+      runningTotal: "Running Total",
+      paymentMode: "Payment Mode",
+      collectedBy: "Collected By",
+      statusPurpose: "Status/Purpose",
+      actions: "Actions",
+      searchPlaceholder: "Search subscriber by name, account..."
+    },
+    te: {
+      customerStatement: "కస్టమర్ స్టేట్‌మెంట్ (Customer Statement)",
+      ledgerSubtitle: "చెల్లింపుల చరిత్ర మరియు బ్యాలెన్స్ నివేదికల విశ్లేషణ.",
+      subscriberProfile: "ఖాతాదారుని ప్రొఫైల్",
+      searchAccount: "ఖాతాదారుని వెతకండి",
+      enterAccountNo: "ఖాతా సంఖ్య నమోదు చేయండి",
+      startDate: "ప్రారంభ తేదీ (Start Date)",
+      endDate: "ముగింపు తేదీ (End Date)",
+      clearDateFilters: "తేదీ ఫిల్టర్లను తొలగించు",
+      generateLedger: "లెడ్జర్ చూపించు (Generate)",
+      subscriberId: "కస్టమర్ & ఐడి",
+      totalAmountToPay: "మొత్తం తిరిగి చెల్లించాల్సినది",
+      totalReceived: "మొత్తం చెల్లించినది (Received)",
+      outstanding: "మిగిలిన బాకీ (Outstanding)",
+      penaltyPaid: "జరిమానా చెల్లించినది",
+      extraCollection: "అదనపు వసూలు (Extra)",
+      timelineActivity: "కాలక్రమ లావాదేవీలు",
+      transactionStatement: "లావాదేవీల నివేదిక",
+      showingEntries: "{count} లావాదేవీలు ఉన్నవి",
+      slNo: "క్ర.సం.",
+      date: "తేదీ",
+      creditAmount: "వసూలైన సొమ్ము",
+      runningTotal: "మొత్తం నిల్వ",
+      paymentMode: "చెల్లింపు పద్ధతి",
+      collectedBy: "వసూలు చేసిన వారు",
+      statusPurpose: "స్థితి / ఉద్దేశం",
+      actions: "చర్యలు",
+      searchPlaceholder: "కస్టమర్ పేరు లేదా ఖాతాతో వెతకండి..."
+    }
+  };
+  const tLocal = (key) => {
+    const lang = language === "te" ? "te" : "en";
+    return localTranslations[lang][key] || localTranslations.en[key];
+  };
+
   const { userData, loading: authLoading } = useAuth();
   const { selectedLineId, lines } = useLine();
   const [searchParams] = useSearchParams();
@@ -44,6 +111,9 @@ const Ledger = () => {
   const [transferPostingOpen, setTransferPostingOpen] = useState(false);
   const [selectedPostingForTransfer, setSelectedPostingForTransfer] = useState<any>(null);
   const [destAccountNo, setDestAccountNo] = useState("");
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareType, setShareType] = useState<"whatsapp" | "sms" | null>(null);
+  const [alertType, setAlertType] = useState<"reminder" | "overdue">("reminder");
 
   // Fetch agents for mapping
   useEffect(() => {
@@ -61,6 +131,82 @@ const Ledger = () => {
   useEffect(() => {
     if (userData && accountNo) handleSearch();
   }, [userData]);
+
+  const getShareMessage = (type: "reminder" | "overdue") => {
+    if (!accountInfo) return "";
+    const name = accountInfo.name + (accountInfo.nameTelugu ? ` (${accountInfo.nameTelugu})` : "");
+    const accNo = accountInfo.accountNo;
+    const openDate = accountInfo.startDate ? formatDate(accountInfo.startDate) : "-";
+    
+    // Find last paid date (most recent posting date)
+    let lastPaidDate = "-";
+    if (postings && postings.length > 0) {
+      const sortedPostings = [...postings].sort((a, b) => b.date.localeCompare(a.date));
+      lastPaidDate = formatDate(sortedPostings[0].date);
+    }
+    
+    const paidAmt = formatCurrency(accountInfo.paid);
+    const balance = formatCurrency(accountInfo.balance);
+    const total = formatCurrency(accountInfo.totalAmount);
+    const activeLine = lines.find(l => l.id === accountInfo.lineId);
+    const lineName = activeLine?.name || "";
+
+    // Build chronological paid dates list
+    let paidDatesList = "No payments recorded";
+    if (postings && postings.length > 0) {
+      const chronoPostings = [...postings].sort((a, b) => a.date.localeCompare(b.date));
+      paidDatesList = chronoPostings
+        .map((p, idx) => `${idx + 1}. ${formatDate(p.date)}: ${formatCurrency(p.amount)}`)
+        .join("\n");
+    }
+
+    const headingPrefix = type === "reminder" ? "REMINDER ALERT" : "OVERDUE ALERT";
+
+    return `SRI DEVI GROUPS OF FINANCE - ${headingPrefix}\n` +
+           `--------------------------------\n` +
+           `Line: ${lineName}\n` +
+           `Name: ${name}\n` +
+           `Account No: ${accNo}\n` +
+           `Open Date: ${openDate}\n` +
+           `Last Paid Date: ${lastPaidDate}\n` +
+           `--------------------------------\n` +
+           `Total Amount: ${total}\n` +
+           `Paid Amount: ${paidAmt}\n` +
+           `Balance Amount: ${balance}\n` +
+           `--------------------------------\n` +
+           `PAYMENT DATES & DETAILS:\n` +
+           `${paidDatesList}\n` +
+           `--------------------------------\n` +
+           `Thank you!`;
+  };
+
+  const handleProceedShare = () => {
+    if (!accountInfo) return;
+    const message = getShareMessage(alertType);
+    const phoneNum = accountInfo.phone ? accountInfo.phone.replace(/\D/g, '') : '';
+    if (!phoneNum) {
+      toast.warning("Customer phone number is not registered.");
+    }
+    
+    if (shareType === "whatsapp") {
+      const formattedPhone = phoneNum.length === 10 ? `91${phoneNum}` : phoneNum;
+      const url = formattedPhone 
+        ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+        : `https://wa.me/?text=${encodeURIComponent(message)}`;
+      window.open(url, "_blank");
+      toast.success("WhatsApp Sharing Opened!");
+    } else if (shareType === "sms") {
+      // Copy to clipboard to guarantee delivery
+      navigator.clipboard.writeText(message).then(() => {
+        toast.success("Statement details copied to clipboard!");
+      }).catch(() => {});
+
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const smsUrl = `sms:${phoneNum}${isIOS ? "&" : "?"}body=${encodeURIComponent(message)}`;
+      window.location.href = smsUrl;
+    }
+    setShareDialogOpen(false);
+  };
 
   const handleEditPosting = (posting: DocumentData) => {
     setSelectedEditPosting(posting);
@@ -454,11 +600,11 @@ const Ledger = () => {
             <BookOpen className="text-white h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-primary">Customer Statement </h1>
-            <p className="text-muted-foreground">Comprehensive transaction history and repayment tracking.</p>
+            <h1 className="text-3xl font-extrabold tracking-tight text-primary">{tLocal("customerStatement")}</h1>
+            <p className="text-muted-foreground">{tLocal("ledgerSubtitle")}</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all print:hidden" onClick={() => window.print()}>
             <Printer className="h-4 w-4" /> Print / Save PDF (Telugu)
           </Button>
@@ -553,6 +699,26 @@ const Ledger = () => {
           }}>
             <FileSpreadsheet className="h-4 w-4" /> Excel
           </Button>
+          <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-emerald-600 font-bold hover:bg-emerald-50 hover:border-emerald-200 transition-all print:hidden" onClick={() => {
+            if (!accountInfo) {
+              toast.error("Please search and load an account first");
+              return;
+            }
+            setShareType("whatsapp");
+            setShareDialogOpen(true);
+          }}>
+            <Share2 className="h-4 w-4 text-emerald-600" /> WhatsApp
+          </Button>
+          <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200 text-indigo-600 font-bold hover:bg-indigo-50 hover:border-indigo-200 transition-all print:hidden" onClick={() => {
+            if (!accountInfo) {
+              toast.error("Please search and load an account first");
+              return;
+            }
+            setShareType("sms");
+            setShareDialogOpen(true);
+          }}>
+            <MessageSquare className="h-4 w-4 text-indigo-600" /> SMS
+          </Button>
 
         </div>
       </div>
@@ -561,13 +727,13 @@ const Ledger = () => {
         <CardContent className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className="space-y-1 w-full md:col-span-2">
-              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Search Account</Label>
+              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">{tLocal("searchAccount")}</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={accountNo}
                   onChange={e => setAccountNo(e.target.value)}
-                  placeholder="Enter Account No (e.g. ACC-1001)"
+                  placeholder={tLocal("enterAccountNo")}
                   className="pl-9 finance-input"
                   onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                 />
@@ -575,7 +741,7 @@ const Ledger = () => {
             </div>
 
             <div className="space-y-1 w-full">
-              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Start Date</Label>
+              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">{tLocal("startDate")}</Label>
               <Input
                 type="date"
                 value={filterStartDate}
@@ -585,7 +751,7 @@ const Ledger = () => {
             </div>
 
             <div className="space-y-1 w-full">
-              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">End Date</Label>
+              <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">{tLocal("endDate")}</Label>
               <Input
                 type="date"
                 value={filterEndDate}
@@ -605,10 +771,10 @@ const Ledger = () => {
               }}
               className="text-xs font-bold text-slate-500 hover:text-slate-700 h-9 px-4 border-slate-200"
             >
-              Clear Date Filters
+              {tLocal("clearDateFilters")}
             </Button>
             <Button onClick={handleSearch} disabled={loading || !accountNo} className="bg-accent text-accent-foreground hover:bg-accent/90 min-w-[150px] font-bold h-9">
-              {loading ? "Searching..." : "Generate Ledger"}
+              {loading ? "Searching..." : tLocal("generateLedger")}
             </Button>
           </div>
         </CardContent>
@@ -626,7 +792,7 @@ const Ledger = () => {
               <Card className="bg-primary/5 border-primary/10">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Subscriber & ID</p>
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">{tLocal("subscriberId")}</p>
                     {checkPermission(userData, "canEditAccount") && (
                       <Button
                         variant="ghost"
@@ -655,35 +821,35 @@ const Ledger = () => {
               </Card>
               <Card className="bg-primary/5 border-primary/10">
                 <CardContent className="p-4">
-                  <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">Total Amount to Pay</p>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">{tLocal("totalAmountToPay")}</p>
                   <p className="text-lg font-black text-primary leading-tight">{formatCurrency(accountInfo.totalAmount)}</p>
                   <p className="text-[10px] font-bold text-slate-500">Interest Amt: {formatCurrency(accountInfo.interestAmount)}</p>
                 </CardContent>
               </Card>
               <Card className="bg-emerald-50 border-emerald-100">
                 <CardContent className="p-4">
-                  <p className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 mb-1">Total Recieved</p>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 mb-1">{tLocal("totalReceived")}</p>
                   <p className="text-lg font-black text-emerald-700 leading-tight">{formatCurrency(accountInfo.paid)}</p>
                   <p className="text-[10px] font-bold text-emerald-600 italic">{postings.length} Collection Entries</p>
                 </CardContent>
               </Card>
               <Card className="bg-destructive/5 border-destructive/10">
                 <CardContent className="p-4">
-                  <p className="text-[10px] uppercase font-bold tracking-wider text-destructive mb-1">Outstanding</p>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-destructive mb-1">{tLocal("outstanding")}</p>
                   <p className="text-lg font-black text-destructive leading-tight">{formatCurrency(accountInfo.balance)}</p>
                   <p className="text-[10px] font-bold text-destructive/60">Status: {accountInfo.status.toUpperCase()}</p>
                 </CardContent>
               </Card>
               <Card className="bg-indigo-50 border-indigo-100">
                 <CardContent className="p-4">
-                  <p className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 mb-1">Penalty Paid</p>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 mb-1">{tLocal("penaltyPaid")}</p>
                   <p className="text-lg font-black text-indigo-700 leading-tight">{formatCurrency(totalPenalty)}</p>
                   <p className="text-[10px] font-bold text-indigo-400">Extra Fines</p>
                 </CardContent>
               </Card>
               <Card className="bg-purple-50 border-purple-100">
                 <CardContent className="p-4">
-                  <p className="text-[10px] uppercase font-bold tracking-wider text-purple-600 mb-1">Extra Collection</p>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-purple-600 mb-1">{tLocal("extraCollection")}</p>
                   <p className="text-lg font-black text-purple-700 leading-tight">{formatCurrency(totalExtra)}</p>
                   <p className="text-[10px] font-bold text-purple-400">Misc Income</p>
                 </CardContent>
@@ -791,7 +957,7 @@ const Ledger = () => {
               <CardHeader className="bg-primary/5 border-b border-primary/10 flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-primary/70">
                   <FileText className="h-4 w-4" />
-                  Transaction Statement
+                  {tLocal("transactionStatement")}
                 </CardTitle>
                 <div className="text-xs font-medium text-muted-foreground">
                   Showing {filteredLedgerRows.length} entries
@@ -801,14 +967,14 @@ const Ledger = () => {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-primary/5">
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Sl. No.</th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Date <ArrowUpDown className="inline h-3 w-3 ml-1" /></th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Credit Amount</th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Running Total</th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Payment Mode</th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">Collected By</th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-center">Status/Purpose</th>
-                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">Actions</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">{tLocal("slNo")}</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">{tLocal("date")} <ArrowUpDown className="inline h-3 w-3 ml-1" /></th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">{tLocal("creditAmount")}</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">{tLocal("runningTotal")}</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">{tLocal("paymentMode")}</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60">{tLocal("collectedBy")}</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-center">{tLocal("statusPurpose")}</th>
+                      <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-primary/60 text-right">{tLocal("actions")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-primary/5">
@@ -1125,6 +1291,62 @@ const Ledger = () => {
                 className="flex-1 h-12 rounded-xl bg-blue-600 text-white font-bold uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700"
               >
                 {loading ? "Shifting..." : "Shift Now"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="sm:max-w-[400px] glass-card border-none shadow-2xl p-0 overflow-hidden">
+          <div className="bg-slate-900 p-6 text-white">
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
+              <Share2 size={20} className="text-accent" />
+              Choose Alert Type
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs mt-1">
+              Select the message prefix layout for {accountInfo?.name}
+            </DialogDescription>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setAlertType("reminder")}
+                className={cn(
+                  "p-4 rounded-2xl border-2 text-center transition-all flex flex-col items-center justify-center gap-2 font-bold uppercase tracking-wider text-xs",
+                  alertType === "reminder"
+                    ? "border-amber-500 bg-amber-500/10 text-amber-500"
+                    : "border-slate-200 text-slate-500 hover:border-slate-300"
+                )}
+              >
+                <span className="text-lg">⏰</span>
+                Reminder Alert
+              </button>
+              <button
+                type="button"
+                onClick={() => setAlertType("overdue")}
+                className={cn(
+                  "p-4 rounded-2xl border-2 text-center transition-all flex flex-col items-center justify-center gap-2 font-bold uppercase tracking-wider text-xs",
+                  alertType === "overdue"
+                    ? "border-rose-500 bg-rose-500/10 text-rose-500"
+                    : "border-slate-200 text-slate-500 hover:border-slate-300"
+                )}
+              >
+                <span className="text-lg">⚠️</span>
+                Overdue Alert
+              </button>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={() => setShareDialogOpen(false)} className="flex-1 h-12 rounded-xl font-bold uppercase tracking-widest text-xs border-slate-200">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleProceedShare}
+                className="flex-1 h-12 rounded-xl bg-accent text-accent-foreground hover:bg-accent/90 font-bold uppercase tracking-widest text-xs shadow-lg"
+              >
+                Send Statement
               </Button>
             </div>
           </div>

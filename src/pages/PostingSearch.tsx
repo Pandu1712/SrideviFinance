@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, DocumentData } from "firebase/firestore";
@@ -20,6 +21,94 @@ import autoTable from "jspdf-autotable";
 import { exportToExcel } from "@/lib/excel";
 
 const PostingSearch = () => {
+  const { language } = useLanguage();
+  const localTranslations = {
+    en: {
+      masterAudit: "Master Audit",
+      integrity: "Collection Integrity & Verification",
+      realtimeSync: "Real-time Sync",
+      subscriberIdentity: "Subscriber Identity",
+      searchPlaceholder: "Search name, account, or Telugu name...",
+      auditTimeline: "Audit Timeline",
+      paymentMode: "Payment Mode",
+      allModes: "All Modes",
+      cashOnly: "Cash Only",
+      upiOnline: "UPI / Online",
+      payLater: "Pay Later",
+      execute: "Execute",
+      searching: "Searching...",
+      totalVolume: "Total Volume",
+      foundPeriod: "Found for selected period",
+      aggregateAmount: "Aggregate Amount",
+      verifiedStatus: "Verified Status",
+      exportPdf: "Export PDF",
+      exportExcel: "Export Excel",
+      searchResults: "Search Results",
+      dateReferenced: "Date Referenced",
+      transNo: "Trans #",
+      dateLogged: "Date Logged",
+      memberAcc: "Member / Acc",
+      handledBy: "Handled By",
+      collection: "Collection",
+      status: "Status",
+      payMode: "Pay Mode",
+      actions: "Actions",
+      noPostings: "No Postings Found",
+      selectTimeframe: "select a different timeframe",
+      postingsCount: "Postings",
+      fullStatement: "Full Statement",
+      pdfExport: "PDF Export",
+      youInit: "YO",
+      peInit: "PE",
+      youLabel: "You",
+      personnelLabel: "Personnel"
+    },
+    te: {
+      masterAudit: "మాస్టర్ ఆడిట్ (Master Audit)",
+      integrity: "కలెక్షన్ సమగ్రత & ధృవీకరణ",
+      realtimeSync: "రియల్-టైమ్ సింక్",
+      subscriberIdentity: "ఖాతాదారుని గుర్తింపు",
+      searchPlaceholder: "పేరు, ఖాతా లేదా తెలుగు పేరుతో వెతకండి...",
+      auditTimeline: "తేదీ / కాలక్రమం",
+      paymentMode: "చెల్లింపు పద్ధతి (Payment Mode)",
+      allModes: "అన్ని రకాలు (All)",
+      cashOnly: "నగదు మాత్రమే (Cash)",
+      upiOnline: "UPI / ఆన్‌లైన్",
+      payLater: "తరువాత చెల్లింపు (Pay Later)",
+      execute: "చూపించు (Execute)",
+      searching: "వెతుకుతోంది...",
+      totalVolume: "మొత్తం పోస్టింగ్స్",
+      foundPeriod: "ఎంచుకున్న తేదీలో ఉన్నవి",
+      aggregateAmount: "మొత్తం వసూలు మొత్తం",
+      verifiedStatus: "ధృవీకరించబడినవి",
+      exportPdf: "PDF డౌన్‌లోడ్",
+      exportExcel: "Excel డౌన్‌లోడ్",
+      searchResults: "శోధన ఫలితాలు (Search Results)",
+      dateReferenced: "సూచించిన తేదీ",
+      transNo: "క్ర.సం.",
+      dateLogged: "తేదీ",
+      memberAcc: "కస్టమర్ / ఖాతా",
+      handledBy: "వసూలు చేసిన వారు",
+      collection: "వసూలు (Collection)",
+      status: "స్థితి (Status)",
+      payMode: "పే మోడ్",
+      actions: "చర్యలు (Actions)",
+      noPostings: "ఎటువంటి పోస్టింగ్స్ లేవు",
+      selectTimeframe: "మరొక తేదీని ఎంచుకోండి",
+      postingsCount: "పోస్టింగ్స్",
+      fullStatement: "పూర్తి స్టేట్‌మెంట్",
+      pdfExport: "PDF డౌన్‌లోడ్",
+      youInit: "నేను",
+      peInit: "సిబ్బంది",
+      youLabel: "నేను",
+      personnelLabel: "సిబ్బంది"
+    }
+  };
+  const tLocal = (key) => {
+    const lang = language === "te" ? "te" : "en";
+    return localTranslations[lang][key] || localTranslations.en[key];
+  };
+
   const { userData } = useAuth();
   const { selectedLineId } = useLine();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -35,6 +124,7 @@ const PostingSearch = () => {
   
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [destAccountNo, setDestAccountNo] = useState("");
+  const [paymentModeFilter, setPaymentModeFilter] = useState("all");
 
   // Auto-load daily activities on mount
   useEffect(() => {
@@ -92,7 +182,25 @@ const PostingSearch = () => {
     }
   };
 
-  const total = results.reduce((sum, r) => sum + (r.amount || 0), 0);
+  const filteredResults = results.filter(r => {
+    if (paymentModeFilter === "all") return true;
+    const mode = r.payMode?.toLowerCase();
+    if (paymentModeFilter === "cash") {
+      return mode === "cash";
+    }
+    if (paymentModeFilter === "upi") {
+      return mode === "upi" || mode === "online" || mode === "bank";
+    }
+    if (paymentModeFilter === "pay_later") {
+      return mode === "pay_later";
+    }
+    return true;
+  });
+
+  const total = filteredResults.reduce((sum, r) => {
+    if (r.payMode?.toLowerCase() === 'pay_later') return sum;
+    return sum + (r.amount || 0);
+  }, 0);
 
   const openEdit = (posting: any) => {
     setSelectedPosting(posting);
@@ -241,35 +349,35 @@ const PostingSearch = () => {
               <Search className="text-white h-7 w-7" />
             </div>
             <div>
-              <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Master Audit</h1>
-              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1 opacity-80">Collection Integrity & Verification</p>
+              <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{tLocal("masterAudit")}</h1>
+              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1 opacity-80">{tLocal("integrity")}</p>
             </div>
           </div>
           
           <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
              <Badge variant="outline" className="bg-white border-slate-200 text-slate-500 font-bold text-[9px] uppercase px-3 py-1 rounded-xl">
-               Real-time Sync
+               {tLocal("realtimeSync")}
              </Badge>
              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse mr-1" />
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end relative z-10">
-          <div className="md:col-span-5 space-y-2">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Subscriber Identity</Label>
+          <div className="md:col-span-4 space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">{tLocal("subscriberIdentity")}</Label>
             <div className="relative group">
               <Target className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-accent transition-colors" />
               <Input 
                 value={searchTerm} 
                 onChange={e => setSearchTerm(e.target.value)} 
-                placeholder="Search name, account, or Telugu name..." 
+                placeholder={tLocal("searchPlaceholder")} 
                 className="pl-11 h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-accent/20 transition-all shadow-inner" 
               />
             </div>
           </div>
 
-          <div className="md:col-span-4 space-y-2">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Audit Timeline</Label>
+          <div className="md:col-span-3 space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">{tLocal("auditTimeline")}</Label>
             <div className="relative group">
               <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-accent transition-colors" />
               <Input 
@@ -281,14 +389,29 @@ const PostingSearch = () => {
             </div>
           </div>
 
-          <div className="md:col-span-3">
+          <div className="md:col-span-3 space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">{tLocal("paymentMode")}</Label>
+            <Select value={paymentModeFilter} onValueChange={setPaymentModeFilter}>
+              <SelectTrigger className="h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-accent/20 transition-all shadow-inner">
+                <SelectValue placeholder="Mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{tLocal("allModes")}</SelectItem>
+                <SelectItem value="cash">{tLocal("cashOnly")}</SelectItem>
+                <SelectItem value="upi">{tLocal("upiOnline")}</SelectItem>
+                <SelectItem value="pay_later">{tLocal("payLater")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="md:col-span-2">
             <Button 
               onClick={handleSearch} 
               className="w-full h-14 bg-accent text-accent-foreground hover:bg-slate-900 font-black rounded-2xl shadow-xl shadow-accent/20 border-none transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2" 
               disabled={loading}
             >
               {loading ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Filter className="h-5 w-5" />}
-              <span>{loading ? "SEARCHING..." : "EXECUTE"}</span>
+              <span>{loading ? tLocal("searching") : tLocal("execute")}</span>
             </Button>
           </div>
         </div>
@@ -330,11 +453,11 @@ const PostingSearch = () => {
             <div className="flex flex-col gap-3">
                <Button variant="outline" className="flex-1 finance-input bg-white h-full flex flex-col items-center justify-center p-4">
                   <Printer size={20} className="text-accent mb-2" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Full Statement</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">{tLocal("fullStatement")}</span>
                </Button>
                <Button variant="outline" className="flex-1 finance-input bg-white h-full flex flex-col items-center justify-center p-4">
                   <Download size={20} className="text-slate-400 mb-2" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">PDF Export</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">{tLocal("pdfExport")}</span>
                </Button>
             </div>
           </motion.div>
@@ -345,27 +468,27 @@ const PostingSearch = () => {
         <Card className="glass-card border-none shadow-xl">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Total volume</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{tLocal("totalVolume")}</p>
               <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
                 <Target size={14} className="text-accent" />
               </div>
             </div>
-            <h2 className="text-3xl font-black text-primary">{results.length} Postings</h2>
-            <p className="text-[10px] font-bold text-accent mt-1">Found for selected period</p>
+            <h2 className="text-3xl font-black text-primary">{filteredResults.length} {tLocal("postingsCount")}</h2>
+            <p className="text-[10px] font-bold text-accent mt-1">{tLocal("foundPeriod")}</p>
           </CardContent>
         </Card>
         
         <Card className="glass-card border-none shadow-xl border-l-4 border-l-accent">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Aggregate Amount</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{tLocal("aggregateAmount")}</p>
               <div className="h-8 w-8 rounded-lg bg-primary/5 flex items-center justify-center">
                 <IndianRupee size={14} className="text-primary" />
               </div>
             </div>
             <h2 className="text-3xl font-black text-primary">{formatCurrency(total)}</h2>
             <div className="flex items-center gap-2 mt-1">
-              <Badge className="bg-emerald-500/10 text-emerald-600 border-none font-black text-[9px] uppercase">VERIFIED STATUS</Badge>
+              <Badge className="bg-emerald-500/10 text-emerald-600 border-none font-black text-[9px] uppercase">{tLocal("verifiedStatus")}</Badge>
             </div>
           </CardContent>
         </Card>
@@ -375,7 +498,7 @@ const PostingSearch = () => {
             variant="outline" 
             className="flex-1 h-14 rounded-2xl border-slate-200 text-slate-500 font-bold hover:bg-slate-50 transition-all flex flex-col items-center justify-center gap-1"
             onClick={() => {
-              if (results.length === 0) {
+              if (filteredResults.length === 0) {
                 toast.error("No data to export");
                 return;
               }
@@ -390,7 +513,7 @@ const PostingSearch = () => {
               doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 36);
 
               const tableColumn = ["Date", "Member Name", "Account No", "Amount", "Mode", "Collected By"];
-              const tableRows = results.map(p => [
+              const tableRows = filteredResults.map(p => [
                 formatDate(p.date),
                 p.memberName,
                 p.accountNo,
@@ -413,7 +536,7 @@ const PostingSearch = () => {
             }}
           >
              <Download size={18} />
-             <span className="text-[10px] uppercase tracking-widest">Export PDF</span>
+             <span className="text-[10px] uppercase tracking-widest">{tLocal("exportPdf")}</span>
           </Button>
           <Button 
             variant="outline" 
@@ -424,7 +547,7 @@ const PostingSearch = () => {
                 return;
               }
               
-              const data = results.map(p => ({
+              const data = filteredResults.map(p => ({
                 "Date": formatDate(p.date),
                 "Member": p.memberName,
                 "Account No": p.accountNo,
@@ -439,7 +562,7 @@ const PostingSearch = () => {
             }}
           >
              <FileSpreadsheet size={18} />
-             <span className="text-[10px] uppercase tracking-widest">Export Excel</span>
+             <span className="text-[10px] uppercase tracking-widest">{tLocal("exportExcel")}</span>
           </Button>
         </div>
       </div>
@@ -449,39 +572,39 @@ const PostingSearch = () => {
            <div className="flex items-center justify-between">
              <CardTitle className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
                <Filter size={14} className="text-accent" />
-               Search Results
+               {tLocal("searchResults")}
              </CardTitle>
-             <span className="text-[10px] font-bold text-slate-400">Date Referenced: {date}</span>
+             <span className="text-[10px] font-bold text-slate-400">{tLocal("dateReferenced")}: {date}</span>
            </div>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <table className="finance-table w-full">
             <thead>
               <tr className="bg-slate-50/20">
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400">Trans #</th>
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400">Date Logged</th>
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-left">Member / Acc</th>
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-left">Handled By</th>
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-right">Collection</th>
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-center">Status</th>
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-center">Pay Mode</th>
-                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-right">Actions</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400">{tLocal("transNo")}</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400">{tLocal("dateLogged")}</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-left">{tLocal("memberAcc")}</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-left">{tLocal("handledBy")}</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-right">{tLocal("collection")}</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-center">{tLocal("status")}</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-center">{tLocal("payMode")}</th>
+                <th className="p-4 text-[10px] uppercase tracking-widest font-black text-slate-400 text-right">{tLocal("actions")}</th>
               </tr>
             </thead>
             <tbody>
               <AnimatePresence>
-                {results.length === 0 ? (
+                {filteredResults.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-20">
+                    <td colSpan={8} className="text-center py-20">
                       <div className="flex flex-col items-center justify-center opacity-20">
                          <Target size={48} className="mb-4" />
-                         <p className="text-xl font-black uppercase tracking-widest">No Postings Found</p>
-                         <p className="text-sm font-medium lowercase">select a different timeframe</p>
+                         <p className="text-xl font-black uppercase tracking-widest">{tLocal("noPostings")}</p>
+                         <p className="text-sm font-medium lowercase">{tLocal("selectTimeframe")}</p>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  results.map((r, i) => (
+                  filteredResults.map((r, i) => (
                     <motion.tr 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -507,10 +630,10 @@ const PostingSearch = () => {
                       <td className="p-4 text-left">
                         <div className="flex items-center gap-2">
                            <div className="h-6 w-6 rounded-full bg-slate-100 flex items-center justify-center text-[8px] font-black text-slate-500">
-                             {r.agentId === userData?.uid ? "YO" : "PE"}
+                             {r.agentId === userData?.uid ? tLocal("youInit") : tLocal("peInit")}
                            </div>
                            <span className="text-xs font-bold text-slate-600">
-                             {r.agentId === userData?.uid ? "You" : "Personnel"}
+                             {r.agentId === userData?.uid ? tLocal("youLabel") : tLocal("personnelLabel")}
                            </span>
                         </div>
                       </td>

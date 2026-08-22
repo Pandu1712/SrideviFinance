@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc, orderBy, limit, deleteDoc, writeBatch } from "firebase/firestore";
@@ -79,6 +80,112 @@ const accountSchema = z.object({
 type AccountForm = z.infer<typeof accountSchema>;
 
 const NewAccount = () => {
+  const { language } = useLanguage();
+  const localTranslations = {
+    en: {
+      newAccountTitle: "New Account",
+      newAccountSubtitle: "Register a new member with automated loan calculation.",
+      updateAccount: "Update Account",
+      updateAccountSubtitle: "Modifying details for ",
+      basicInformation: "Basic Information",
+      previousAccountId: "Previous Account ID",
+      accountNumber: "Account Number *",
+      customerName: "Customer Name *",
+      customerNameTelugu: "Customer Name (Telugu)",
+      fatherHusbandName: "Father / Husband Name",
+      fatherHusbandNameTelugu: "Father / Husband Name (Telugu)",
+      phoneNumber: "Phone Number",
+      alternativePhoneNumber: "Alternative Phone Number",
+      villageArea: "Village / Area",
+      occupation: "Occupation",
+      note: "Note",
+      customerLocation: "Customer Location / Google Maps Link (for Agents)",
+      fetchingGps: "Fetching GPS...",
+      findMyLocation: "Find My Location",
+      financeDetails: "Finance Details",
+      totalAmount: "Total Amount (₹) *",
+      interestAmount: "Interest Amount (₹) *",
+      documentCharge: "Document Charge (₹)",
+      paymentFrequency: "Payment Frequency *",
+      installmentsCount: "Installments Count (Tenure)",
+      installmentAmount: "Installment Amount (₹) *",
+      principalAmount: "Principal Amount (₹)",
+      alreadyPaidAmount: "Already Paid Amount (₹)",
+      accountCreationDate: "Account Creation Date *",
+      endDate: "End Date",
+      paymentType: "Payment Type *",
+      upiIdDetails: "UPI ID Details",
+      assignLine: "Assign Operational Line *",
+      guarantorInformation: "Guarantor Information",
+      guarantorName: "Guarantor Name",
+      guarantorPhone: "Guarantor Phone",
+      digitalCredentials: "Digital Credentials & Security",
+      documentType: "Document Type",
+      descriptionNote: "Description / Note",
+      selectFile: "Select File",
+      uploadDocument: "Upload Document",
+      daily: "Daily",
+      weekly: "Weekly",
+      monthly: "Monthly",
+      processing: "Processing...",
+      createAccount: "Create Account & Activate",
+      resetForm: "Reset Form"
+    },
+    te: {
+      newAccountTitle: "కొత్త खाता (New Account)",
+      newAccountSubtitle: "కొత్త సభ్యుడిని నమోదు చేయండి",
+      updateAccount: "ఖాతాను సవరించు (Update)",
+      updateAccountSubtitle: "ఖాతా సవరణ: ",
+      basicInformation: "ప్రాథమిక సమాచారం (Basic Info)",
+      previousAccountId: "మునుపటి ఖాతా ఐడి",
+      accountNumber: "ఖాతా సంఖ్య * (Account Number)",
+      customerName: "కస్టమర్ పేరు * (Name)",
+      customerNameTelugu: "కస్టమర్ పేరు (తెలుగు)",
+      fatherHusbandName: "తండ్రి / భర్త పేరు",
+      fatherHusbandNameTelugu: "తండ్రి / భర్త పేరు (తెలుగు)",
+      phoneNumber: "మొబైల్ సంఖ్య (Phone)",
+      alternativePhoneNumber: "ప్రత్యామ్నాయ మొబైల్ సంఖ్య",
+      villageArea: "గ్రామం / ప్రాంతం (Village)",
+      occupation: "వృత్తి (Occupation)",
+      note: "గమనిక (Note)",
+      customerLocation: "కస్టమర్ లొకేషన్ / గూగుల్ మ్యాప్స్ లింక్",
+      fetchingGps: "GPS వెతుకుతోంది...",
+      findMyLocation: "నా లొకేషన్ కనుగొను",
+      financeDetails: "ఆర్థిక వివరాలు (Finance)",
+      totalAmount: "మొత్తం సొమ్ము (₹) * (Total)",
+      interestAmount: "వడ్డీ మొత్తం (₹) * (Interest)",
+      documentCharge: "డాక్యుమెంట్ చార్జ్ (₹)",
+      paymentFrequency: "చెల్లింపు ఫ్రీక్వెన్సీ *",
+      installmentsCount: "వాయిదాల సంఖ్య (Tenure)",
+      installmentAmount: "వాయిదా సొమ్ము (₹) * (Installment)",
+      principalAmount: "అసలు మొత్తం (₹) (Principal)",
+      alreadyPaidAmount: "ఇప్పటికే చెల్లించిన సొమ్ము (₹)",
+      accountCreationDate: "ఖాతా సృష్టించిన తేదీ *",
+      endDate: "ముగింపు తేదీ (End Date)",
+      paymentType: "చెల్లింపు పద్ధతి * (Type)",
+      upiIdDetails: "UPI ID వివరాలు",
+      assignLine: "లైన్ కేటాయించండి *",
+      guarantorInformation: "జామీనుదారు వివరాలు (Guarantor)",
+      guarantorName: "జామీనుదారు పేరు",
+      guarantorPhone: "జామీనుదారు మొబైల్ సంఖ్య",
+      digitalCredentials: "డిజిటల్ పత్రాలు & భద్రత",
+      documentType: "పత్రం రకం (Doc Type)",
+      descriptionNote: "వివరణ / నోట్",
+      selectFile: "ఫైల్ ఎంచుకోండి",
+      uploadDocument: "పత్రాన్ని అప్‌లోడ్ చేయి",
+      daily: "రోజువారీ (Daily)",
+      weekly: "వారానికి ఒకసారి (Weekly)",
+      monthly: "నెలవారీ (Monthly)",
+      processing: "ప్రాసెస్ అవుతోంది...",
+      createAccount: "ఖాతాను సవరించి యాక్టివేట్ చేయి",
+      resetForm: "రీసెట్ చేయి"
+    }
+  };
+  const tLocal = (key) => {
+    const lang = language === "te" ? "te" : "en";
+    return localTranslations[lang][key] || localTranslations.en[key];
+  };
+
   const { userData } = useAuth();
   const { lines, selectedLineId } = useLine();
   const { id } = useParams();
@@ -1031,10 +1138,10 @@ const NewAccount = () => {
         </div>
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-            {isEdit ? "Update Account" : "New Account"}
+            {isEdit ? tLocal("updateAccount") : tLocal("newAccountTitle")}
           </h1>
           <p className="text-muted-foreground font-medium">
-            {isEdit ? `Modifying details for ${watch("accountNo")}` : "Register a new member with automated loan calculation."}
+            {isEdit ? `${tLocal("updateAccountSubtitle")} ${watch("accountNo")}` : tLocal("newAccountSubtitle")}
           </p>
         </div>
       </div>
@@ -1043,7 +1150,7 @@ const NewAccount = () => {
         <CardHeader className="bg-primary/5 border-b border-primary/10">
           <CardTitle className="text-xl flex items-center gap-2">
             <Info className="h-5 w-5 text-accent" />
-            Basic Information
+            {tLocal("basicInformation")}
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-6">
@@ -1092,7 +1199,7 @@ const NewAccount = () => {
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {previousAccountNo && (
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-rose-500">Previous Account ID</Label>
+                  <Label className="text-sm font-semibold text-rose-500">{tLocal("previousAccountId")}</Label>
                   <Input 
                     value={previousAccountNo} 
                     readOnly 
@@ -1103,7 +1210,7 @@ const NewAccount = () => {
               )}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Account Number *</Label>
+                  <Label className="text-sm font-semibold">{tLocal("accountNumber")}</Label>
                 </div>
                 <Input 
                   {...register("accountNo")} 
@@ -1116,7 +1223,7 @@ const NewAccount = () => {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Customer Name *</Label>
+                  <Label className="text-sm font-semibold">{tLocal("customerName")}</Label>
                   {!isEdit && (userData?.role === 'super_admin' || userData?.role === 'admin') && (
                     <Button 
                       type="button" 
@@ -1174,7 +1281,7 @@ const NewAccount = () => {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Customer Name (Telugu)</Label>
+                <Label className="text-sm font-semibold">{tLocal("customerNameTelugu")}</Label>
                 <Input 
                   {...register("nameTelugu")} 
                   className="finance-input font-telugu text-lg"
@@ -1183,12 +1290,12 @@ const NewAccount = () => {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Father / Husband Name</Label>
+                <Label className="text-sm font-semibold">{tLocal("fatherHusbandName")}</Label>
                 <Input {...register("fatherHusbandName")} className="finance-input" placeholder="Relation Name" />
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Father / Husband Name (Telugu)</Label>
+                <Label className="text-sm font-semibold">{tLocal("fatherHusbandNameTelugu")}</Label>
                 <Input 
                   {...register("fatherHusbandNameTelugu")} 
                   className="finance-input font-telugu text-lg" 
@@ -1198,7 +1305,7 @@ const NewAccount = () => {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Phone Number</Label>
+                  <Label className="text-sm font-semibold">{tLocal("phoneNumber")}</Label>
                   {(userData?.role === 'super_admin' || userData?.role === 'admin') && (
                     <Button 
                       type="button" 
@@ -1252,12 +1359,12 @@ const NewAccount = () => {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Alternative Phone Number</Label>
+                <Label className="text-sm font-semibold">{tLocal("alternativePhoneNumber")}</Label>
                 <Input {...register("altPhone")} className="finance-input" placeholder="Alt 10-digit mobile" />
               </div>
 
               <div className="space-y-2 flex flex-col">
-                <Label className="text-sm font-semibold">Village / Area</Label>
+                <Label className="text-sm font-semibold">{tLocal("villageArea")}</Label>
                 <div className="relative">
                   <Popover open={villageOpen} onOpenChange={setVillageOpen}>
                     <PopoverTrigger asChild>
@@ -1352,18 +1459,18 @@ const NewAccount = () => {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Occupation</Label>
+                <Label className="text-sm font-semibold">{tLocal("occupation")}</Label>
                 <Input {...register("occupation")} className="finance-input" placeholder="Business or Job" />
               </div>
 
               <div className="space-y-2 lg:col-span-2">
-                <Label className="text-sm font-semibold">Documents Taken</Label>
+                <Label className="text-sm font-semibold">{tLocal("note")}</Label>
                 <Input {...register("documentsTaken")} className="finance-input" placeholder="e.g. Aadhar Card, Promissory Note, Blank Cheque" />
               </div>
 
               <div className="space-y-2 sm:col-span-2 lg:col-span-4">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold text-accent">Customer Location / Google Maps Link (for Agents)</Label>
+                  <Label className="text-sm font-semibold text-accent">{tLocal("customerLocation")}</Label>
                   <Button 
                     type="button" 
                     variant="outline" 
@@ -1373,7 +1480,7 @@ const NewAccount = () => {
                     disabled={fetchingLocation}
                   >
                     <MapPin className="h-3 w-3" />
-                    {fetchingLocation ? "Fetching GPS..." : "Find My Location"}
+                    {fetchingLocation ? tLocal("fetchingGps") : tLocal("findMyLocation")}
                   </Button>
                 </div>
                 <Input 
@@ -1388,11 +1495,11 @@ const NewAccount = () => {
               <div className="border-t border-primary/10 pt-8">
                 <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                   <Calculator className="h-5 w-5 text-accent" />
-                  Finance Details
+                  {tLocal("financeDetails")}
                 </h3>
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Total Amount (₹) *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("totalAmount")}</Label>
                   <div className="relative">
                     <Wallet className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1407,7 +1514,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Interest Amount (₹) *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("interestAmount")}</Label>
                   <div className="relative">
                     <TrendingUp className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1422,7 +1529,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Document Charge (₹)</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("documentCharge")}</Label>
                   <div className="relative">
                     <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1436,7 +1543,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Payment Frequency *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("paymentFrequency")}</Label>
                   <Select onValueChange={(v: any) => setValue("paymentFrequency", v)} value={paymentFrequency}>
                     <SelectTrigger className="finance-input">
                       <SelectValue placeholder="Select frequency" />
@@ -1450,7 +1557,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Installments Count (Tenure)</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("installmentsCount")}</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1465,7 +1572,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Installment Amount (₹) *</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("installmentAmount")}</Label>
                   <div className="relative">
                     <IndianRupee className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input 
@@ -1480,7 +1587,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-primary">Principal Amount (₹)</Label>
+                  <Label className="text-sm font-semibold text-primary">{tLocal("principalAmount")}</Label>
                   <div className="relative">
                     <Calculator className="absolute left-3 top-3 h-4 w-4 text-primary" />
                     <Input 
@@ -1495,7 +1602,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-emerald-600">Already Paid Amount (₹)</Label>
+                  <Label className="text-sm font-semibold text-emerald-600">{tLocal("alreadyPaidAmount")}</Label>
                   <div className="relative">
                     <CheckCircle2 className="absolute left-3 top-3 h-4 w-4 text-emerald-600" />
                     <Input 
@@ -1510,7 +1617,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-accent">Account Creation Date *</Label>
+                  <Label className="text-sm font-semibold text-accent">{tLocal("accountCreationDate")}</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-accent/60" />
                     <Input type="date" {...register("creationDate")} className="pl-9 finance-input border-accent/20 bg-accent/5" readOnly={!checkPermission(userData, "canChangeDate")} />
@@ -1520,7 +1627,7 @@ const NewAccount = () => {
 
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">End Date</Label>
+                  <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("endDate")}</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
                     <Input type="date" {...register("endDate")} className="pl-9 finance-input bg-muted/30" readOnly />
@@ -1530,7 +1637,7 @@ const NewAccount = () => {
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Payment Type *</Label>
+                    <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("paymentType")}</Label>
                     <Select onValueChange={(v: any) => setValue("paymentType", v)} value={paymentType}>
                       <SelectTrigger className="finance-input">
                         <SelectValue placeholder="Payment mode" />
@@ -1551,7 +1658,7 @@ const NewAccount = () => {
                         exit={{ opacity: 0, height: 0 }}
                         className="space-y-2 overflow-hidden"
                       >
-                        <Label className="text-sm font-semibold text-primary">UPI ID Details</Label>
+                        <Label className="text-sm font-semibold text-primary">{tLocal("upiIdDetails")}</Label>
                         <Input 
                           {...register("upiId")} 
                           className="finance-input border-primary/20 bg-primary/5" 
@@ -1590,7 +1697,7 @@ const NewAccount = () => {
 
                 {!selectedLineId && (
                   <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">Assign Operational Line *</Label>
+                    <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("assignLine")}</Label>
                     <Select 
                       onValueChange={(v) => setValue("lineId", v)} 
                       value={watch("lineId") || undefined}
@@ -1613,15 +1720,15 @@ const NewAccount = () => {
             <div className="border-t border-primary/10 pt-8">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <UserCheck className="h-5 w-5 text-accent" />
-                Guarantor Information
+                {tLocal("guarantorInformation")}
               </h3>
               <div className="grid gap-6 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Guarantor Name</Label>
+                  <Label className="text-sm font-semibold">{tLocal("guarantorName")}</Label>
                   <Input {...register("guarantorName")} className="finance-input" placeholder="Guarantor legal name" />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Guarantor Phone</Label>
+                  <Label className="text-sm font-semibold">{tLocal("guarantorPhone")}</Label>
                   <Input {...register("guarantorPhone")} className="finance-input" placeholder="10-digit mobile" />
                 </div>
               </div>
@@ -1631,7 +1738,7 @@ const NewAccount = () => {
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-bold flex items-center gap-2">
                   <CreditCard className="h-5 w-5 text-accent" />
-                  Digital Credentials & Security
+                  {tLocal("digitalCredentials")}
                 </h3>
                 <Badge className="bg-slate-900 text-white border-none font-black text-[8px] uppercase tracking-widest px-3 py-1">
                   Cloudinary Secure Storage
@@ -1640,7 +1747,7 @@ const NewAccount = () => {
 
               <div className="grid gap-6 md:grid-cols-3 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Document Type</Label>
+                  <Label className="text-sm font-semibold">{tLocal("documentType")}</Label>
                   <Select value={docType} onValueChange={setDocType}>
                     <SelectTrigger className="finance-input bg-white">
                       <SelectValue />
@@ -1656,7 +1763,7 @@ const NewAccount = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Description / Note</Label>
+                  <Label className="text-sm font-semibold">{tLocal("descriptionNote")}</Label>
                   <Input 
                     value={docDescription} 
                     onChange={e => setDocDescription(e.target.value)} 
@@ -1666,7 +1773,7 @@ const NewAccount = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Select File</Label>
+                  <Label className="text-sm font-semibold">{tLocal("selectFile")}</Label>
                   <div className="relative group">
                     <input 
                       type="file" 
@@ -1686,7 +1793,7 @@ const NewAccount = () => {
                       ) : (
                         <>
                           <Upload size={16} className="text-slate-400 group-hover:text-accent" />
-                          <span className="text-xs font-black uppercase text-slate-500 group-hover:text-accent">Upload Document</span>
+                          <span className="text-xs font-black uppercase text-slate-500 group-hover:text-accent">{tLocal("uploadDocument")}</span>
                         </>
                       )}
                     </div>
@@ -1778,14 +1885,14 @@ const NewAccount = () => {
           <div className="flex items-center justify-end border-t border-primary/10 pt-6">
               <div className="flex gap-4">
                 <Button variant="outline" type="button" onClick={() => handleClearSearch()} disabled={loading}>
-                  Reset Form
+                  {tLocal("resetForm")}
                 </Button>
                 <Button 
                   type="submit" 
                   className="flex-1 premium-gradient text-white h-12 rounded-xl shadow-lg border-none font-bold text-lg"
                   disabled={loading}
                 >
-                  {loading ? "Processing..." : (isEdit ? "Update Member Account" : "Create Account & Activate")}
+                  {loading ? tLocal("processing") : (isEdit ? tLocal("updateAccount") : tLocal("createAccount"))}
                 </Button>
               </div>
             </div>

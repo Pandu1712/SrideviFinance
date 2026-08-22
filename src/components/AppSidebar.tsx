@@ -34,11 +34,8 @@ const menuSections: MenuSection[] = [
     titleKey: "loanOperations",
     items: [
       { label: "Dashboard", labelKey: "dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Accounts", labelKey: "accounts", path: "/accounts", icon: <Database size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "New Account", labelKey: "newAccount", path: "/accounts/new", icon: <UserPlus size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Daily Posting", labelKey: "dailyPosting", path: "/daily-posting", icon: <Zap size={18} />, roles: ["super_admin", "admin", "agent"] },
-      { label: "Daily Sheet", labelKey: "dailyData", path: "/daily-data", icon: <FileText size={18} />, roles: ["super_admin", "admin"] },
-      { label: "Customer Statement", labelKey: "masterLedger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Collection Book", labelKey: "collectionBook", path: "/collection-book", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Members Registry", labelKey: "membersRegistry", path: "/members", icon: <Users size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Extra Amount", labelKey: "extraAmount", path: "/extra-amount", icon: <IndianRupee size={18} />, roles: ["super_admin", "admin", "partner"] },
@@ -48,7 +45,10 @@ const menuSections: MenuSection[] = [
     title: "Analytics & Reporting",
     titleKey: "analyticsReporting",
     items: [
+      { label: "Accounts", labelKey: "accounts", path: "/accounts", icon: <Database size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Ledger", labelKey: "companyAccount", path: "/company-account", icon: <Wallet size={18} />, roles: ["super_admin", "admin", "partner"] },
+      { label: "Customer Statement", labelKey: "masterLedger", path: "/ledger", icon: <BookOpen size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
+      { label: "Daily Sheet", labelKey: "dailyData", path: "/daily-data", icon: <FileText size={18} />, roles: ["super_admin", "admin"] },
       { label: "Reports Engine", labelKey: "reportsEngine", path: "/reports", icon: <BarChart3 size={18} />, roles: ["super_admin", "admin", "partner", "agent"] },
       { label: "Profits Center", labelKey: "profitsCenter", path: "/profits", icon: <TrendingUp size={18} />, roles: ["super_admin", "admin", "partner"] },
     ]

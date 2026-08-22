@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, Timestamp, orderBy } from "firebase/firestore";
@@ -22,6 +23,62 @@ import { exportToExcel } from "@/lib/excel";
 const COLORS = ["#0F172A", "#D4AF37", "#64748B", "#F59E0B", "#10B981"];
 
 const Reports = () => {
+  const { language } = useLanguage();
+  const localTranslations = {
+    en: {
+      financialReports: "Financial Reports",
+      reportsSubtitle: "Deep dive into collection trends and performance metrics.",
+      newAccountsPrincipal: "New Accounts Principal",
+      newAccountsInterest: "New Accounts Interest",
+      agentCollection: "Agent Collection",
+      adminCollection: "Admin Collection",
+      docChg: "Doc Chg",
+      expenses: "Expenses",
+      total: "Total",
+      analyticsOverview: "Analytics Overview",
+      modeDistribution: "Mode Distribution",
+      memberPerformance: "Member Performance",
+      transactionRegistry: "Transaction Registry",
+      transactionDetails: "Transaction Details",
+      slNo: "S.No",
+      accountNo: "Account No",
+      member: "Member",
+      inflow: "Inflow (Coll)",
+      outflow: "Outflow (Loan)",
+      mode: "Mode",
+      detailsInterest: "Details/Interest",
+      collector: "Collector"
+    },
+    te: {
+      financialReports: "ఆర్థిక నివేదికలు (Financial Reports)",
+      reportsSubtitle: "కలెక్షన్ పోకడలు మరియు పనితీరు కొలమానాల విశ్లేషణ.",
+      newAccountsPrincipal: "కొత్త ఖాతాల అసలు (Principal)",
+      newAccountsInterest: "కొత్త ఖాతాల వడ్డీ (Interest)",
+      agentCollection: "ఏజెంట్ కలెక్షన్",
+      adminCollection: "అడ్మిన్ కలెక్షన్",
+      docChg: "డాక్యుమెంట్ చార్జీలు",
+      expenses: "ఖర్చులు (Expenses)",
+      total: "మొత్తం (Total)",
+      analyticsOverview: "విశ్లేషణ అవలోకనం",
+      modeDistribution: "చెల్లింపు పద్ధతుల పంపిణీ",
+      memberPerformance: "సభ్యుల పనితీరు",
+      transactionRegistry: "లావాదేవీల రిజిస్ట్రీ",
+      transactionDetails: "లావాదేవీల వివరాలు",
+      slNo: "క్ర.సం.",
+      accountNo: "ఖాతా సంఖ్య",
+      member: "కస్టమర్",
+      inflow: "వసూలు (Inflow)",
+      outflow: "చెల్లింపు (Outflow)",
+      mode: "మోడ్",
+      detailsInterest: "వివరాలు / వడ్డీ",
+      collector: "వసూలు చేసిన వారు"
+    }
+  };
+  const tLocal = (key) => {
+    const lang = language === "te" ? "te" : "en";
+    return localTranslations[lang][key] || localTranslations.en[key];
+  };
+
   const { userData } = useAuth();
   const { selectedLineId, lines } = useLine();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -285,8 +342,8 @@ const Reports = () => {
             <TrendingUp className="text-white h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-primary">Financial Reports</h1>
-            <p className="text-muted-foreground">Deep dive into collection trends and performance metrics.</p>
+            <h1 className="text-3xl font-extrabold tracking-tight text-primary">{tLocal("financialReports")}</h1>
+            <p className="text-muted-foreground">{tLocal("reportsSubtitle")}</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
@@ -320,7 +377,7 @@ const Reports = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <Card className="glass-card shadow-lg border-none border-t-4 border-rose-500 bg-white">
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">New Accounts Principal</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{tLocal("newAccountsPrincipal")}</p>
             <CardTitle className="text-2xl font-black text-rose-600 tracking-tighter">{formatCurrency(stats.principal)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
@@ -332,7 +389,7 @@ const Reports = () => {
 
         <Card className="glass-card shadow-lg border-none border-t-4 border-amber-500 bg-white">
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">New Accounts Interest</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{tLocal("newAccountsInterest")}</p>
             <CardTitle className="text-2xl font-black text-amber-600 tracking-tighter">{formatCurrency(stats.interest)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
@@ -344,7 +401,7 @@ const Reports = () => {
 
         <Card className="glass-card shadow-lg border-none border-t-4 border-emerald-500 bg-white">
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Agent Collection</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{tLocal("agentCollection")}</p>
             <CardTitle className="text-2xl font-black text-emerald-600 tracking-tighter">{formatCurrency(stats.agentCol)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
@@ -356,7 +413,7 @@ const Reports = () => {
 
         <Card className="glass-card shadow-lg border-none border-t-4 border-indigo-500 bg-white">
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Admin Collection</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{tLocal("adminCollection")}</p>
             <CardTitle className="text-2xl font-black text-indigo-600 tracking-tighter">{formatCurrency(stats.adminCol)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
@@ -368,7 +425,7 @@ const Reports = () => {
 
         <Card className="glass-card shadow-lg border-none border-t-4 border-blue-500 bg-white">
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Doc Chg</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{tLocal("docChg")}</p>
             <CardTitle className="text-2xl font-black text-blue-600 tracking-tighter">{formatCurrency(stats.docCharges)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
@@ -383,7 +440,7 @@ const Reports = () => {
           className="glass-card shadow-lg border-none border-t-4 border-purple-500 bg-white cursor-pointer hover:scale-105 transition-all duration-300 group"
         >
           <CardHeader className="pb-2 p-4">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Expenses</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{tLocal("expenses")}</p>
             <CardTitle className="text-2xl font-black text-rose-500 tracking-tighter">{formatCurrency(stats.expenses)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
@@ -396,7 +453,7 @@ const Reports = () => {
         <Card className="shadow-xl border-none bg-slate-900 text-white relative overflow-hidden">
           <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
           <CardHeader className="pb-1 p-4 relative z-10">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">Total</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{tLocal("total")}</p>
             <CardTitle className="text-2xl font-black tracking-tighter">{formatCurrency(stats.total)}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4 relative z-10">
@@ -417,7 +474,7 @@ const Reports = () => {
       <Tabs defaultValue="details" className="space-y-6">
         <TabsList className="bg-slate-100 p-1 rounded-xl">
           <TabsTrigger value="details" className="rounded-lg px-6 py-2">Transaction Details</TabsTrigger>
-          <TabsTrigger value="overview" className="rounded-lg px-6 py-2">Analytics Overview</TabsTrigger>
+          <TabsTrigger value="overview" className="rounded-lg px-6 py-2">{tLocal("analyticsOverview")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -425,7 +482,7 @@ const Reports = () => {
             <Card className="glass-card border-none shadow-sm">
               <CardHeader className="border-b border-slate-50">
                 <CardTitle className="text-sm font-bold flex items-center gap-2 text-primary/70 uppercase tracking-widest">
-                  <PieIcon className="h-4 w-4 text-accent" /> Mode Distribution
+                  <PieIcon className="h-4 w-4 text-accent" /> {tLocal("modeDistribution")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-[300px] flex items-center justify-center mt-4">
@@ -456,7 +513,7 @@ const Reports = () => {
             <Card className="glass-card border-none shadow-sm">
               <CardHeader className="border-b border-slate-50">
                 <CardTitle className="text-sm font-bold flex items-center gap-2 text-primary/70 uppercase tracking-widest">
-                  <Users className="h-4 w-4 text-accent" /> Member Performance
+                  <Users className="h-4 w-4 text-accent" /> {tLocal("memberPerformance")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-[300px] mt-4">
@@ -483,21 +540,21 @@ const Reports = () => {
           <Card className="glass-card border-none shadow-sm overflow-hidden">
             <CardHeader className="bg-slate-50/50 border-b border-slate-100">
               <CardTitle className="text-sm font-bold flex items-center gap-2 text-primary/70 uppercase tracking-widest">
-                <FileText className="h-4 w-4" /> Transaction Registry
+                <FileText className="h-4 w-4" /> {tLocal("transactionRegistry")}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/50 border-b border-slate-100">
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">S.No</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Account No</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Member</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Inflow (Coll)</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Outflow (Loan)</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-center">Mode</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Details/Interest</th>
-                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">Collector</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">{tLocal("slNo")}</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">{tLocal("accountNo")}</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">{tLocal("member")}</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">{tLocal("inflow")}</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">{tLocal("outflow")}</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-center">{tLocal("mode")}</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">{tLocal("detailsInterest")}</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground text-right">{tLocal("collector")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">

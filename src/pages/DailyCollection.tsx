@@ -148,7 +148,7 @@ const DailyCollection = () => {
       const todayStr = new Date().toISOString().split("T")[0];
       postSnap.forEach(d => {
         const data = d.data();
-        if (data.date === todayStr && data.collectedById === userData.uid) {
+        if (data.date === todayStr && data.collectedById === userData.uid && data.payMode !== 'pay_later') {
           dailyTotal += (data.amount || 0);
         }
       });
