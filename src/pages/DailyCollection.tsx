@@ -1505,8 +1505,16 @@ const DailyCollection = () => {
 
   // Admin View - Using Number() for precision
   const total = records.reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0);
-  const cashTotal = records.filter(r => r.payMode === 'cash').reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0);
-  const onlineTotal = records.filter(r => r.payMode !== 'cash').reduce((acc, r) => acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0), 0);
+  const cashTotal = records.reduce((acc, r) => {
+    if (r.payMode === 'cash') return acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0);
+    if (r.payMode === 'split') return acc + (Number(r.splitCashAmount) || 0);
+    return acc;
+  }, 0);
+  const onlineTotal = records.reduce((acc, r) => {
+    if (r.payMode === 'split') return acc + (Number(r.splitOnlineAmount) || 0);
+    if (r.payMode !== 'cash' && r.payMode !== 'pay_later') return acc + (Number(r.amount) || 0) + (Number(r.penaltyAmount) || 0) + (Number(r.extraAmount) || 0);
+    return acc;
+  }, 0);
 
   const handleEditPosting = (posting: any) => {
     setSelectedEditPosting(posting);
@@ -1697,14 +1705,43 @@ const DailyCollection = () => {
                   </td>
                   <td className="p-5 text-right font-black text-orange-500 italic text-sm">{formatCurrency(r.lateFee || 0)}</td>
                   <td className="p-5">
-                    <div className="flex flex-col gap-1">
-                      <Badge className="bg-slate-100 text-slate-600 border-none font-black text-[9px] uppercase tracking-widest w-max">{r.payMode}</Badge>
-                      {r.note && (
-                        <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={r.note}>
-                          {r.note}
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const isSplit = (r.payMode || '').toLowerCase() === 'split';
+                      if (isSplit) {
+                        const splitCash = r.splitCashAmount != null ? Number(r.splitCashAmount) : (() => {
+                          const m = r.note?.match(/Cash\s*₹?([0-9,]+)/i);
+                          return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+                        })();
+                        const splitOnline = r.splitOnlineAmount != null ? Number(r.splitOnlineAmount) : (() => {
+                          const m = r.note?.match(/(?:UPI|Bank)\s*₹?([0-9,]+)/i);
+                          return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+                        })();
+                        const onlineType = r.splitOnlineType || (r.note?.toLowerCase().includes('bank') ? 'bank' : 'upi');
+
+                        return (
+                          <div className="flex flex-col gap-1 min-w-[140px]">
+                            <Badge className="bg-purple-100 text-purple-800 border-none font-black text-[9px] uppercase tracking-widest w-max">
+                              SPLIT
+                            </Badge>
+                            <div className="flex flex-col gap-0.5 text-[10px] font-bold">
+                              <span className="text-emerald-700">Cash: ₹{splitCash.toLocaleString("en-IN")}</span>
+                              <span className="text-blue-700">{onlineType === 'bank' ? 'Bank:' : 'UPI:'} ₹{splitOnline.toLocaleString("en-IN")}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex flex-col gap-1">
+                          <Badge className="bg-slate-100 text-slate-600 border-none font-black text-[9px] uppercase tracking-widest w-max">{r.payMode}</Badge>
+                          {r.note && (
+                            <span className="text-[9px] font-medium text-slate-500 whitespace-normal break-words max-w-[140px]" title={r.note}>
+                              {r.note}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                    <td className="p-5">
                       <div className="flex flex-col">

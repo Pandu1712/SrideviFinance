@@ -223,7 +223,7 @@ const PostingVerification = () => {
         date: editDate,
         payMode: editPayMode,
         status: editStatus,
-        note: (editPayMode === 'bank' || editPayMode === 'upi' || editPayMode === 'pay_later') ? editNote : ""
+        note: (editPayMode === 'bank' || editPayMode === 'upi' || editPayMode === 'pay_later' || editPayMode === 'split') ? editNote : ""
       };
       await updateDoc(postingRef, updates);
       toast.success("Entry updated successfully");
@@ -401,11 +401,20 @@ const PostingVerification = () => {
                       </td>
                       <td className="p-4 text-right">
                         <p className="text-lg font-black text-primary">{formatCurrency(p.amount)}</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">{p.payMode}</p>
-                        {p.note && (
-                          <p className="text-[9px] font-medium text-slate-500 italic mt-0.5" title={p.note}>
-                            Note: {p.note}
-                          </p>
+                        {p.payMode === 'split' ? (
+                          <div className="flex flex-col items-end gap-0.5 mt-0.5">
+                            <span className="text-[9px] font-black uppercase text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">SPLIT</span>
+                            {p.note && <span className="text-[10px] font-bold text-slate-700">{p.note}</span>}
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{p.payMode}</p>
+                            {p.note && (
+                              <p className="text-[9px] font-medium text-slate-500 italic mt-0.5" title={p.note}>
+                                Note: {p.note}
+                              </p>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="p-4">
@@ -488,6 +497,7 @@ const PostingVerification = () => {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="bank">Bank</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="split">Split / Partial</SelectItem>
                     <SelectItem value="pay_later">Pay Later</SelectItem>
                   </SelectContent>
                 </Select>

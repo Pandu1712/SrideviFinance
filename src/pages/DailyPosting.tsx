@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin, AlertCircle, Edit, Settings, Eye, EyeOff } from "lucide-react";
+import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin, AlertCircle, Edit, Settings, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { formatCurrency, formatDate, cn, playSuccessSound, checkPermission } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,13 @@ import { logActivity } from "@/lib/audit";
 import DailyReconciliation from "@/components/DailyReconciliation";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogHeader, 
+  DialogTitle 
+} from "@/components/ui/dialog";
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -83,6 +90,39 @@ const DailyPosting = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [modalSearchQuery, setModalSearchQuery] = useState("");
+  const [showLastPaymentDialog, setShowLastPaymentDialog] = useState(false);
+  const [lastPaymentLoading, setLastPaymentLoading] = useState(false);
+  const [lastPaymentData, setLastPaymentData] = useState<DocumentData | null>(null);
+  const [accountRecentPostings, setAccountRecentPostings] = useState<DocumentData[]>([]);
+
+  const handleViewLastPayment = async () => {
+    if (!accountInfo) return;
+    setShowLastPaymentDialog(true);
+    setLastPaymentLoading(true);
+    try {
+      const q = query(
+        collection(db, "postings"),
+        where("accountId", "==", accountInfo.id)
+      );
+      const snap = await getDocs(q);
+      const allPosts = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((p: any) => p.payMode !== 'pay_later')
+        .sort((a: any, b: any) => {
+          const dateDiff = (b.date || "").localeCompare(a.date || "");
+          if (dateDiff !== 0) return dateDiff;
+          return (b.createdAt || "").localeCompare(a.createdAt || "");
+        });
+
+      setAccountRecentPostings(allPosts.slice(0, 5));
+      setLastPaymentData(allPosts[0] || null);
+    } catch (err: any) {
+      console.error("Error fetching last payment:", err);
+      toast.error("Failed to load last transaction");
+    } finally {
+      setLastPaymentLoading(false);
+    }
+  };
   
   const toggleAccountUnhide = async (accountId: string, newUnhidden: boolean) => {
     try {
@@ -105,7 +145,10 @@ const DailyPosting = () => {
     status: "collection", 
     payMode: "cash",
     penaltyAmount: "",
-    note: ""
+    note: "",
+    splitCashAmount: "",
+    splitOnlineAmount: "",
+    splitOnlineType: "upi",
   });
   const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
   const [lastPostedAmount, setLastPostedAmount] = useState<number | null>(null);
@@ -178,10 +221,10 @@ const DailyPosting = () => {
         .map(d => ({ id: d.id, ...d.data() }));
       setTodayPostingsList(list);
 
-      const postedIds = new Set(
-        list.map(p => p.accountId)
+      const paidMemberIds = new Set(
+        list.filter(p => p.payMode !== 'pay_later').map(p => p.accountId)
       );
-      setTodayPostings(postedIds);
+      setTodayPostings(paidMemberIds);
     }, (err) => {
       console.error("Load today postings error:", err);
     });
@@ -193,11 +236,12 @@ const DailyPosting = () => {
     setAccountInfo(member);
     setForm(prev => ({ ...prev, accountNo: member.accountNo, amount: String(member.installmentAmount || "") }));
     
-    const isPayLater = todayPostingsList.some(p => p.accountId === member.id && p.payMode === 'pay_later');
-    if (isPayLater) {
-      toast.info(`Selected: ${member.name} (Pay Later recorded today)`);
-    } else if (todayPostings.has(member.id)) {
+    const hasPaidToday = todayPostingsList.some(p => (p.accountId === member.id || (p.accountNo && p.accountNo === member.accountNo)) && p.payMode !== 'pay_later');
+    const isPayLater = !hasPaidToday && todayPostingsList.some(p => (p.accountId === member.id || (p.accountNo && p.accountNo === member.accountNo)) && p.payMode === 'pay_later');
+    if (hasPaidToday) {
       toast.error(`ALERT: A payment has already been recorded for ${member.name} today!`, { duration: 5000, icon: '🚨' });
+    } else if (isPayLater) {
+      toast.info(`Selected: ${member.name} (Pay Later recorded today)`);
     } else {
       toast.info(`Selected: ${member.name}`);
     }
@@ -247,8 +291,13 @@ const DailyPosting = () => {
       setAccountInfo(accountData);
       setForm(prev => ({ ...prev, amount: String(accountData.installmentAmount || "") }));
       
-      if (todayPostings.has(accountData.id)) {
+      const hasPaidToday = todayPostingsList.some(p => (p.accountId === accountData.id || (p.accountNo && p.accountNo === accountData.accountNo)) && p.payMode !== 'pay_later');
+      const isPayLater = !hasPaidToday && todayPostingsList.some(p => (p.accountId === accountData.id || (p.accountNo && p.accountNo === accountData.accountNo)) && p.payMode === 'pay_later');
+
+      if (hasPaidToday) {
         toast.error(`ALERT: A payment has already been recorded for ${accountData.name} today!`, { duration: 5000, icon: '🚨' });
+      } else if (isPayLater) {
+        toast.info(`Selected: ${accountData.name} (Pay Later recorded today)`);
       } else {
         toast.success("Account loaded successfully");
       }
@@ -306,7 +355,14 @@ const DailyPosting = () => {
         where("date", "==", todayDateStr)
       );
       const duplicateSnap = await getDocs(duplicateQuery);
+      const hasActualPaymentToday = duplicateSnap.docs.some(d => d.data().payMode !== 'pay_later');
       
+      if (form.payMode === 'pay_later' && hasActualPaymentToday) {
+        toast.error("This member has already paid today! Cannot mark Pay Later.");
+        setLoading(false);
+        return;
+      }
+
       // 2. Fetch fresh account data to check the lastPostingDate flag
       const freshAccDoc = await getDoc(doc(db, "accounts", accountInfo.id));
       const freshAccData = freshAccDoc.exists() ? freshAccDoc.data() : null;
@@ -314,12 +370,12 @@ const DailyPosting = () => {
       const serverLastPostingDate = freshAccData?.lastPostingDate;
       const localLastPostingDate = accountInfo.lastPostingDate;
       
-      const hasPostingToday = !duplicateSnap.empty || 
-                              serverLastPostingDate === todayDateStr || 
-                              localLastPostingDate === todayDateStr;
+      const hasPostingToday = form.payMode !== 'pay_later' && (hasActualPaymentToday || (
+                              serverLastPostingDate === todayDateStr && (freshAccData?.paid || 0) > 0));
 
       if (hasPostingToday) {
         setShowDuplicateAlert(true);
+        setPendingPostingData({ totalCollection, postingAmount, penaltyAmount });
         setLoading(false);
         return;
       }
@@ -336,13 +392,41 @@ const DailyPosting = () => {
     try {
       const accountRef = doc(db, "accounts", accountInfo!.id);
 
+      // Check if there are any pay_later postings for this account to clean up
+      let plSnapDocs: any[] = [];
+      if (form.payMode !== 'pay_later') {
+        try {
+          const plQuery = query(
+            collection(db, "postings"),
+            where("accountId", "==", accountInfo.id)
+          );
+          const plSnap = await getDocs(plQuery);
+          plSnapDocs = plSnap.docs.filter(d => d.data().payMode === 'pay_later');
+        } catch (e) {
+          console.warn("Could not query existing pay_later docs:", e);
+        }
+      }
+
       await runTransaction(db, async (transaction) => {
         const accDoc = await transaction.get(accountRef);
         if (!accDoc.exists()) throw new Error("Account does not exist!");
 
+        // Delete any pay_later placeholder records as customer is now paying
+        plSnapDocs.forEach(d => {
+          transaction.delete(doc(db, "postings", d.id));
+        });
+
         const accData = accDoc.data();
         const isVerified = userData?.role !== 'agent';
         
+        const isSplit = form.payMode === 'split';
+        const splitCashVal = isSplit ? parseFloat(form.splitCashAmount || "0") || 0 : 0;
+        const splitOnlineVal = isSplit ? parseFloat(form.splitOnlineAmount || "0") || 0 : 0;
+        const onlineMethodName = form.splitOnlineType === "bank" ? "Bank" : "UPI";
+        const splitNote = isSplit
+          ? `Split: Cash ₹${splitCashVal.toLocaleString("en-IN")} + ${onlineMethodName} ₹${splitOnlineVal.toLocaleString("en-IN")}${form.note ? ` (${form.note})` : ""}`
+          : "";
+
         const postingRef = doc(collection(db, "postings"));
         transaction.set(postingRef, {
           accountId: accountInfo.id,
@@ -352,7 +436,10 @@ const DailyPosting = () => {
           penaltyAmount: penaltyAmount,
           status: form.status,
           payMode: form.payMode,
-          note: (form.payMode === 'bank' || form.payMode === 'upi' || form.payMode === 'pay_later') ? (form.note || "") : "",
+          splitCashAmount: isSplit ? splitCashVal : 0,
+          splitOnlineAmount: isSplit ? splitOnlineVal : 0,
+          splitOnlineType: isSplit ? (form.splitOnlineType || "upi") : null,
+          note: isSplit ? splitNote : ((form.payMode === 'bank' || form.payMode === 'upi' || form.payMode === 'pay_later') ? (form.note || "") : ""),
           lineId: accountInfo.lineId,
           adminId: accountInfo.adminId || "",
           memberName: accountInfo.name,
@@ -437,10 +524,15 @@ const DailyPosting = () => {
       setForm(prev => ({ 
         ...prev, 
         amount: "", 
-        penaltyAmount: "" 
+        penaltyAmount: "",
+        splitCashAmount: "",
+        splitOnlineAmount: "",
+        note: ""
       }));
       
-      setTodayPostings(prev => new Set([...Array.from(prev), accountInfo.id]));
+      if (form.payMode !== 'pay_later') {
+        setTodayPostings(prev => new Set([...Array.from(prev), accountInfo.id]));
+      }
 
     } catch (err: any) {
       toast.error(err.message || "Failed");
@@ -622,16 +714,27 @@ const DailyPosting = () => {
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("date")}</Label>
-                          <div className="relative group">
-                            <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors z-10" />
+                          <div 
+                            className="relative group cursor-pointer"
+                            onClick={(e) => {
+                              const input = e.currentTarget.querySelector('input[type="date"]') as HTMLInputElement;
+                              if (input && !input.disabled) {
+                                try { input.showPicker?.(); } catch {}
+                              }
+                            }}
+                          >
+                            <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors z-10 pointer-events-none" />
                             <Input 
                               type="date" 
                               value={form.date} 
                               onChange={e => handleChange("date", e.target.value)} 
-                              className="absolute inset-0 opacity-0 cursor-pointer z-20"
+                              onClick={(e) => {
+                                try { e.currentTarget.showPicker?.(); } catch {}
+                              }}
+                              className="absolute inset-0 opacity-0 cursor-pointer z-20 w-full h-full"
                               disabled={!checkPermission(userData, 'canChangeDate')}
                             />
-                            <div className="pl-9 h-11 finance-input flex items-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded-xl">
+                            <div className="pl-9 h-11 finance-input flex items-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded-xl pointer-events-none">
                               {(() => {
                                 const [y, m, d] = form.date.split('-');
                                 return `${d}/${m}/${y}`;
@@ -693,22 +796,162 @@ const DailyPosting = () => {
                             <SelectItem value="cash">Cash</SelectItem>
                             <SelectItem value="bank">Bank</SelectItem>
                             <SelectItem value="upi">UPI</SelectItem>
+                            <SelectItem value="split">Split / Partial</SelectItem>
                             <SelectItem value="pay_later">Pay Later</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
+
+                      <AnimatePresence mode="wait">
+                        {form.payMode === 'split' && (
+                          <motion.div
+                            key="split-posting-panel"
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-3.5 overflow-hidden"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                                Partial / Split Breakdown
+                              </span>
+                              {parseFloat(form.amount || "0") > 0 && (
+                                <Badge variant="outline" className="font-mono text-xs border-primary/30 text-primary bg-background/80">
+                                  Total: ₹{parseFloat(form.amount).toLocaleString("en-IN")}
+                                </Badge>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2.5">
+                              <div className="space-y-1">
+                                <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                  Cash (₹) *
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  placeholder="e.g. 300"
+                                  value={form.splitCashAmount}
+                                  onChange={e => handleChange("splitCashAmount", e.target.value)}
+                                  className="h-10 bg-white border-primary/20 font-bold text-sm"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                  Online (₹) *
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  placeholder="e.g. 200"
+                                  value={form.splitOnlineAmount}
+                                  onChange={e => handleChange("splitOnlineAmount", e.target.value)}
+                                  className="h-10 bg-white border-primary/20 font-bold text-sm"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Auto-balance helper / Match indicator */}
+                            {parseFloat(form.amount || "0") > 0 && (() => {
+                              const totalColl = parseFloat(form.amount || "0");
+                              const cVal = parseFloat(form.splitCashAmount || "0") || 0;
+                              const oVal = parseFloat(form.splitOnlineAmount || "0") || 0;
+                              const currentSum = cVal + oVal;
+                              const diff = totalColl - currentSum;
+                              const isMatch = Math.abs(diff) < 0.01 && currentSum > 0;
+
+                              return (
+                                <div className="space-y-1.5 pt-1">
+                                  {isMatch ? (
+                                    <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 p-2 rounded-lg">
+                                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                      <span>Matched: ₹{cVal.toLocaleString("en-IN")} + ₹{oVal.toLocaleString("en-IN")} = ₹{totalColl.toLocaleString("en-IN")}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[11px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-2 rounded-lg flex items-center justify-between gap-1.5">
+                                      <span>
+                                        Total: <strong>₹{currentSum}</strong> / ₹{totalColl}
+                                        {diff > 0 ? ` (Left: ₹${diff})` : ` (Exceeds: ₹${Math.abs(diff)})`}
+                                      </span>
+                                      {diff !== 0 && (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-6 text-[10px] font-black uppercase tracking-wider border-amber-300 hover:bg-amber-100 text-amber-900 shrink-0 px-2"
+                                          onClick={() => {
+                                            if (cVal > 0 && cVal <= totalColl) {
+                                              handleChange("splitOnlineAmount", String(Math.max(0, totalColl - cVal)));
+                                            } else if (oVal > 0 && oVal <= totalColl) {
+                                              handleChange("splitCashAmount", String(Math.max(0, totalColl - oVal)));
+                                            } else {
+                                              handleChange("splitOnlineAmount", String(totalColl));
+                                            }
+                                          }}
+                                        >
+                                          Auto-Balance
+                                        </Button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* Online Mode Toggle: Phone/UPI vs Bank */}
+                            <div className="space-y-1 pt-1.5 border-t border-primary/10">
+                              <Label className="text-[10px] font-black uppercase tracking-wider text-primary">Online Channel</Label>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleChange("splitOnlineType", "upi")}
+                                  className={cn(
+                                    "h-8 px-2 text-xs font-bold rounded-lg border transition-all flex items-center justify-center gap-1",
+                                    (form.splitOnlineType || "upi") === "upi"
+                                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                      : "bg-white dark:bg-slate-900 text-muted-foreground border-border hover:bg-muted/50"
+                                  )}
+                                >
+                                  Phone / UPI
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleChange("splitOnlineType", "bank")}
+                                  className={cn(
+                                    "h-8 px-2 text-xs font-bold rounded-lg border transition-all flex items-center justify-center gap-1",
+                                    form.splitOnlineType === "bank"
+                                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                      : "bg-white dark:bg-slate-900 text-muted-foreground border-border hover:bg-muted/50"
+                                  )}
+                                >
+                                  Bank Account
+                                </button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
 
                       <motion.div 
                         initial={{ opacity: 0, y: -5 }}
                         animate={{ opacity: 1, y: 0 }}
                         className="space-y-1.5"
                       >
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{form.payMode === 'pay_later' ? tLocal("payLaterNote") : tLocal("noteRefOptional")}</Label>
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          {form.payMode === 'pay_later' ? tLocal("payLaterNote") : tLocal("noteRefOptional")}
+                        </Label>
                         <Input 
                           type="text" 
                           value={form.note} 
                           onChange={e => handleChange("note", e.target.value)} 
-                          placeholder={form.payMode === 'pay_later' ? "e.g. will pay today night" : "Enter transaction ref, bank name or note..."} 
+                          placeholder={
+                            form.payMode === 'pay_later' 
+                              ? "e.g. will pay today night" 
+                              : form.payMode === 'split'
+                              ? (form.splitOnlineType === 'bank' ? "Bank Name, Ref No / UTR..." : "UPI Ref / Transaction ID...")
+                              : "Enter transaction ref, bank name or note..."
+                          } 
                           className="h-11 bg-white border-slate-200 focus-visible:ring-accent font-medium text-slate-900" 
                         />
                       </motion.div>
@@ -813,7 +1056,8 @@ const DailyPosting = () => {
                                   return expiryDate <= today && balanceNum > 0 && m.status !== 'completed';
                                 }
                                 if (timelineFilter === 'pay_later') {
-                                  return todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later');
+                                  const hasPaid = todayPostingsList.some(p => (p.accountId === m.id || (p.accountNo && p.accountNo === m.accountNo)) && p.payMode !== 'pay_later');
+                                  return !hasPaid && todayPostingsList.some(p => (p.accountId === m.id || (p.accountNo && p.accountNo === m.accountNo)) && p.payMode === 'pay_later');
                                 }
                                 return m.paymentFrequency === timelineFilter;
                               })();
@@ -828,74 +1072,83 @@ const DailyPosting = () => {
                               
                               return matchesVillage && matchesFreq && matchesSearch && matchesCompletion;
                             })
-                            .map((m) => (
-                          <div 
-                            key={m.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => selectMember(m)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                selectMember(m);
-                              }
-                            }}
-                            className={cn(
-                              "w-full text-left p-3 rounded-2xl border border-transparent transition-all group cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/50",
-                              accountInfo?.id === m.id 
-                                ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
-                                : (m.status === 'completed' || m.balance <= 0)
-                                  ? "bg-rose-50 border-rose-100 opacity-80"
-                                  : todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later')
-                                    ? "bg-amber-50 border-amber-100 dark:bg-amber-950/20"
-                                    : todayPostings.has(m.id)
-                                      ? "bg-emerald-50 border-emerald-100" 
-                                      : "hover:bg-slate-50 hover:border-slate-100"
-                            )}
-                          >
-                             <div className="flex items-center justify-between gap-2 w-full">
-                               <div className="flex items-center gap-3 min-w-0">
-                                 <div className={cn(
-                                   "h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[11px] font-black transition-all shadow-sm",
-                                   accountInfo?.id === m.id ? "bg-white text-accent" : 
-                                   (m.status === 'completed' || m.balance <= 0) ? "bg-rose-500 text-white" :
-                                   todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later') ? "bg-amber-500 text-white" :
-                                   todayPostings.has(m.id) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
-                                 )}>
-                                   {m.accountNo}
-                                 </div>
-                                 <div className="min-w-0">
-                                   <p className={cn("text-[13px] sm:text-[14px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : (m.status === 'completed' || m.balance <= 0) ? "text-rose-700 line-through decoration-rose-300" : todayPostingsList.some(p => p.accountId === m.id && p.payMode === 'pay_later') ? "text-amber-800 dark:text-amber-300" : todayPostings.has(m.id) ? "text-emerald-700" : "text-primary")}>
-                                     {m.name}
-                                   </p>
-                                   <div className="flex flex-col gap-0.5">
-                                     <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
-                                       {m.nameTelugu && (
-                                         <span className={cn("text-[9px] sm:text-[10px] font-black truncate", accountInfo?.id === m.id ? "text-white/90" : "text-slate-600")}>
-                                           {m.nameTelugu}
-                                         </span>
-                                       )}
-                                       <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-60 shrink-0", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                         #{m.accountNo}
-                                       </span>
-                                       {m.village && (
-                                         <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
-                                           • {m.village}
-                                         </span>
-                                       )}
-                                     </div>
-                                     {(() => {
-                                       const payLaterPost = todayPostingsList.find(p => p.accountId === m.id && p.payMode === 'pay_later');
-                                       if (!payLaterPost) return null;
-                                       return (
-                                         <p className={cn("text-[10px] font-bold mt-1 uppercase tracking-tight flex items-center gap-1.5", accountInfo?.id === m.id ? "text-white/90" : "text-amber-700")}>
-                                           <span className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900/50 rounded text-[7px] font-black uppercase shrink-0">Pay Later</span>
-                                           <span className="truncate italic">"{payLaterPost.note || "No note"}"</span>
+                            .map((m) => {
+                              const hasPaidToday = todayPostingsList.some(p => (p.accountId === m.id || (p.accountNo && p.accountNo === m.accountNo)) && p.payMode !== 'pay_later');
+                              const isPayLaterToday = !hasPaidToday && todayPostingsList.some(p => (p.accountId === m.id || (p.accountNo && p.accountNo === m.accountNo)) && p.payMode === 'pay_later');
+
+                              return (
+                                <div 
+                                  key={m.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => selectMember(m)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      selectMember(m);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "w-full text-left p-3 rounded-2xl border border-transparent transition-all group cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/50",
+                                    accountInfo?.id === m.id 
+                                      ? "bg-accent text-accent-foreground shadow-lg shadow-accent/20" 
+                                      : (m.status === 'completed' || m.balance <= 0)
+                                        ? "bg-rose-50 border-rose-100 opacity-80"
+                                        : isPayLaterToday
+                                          ? "bg-amber-50 border-amber-100 dark:bg-amber-950/20"
+                                          : hasPaidToday
+                                            ? "bg-emerald-50 border-emerald-100" 
+                                            : "hover:bg-slate-50 hover:border-slate-100"
+                                  )}
+                                >
+                                   <div className="flex items-center justify-between gap-2 w-full">
+                                     <div className="flex items-center gap-3 min-w-0">
+                                       <div className={cn(
+                                         "h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[11px] font-black transition-all shadow-sm",
+                                         accountInfo?.id === m.id ? "bg-white text-accent" : 
+                                         (m.status === 'completed' || m.balance <= 0) ? "bg-rose-500 text-white" :
+                                         isPayLaterToday ? "bg-amber-500 text-white" :
+                                         hasPaidToday ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-white"
+                                       )}>
+                                         {m.accountNo}
+                                       </div>
+                                       <div className="min-w-0">
+                                         <p className={cn("text-[13px] sm:text-[14px] font-black truncate uppercase tracking-tighter", accountInfo?.id === m.id ? "text-white" : (m.status === 'completed' || m.balance <= 0) ? "text-rose-700 line-through decoration-rose-300" : isPayLaterToday ? "text-amber-800 dark:text-amber-300" : hasPaidToday ? "text-emerald-700" : "text-primary")}>
+                                           {m.name}
                                          </p>
-                                       );
-                                     })()}
-                                   </div>
-                                 </div>
-                               </div>
+                                         <div className="flex flex-col gap-0.5">
+                                           <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
+                                             {m.nameTelugu && (
+                                               <span className={cn("text-[9px] sm:text-[10px] font-black truncate", accountInfo?.id === m.id ? "text-white/90" : "text-slate-600")}>
+                                                 {m.nameTelugu}
+                                               </span>
+                                             )}
+                                             <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-60 shrink-0", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                               #{m.accountNo}
+                                             </span>
+                                             {m.village && (
+                                               <span className={cn("text-[8px] sm:text-[9px] font-bold opacity-40 uppercase truncate", accountInfo?.id === m.id ? "text-white" : "text-slate-400")}>
+                                                 • {m.village}
+                                               </span>
+                                             )}
+                                           </div>
+                                           {isPayLaterToday && (() => {
+                                             const payLaterPost = todayPostingsList.find(p => (p.accountId === m.id || (p.accountNo && p.accountNo === m.accountNo)) && p.payMode === 'pay_later');
+                                             if (!payLaterPost) return null;
+                                             return (
+                                               <p className={cn("text-[10px] font-bold mt-1 uppercase tracking-tight flex items-center gap-1.5", accountInfo?.id === m.id ? "text-white/90" : "text-amber-700")}>
+                                                 <span className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900/50 rounded text-[7px] font-black uppercase shrink-0">Pay Later</span>
+                                                 <span className="truncate italic">"{payLaterPost.note || "No note"}"</span>
+                                               </p>
+                                             );
+                                           })()}
+                                           {hasPaidToday && (
+                                             <p className={cn("text-[10px] font-bold mt-1 uppercase tracking-tight flex items-center gap-1", accountInfo?.id === m.id ? "text-white/90" : "text-emerald-600")}>
+                                               <span className="px-1 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[7px] font-black uppercase shrink-0">Paid Today</span>
+                                             </p>
+                                           )}
+                                         </div>
+                                       </div>
+                                     </div>
                                <div className="flex items-center gap-2 shrink-0 ml-auto transition-all">
                                   {m.phone && (
                                     <a 
@@ -956,7 +1209,8 @@ const DailyPosting = () => {
                                </div>
                              </div>
                           </div>
-                        ))}
+                        );
+                      })}
                       </div>
                     </ScrollArea>
                   </CardContent>
@@ -1041,19 +1295,40 @@ const DailyPosting = () => {
                             </div>
                           </div>
                           
-                          <div className="space-y-2 bg-white/50 p-3 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-[7px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Last Payment Activity</p>
-                        <div className="flex items-center gap-3">
-                           <div className="h-8 w-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-500"><Calendar size={14} /></div>
-                           <div>
-                              <p className="text-sm font-black text-slate-800 leading-none">{accountInfo.lastPostingDate ? formatDate(accountInfo.lastPostingDate) : "Initial Entry"}</p>
-                              {accountInfo.lastCollectedByName && (
-                                <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">
-                                  By {accountInfo.lastCollectedByName} ({accountInfo.lastCollectedByRole === 'super_admin' ? 'Admin' : 'Agent'})
+                          <div 
+                            onClick={handleViewLastPayment}
+                            role="button"
+                            tabIndex={0}
+                            title="Click to view last transaction details"
+                            className="group relative cursor-pointer bg-white/80 hover:bg-amber-50/70 p-3 rounded-xl border border-dashed border-slate-200 hover:border-amber-400 transition-all duration-200 shadow-2xs hover:shadow-sm"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-amber-700 transition-colors">
+                                Last Payment Activity
+                              </p>
+                              <span className="flex items-center gap-1 text-[8px] font-black uppercase tracking-wider text-amber-700 opacity-80 group-hover:opacity-100 transition-all bg-amber-100/70 group-hover:bg-amber-200/80 px-1.5 py-0.5 rounded">
+                                View <Eye size={9} className="inline group-hover:scale-110 transition-transform" />
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-lg bg-amber-50 group-hover:bg-amber-500 group-hover:text-white transition-all flex items-center justify-center text-amber-500 shadow-2xs">
+                                <Calendar size={14} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-black text-slate-800 group-hover:text-amber-950 transition-colors leading-none truncate">
+                                  {accountInfo.lastPostingDate ? formatDate(accountInfo.lastPostingDate) : "Initial Entry"}
                                 </p>
-                              )}
-                           </div>
-                        </div>
+                                {accountInfo.lastCollectedByName ? (
+                                  <p className="text-[8px] font-bold text-slate-400 group-hover:text-slate-600 uppercase mt-1 truncate">
+                                    By {accountInfo.lastCollectedByName} ({accountInfo.lastCollectedByRole === 'super_admin' ? 'Admin' : 'Agent'})
+                                  </p>
+                                ) : (
+                                  <p className="text-[8px] font-medium text-slate-400 italic mt-1">
+                                    Click to see transaction
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </div>
                           
                           <div className="space-y-2 pt-2">
@@ -1157,6 +1432,207 @@ const DailyPosting = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Last Payment Details Dialog / Popup */}
+      <Dialog open={showLastPaymentDialog} onOpenChange={setShowLastPaymentDialog}>
+        <DialogContent className="w-[94vw] sm:max-w-[480px] max-h-[82vh] sm:max-h-[85vh] p-0 overflow-hidden border border-slate-100 dark:border-slate-800 shadow-2xl glass-card rounded-3xl flex flex-col z-[150]">
+          {/* Header (Fixed at top) */}
+          <div className="bg-slate-900 p-5 sm:p-6 text-white relative overflow-hidden shrink-0">
+            <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-amber-500/10 to-transparent pointer-events-none" />
+            <div className="flex items-center justify-between relative z-10 pr-10">
+              <div>
+                <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+                  Account #{cleanAccountNo(accountInfo?.accountNo)}
+                </span>
+                <DialogTitle className="text-xl font-black italic uppercase tracking-tight text-white mt-2 flex items-center gap-2">
+                  <CreditCard size={20} className="text-amber-400" />
+                  Last Payment Details
+                </DialogTitle>
+                <DialogDescription className="text-slate-400 text-xs mt-0.5 font-medium">
+                  {accountInfo?.name} {accountInfo?.nameTelugu ? `(${accountInfo.nameTelugu})` : ''} • {accountInfo?.village || 'Village N/A'}
+                </DialogDescription>
+              </div>
+              <div className="h-11 w-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                <Calendar size={22} />
+              </div>
+            </div>
+          </div>
+
+          {/* Scrollable Body Content */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 overscroll-contain bg-white dark:bg-slate-950">
+            {lastPaymentLoading ? (
+              <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                <Loader2 className="h-8 w-8 text-amber-500 animate-spin" />
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Fetching payment record...</p>
+              </div>
+            ) : !lastPaymentData ? (
+              <div className="py-10 text-center space-y-3">
+                <div className="h-14 w-14 mx-auto rounded-2xl bg-slate-100 dark:bg-slate-900 flex items-center justify-center text-slate-400">
+                  <Calendar size={28} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase">No Collection Recorded Yet</h4>
+                  <p className="text-xs text-slate-500 mt-1">This account is on initial opening stage.</p>
+                  {accountInfo?.startDate && (
+                    <p className="text-[11px] font-bold text-slate-400 mt-2">
+                      Account Start Date: {formatDate(accountInfo.startDate)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Main Hero Card for Last Transaction */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-500/20 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                      Latest Paid Amount
+                    </span>
+                    <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                      {lastPaymentData.verified ? "✓ Verified" : "Pending Approval"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between">
+                    <div>
+                      <h3 className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+                        {formatCurrency((lastPaymentData.amount || 0) + (lastPaymentData.penaltyAmount || 0) + (lastPaymentData.extraAmount || 0))}
+                      </h3>
+                      {((lastPaymentData.penaltyAmount || 0) > 0 || (lastPaymentData.extraAmount || 0) > 0) && (
+                        <p className="text-[10px] font-bold text-slate-500 mt-0.5">
+                          (Base: {formatCurrency(lastPaymentData.amount || 0)}
+                          {(lastPaymentData.penaltyAmount || 0) > 0 && ` + Penalty: ${formatCurrency(lastPaymentData.penaltyAmount)}`}
+                          {(lastPaymentData.extraAmount || 0) > 0 && ` + Extra: ${formatCurrency(lastPaymentData.extraAmount)}`})
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-black text-slate-900 dark:text-white">
+                        {formatDate(lastPaymentData.date)}
+                      </p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Transaction Date</p>
+                    </div>
+                  </div>
+
+                  {/* Payment Mode & Breakdown */}
+                  <div className="pt-2 border-t border-emerald-500/15 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">Mode:</span>
+                      {lastPaymentData.payMode === 'split' ? (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          🔀 Split Payment
+                        </span>
+                      ) : ['upi', 'bank', 'online'].includes((lastPaymentData.payMode || '').toLowerCase()) ? (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          📱 {lastPaymentData.payMode?.toUpperCase()}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          💵 Cash
+                        </span>
+                      )}
+                    </div>
+
+                    {lastPaymentData.collectedByName && (
+                      <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-400 uppercase">Collector: </span>
+                        {lastPaymentData.collectedByName}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Split breakdown if mode was split */}
+                  {lastPaymentData.payMode === 'split' && (
+                    <div className="p-2.5 rounded-xl bg-purple-50/70 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1 font-black text-emerald-700 dark:text-emerald-400">
+                        <span>💵 Cash:</span>
+                        <span>{formatCurrency(lastPaymentData.splitCashAmount || 0)}</span>
+                      </div>
+                      <div className="flex items-center gap-1 font-black text-blue-700 dark:text-blue-400">
+                        <span>📱 Online ({lastPaymentData.splitOnlineType === 'bank' ? 'Bank' : 'UPI'}):</span>
+                        <span>{formatCurrency(lastPaymentData.splitOnlineAmount || 0)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Note / Reference if any */}
+                  {lastPaymentData.note && (
+                    <div className="p-2 rounded-lg bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 text-[10px] text-slate-600 dark:text-slate-300">
+                      <span className="font-bold text-slate-400 uppercase">Note: </span>
+                      {lastPaymentData.note}
+                    </div>
+                  )}
+                </div>
+
+                {/* Recent Payment History (up to 5 items) */}
+                {accountRecentPostings.length > 1 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        Recent Payments ({accountRecentPostings.length})
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowLastPaymentDialog(false);
+                          navigate(`/ledger?acc=${accountInfo?.accountNo}`);
+                        }}
+                        className="text-[10px] font-black text-accent hover:underline flex items-center gap-0.5 cursor-pointer"
+                      >
+                        Full Statement <ArrowRight size={11} />
+                      </button>
+                    </div>
+
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+                      {accountRecentPostings.map((p, idx) => (
+                        <div key={p.id || idx} className="p-2.5 flex items-center justify-between text-xs bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-slate-400 w-4">{idx + 1}.</span>
+                            <div>
+                              <p className="font-bold text-slate-800 dark:text-slate-200">{formatDate(p.date)}</p>
+                              <p className="text-[9px] font-medium text-slate-400 uppercase">
+                                {p.payMode} {p.collectedByName ? `• ${p.collectedByName}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-black text-emerald-600 dark:text-emerald-400">
+                              {formatCurrency((p.amount || 0) + (p.penaltyAmount || 0) + (p.extraAmount || 0))}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Fixed Footer Buttons (Always visible and accessible above mobile navigation) */}
+          <div className="shrink-0 p-4 sm:p-5 pt-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-between gap-2 z-10">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs font-bold gap-1.5 border-slate-200 hover:bg-slate-50 cursor-pointer h-9 flex-1 sm:flex-none justify-center"
+              onClick={() => {
+                setShowLastPaymentDialog(false);
+                navigate(`/ledger?acc=${accountInfo?.accountNo}`);
+              }}
+            >
+              <FileText size={14} />
+              Open Ledger Statement
+            </Button>
+            <Button
+              size="sm"
+              className="bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold px-5 h-9 cursor-pointer"
+              onClick={() => setShowLastPaymentDialog(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Hidden Completed Accounts Settings Modal */}
       <AnimatePresence>

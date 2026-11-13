@@ -36,7 +36,7 @@ const WeeklyBook = () => {
     fetch();
   }, [userData, startDate, endDate]);
 
-  const totalAmount = postings.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalAmount = postings.filter(p => p.payMode?.toLowerCase() !== 'pay_later').reduce((sum, p) => sum + (p.amount || 0), 0);
 
   // Group by date
   const grouped = postings.reduce((acc, p) => {
@@ -57,7 +57,7 @@ const WeeklyBook = () => {
       {Object.entries(grouped).sort().map(([date, items]) => (
         <Card key={date} className="mb-4">
           <CardContent className="p-0 overflow-x-auto">
-            <div className="bg-muted px-4 py-2 font-semibold text-sm">{date} — {items.length} entries — ₹{items.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString("en-IN")}</div>
+            <div className="bg-muted px-4 py-2 font-semibold text-sm">{date} — {items.length} entries — ₹{items.filter(p => p.payMode?.toLowerCase() !== 'pay_later').reduce((s, p) => s + (p.amount || 0), 0).toLocaleString("en-IN")}</div>
             <table className="finance-table w-full">
               <thead><tr><th className="p-3">Acc No</th><th className="p-3">Name</th><th className="p-3">Amount</th><th className="p-3">Status</th><th className="p-3">Mode</th></tr></thead>
               <tbody>

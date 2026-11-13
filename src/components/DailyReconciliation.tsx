@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, getDocs } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, getDocs, deleteDoc } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,10 +36,15 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
     penalties: 0, 
     extraCol: 0, 
     agentExpenses: 0, 
-    adminExpenses: 0 
+    adminExpenses: 0,
+    splitCash: 0,
+    splitOnline: 0,
+    splitCount: 0,
+    totalCashIn: 0,
+    totalOnlineIn: 0
   });
   const [dailyExpenseLogs, setDailyExpenseLogs] = useState<any[]>([]);
-  const [showExpenseDetails, setShowExpenseDetails] = useState(false);
+  const [activeRegistry, setActiveRegistry] = useState<'expense' | 'inflow' | null>(null);
   const [isSettingOpening, setIsSettingOpening] = useState(false);
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [openingInput, setOpeningInput] = useState("");
@@ -72,11 +77,37 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
       unsubscribePostings = onSnapshot(postRef, (snapshot) => {
         let agCol = 0; let adCol = 0; let agDis = 0; let adDis = 0;
         let dtDocCharge = 0; let dtPenalties = 0; let dtExtra = 0;
+        let spCash = 0; let spOnline = 0; let spCount = 0;
+        let totalCashIn = 0; let totalOnlineIn = 0;
 
         snapshot.forEach(d => {
           const data = d.data();
           if (data.payMode === 'pay_later') return;
           const amt = data.amount || 0;
+          const pAmt = data.penaltyAmount || 0;
+          const eAmt = data.extraAmount || 0;
+          const dCharge = data.documentCharge || 0;
+          const fullItemTotal = amt + pAmt + eAmt;
+
+          if (data.payMode === 'split') {
+            spCount += 1;
+            const cAmt = data.splitCashAmount != null ? Number(data.splitCashAmount) : (() => {
+              const m = data.note?.match(/Cash\s*₹?([0-9,]+)/i);
+              return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+            })();
+            const oAmt = data.splitOnlineAmount != null ? Number(data.splitOnlineAmount) : (() => {
+              const m = data.note?.match(/(?:UPI|Bank)\s*₹?([0-9,]+)/i);
+              return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+            })();
+            spCash += cAmt;
+            spOnline += oAmt;
+            totalCashIn += (cAmt + pAmt + eAmt);
+            totalOnlineIn += oAmt;
+          } else if (['upi', 'bank', 'online'].includes((data.payMode || '').toLowerCase())) {
+            totalOnlineIn += fullItemTotal;
+          } else {
+            totalCashIn += fullItemTotal;
+          }
           
           if (data.status === "disbursement") {
             if (adminIdsSet.has(data.collectedById)) adDis += amt;
@@ -90,9 +121,9 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
             else agCol += amt;
           }
           
-          dtDocCharge += (data.documentCharge || 0);
-          dtPenalties += (data.penaltyAmount || 0);
-          dtExtra += (data.extraAmount || 0);
+          dtDocCharge += dCharge;
+          dtPenalties += pAmt;
+          dtExtra += eAmt;
         });
 
         setClosureStats(p => ({ 
@@ -103,7 +134,12 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
           adminDisburse: adDis,
           docCharges: dtDocCharge,
           penalties: dtPenalties,
-          extraCol: dtExtra
+          extraCol: dtExtra,
+          splitCash: spCash,
+          splitOnline: spOnline,
+          splitCount: spCount,
+          totalCashIn,
+          totalOnlineIn
         }));
       });
 
@@ -113,18 +149,12 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
       if (selectedLineId) summRef = query(summRef, where("lineId", "==", selectedLineId));
 
       unsubscribeExpenses = onSnapshot(summRef, (snapshot) => {
-        let totalExp = 0;
-        let totalInflow = 0;
         let totalOpening = 0;
         snapshot.forEach(d => {
           const summ = d.data();
-          if (userData.role !== 'agent') {
-            totalExp += (summ.expenses || 0);
-            totalInflow += (summ.manualInflows || 0);
-          }
           totalOpening += (summ.openingBalance || 0);
         });
-        setClosureStats(p => ({ ...p, expenses: totalExp, manualInflows: totalInflow, openingBalance: totalOpening }));
+        setClosureStats(p => ({ ...p, openingBalance: totalOpening }));
       });
 
       // 3. Expense Log Listener
@@ -161,22 +191,41 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
           }
         });
 
-        setClosureStats(p => {
-          const updated = {
-            ...p,
-            agentExpenses: agentExp,
-            adminExpenses: adminExp
-          };
-          if (userData.role === 'agent') {
-            updated.expenses = personalTotalExp;
-            updated.manualInflows = personalTotalInflow;
-          } else {
-            // For admin/partner, manualInflows is already computed from day_summaries
-            // but we can also set adminExpenses / agentExpenses
-          }
-          return updated;
-        });
+        const totalRealExpenses = adminExp + agentExp;
+        const totalRealInflows = adminInflow + agentInflow;
+
+        setClosureStats(p => ({
+          ...p,
+          agentExpenses: agentExp,
+          adminExpenses: adminExp,
+          expenses: userData.role === 'agent' ? personalTotalExp : totalRealExpenses,
+          manualInflows: userData.role === 'agent' ? personalTotalInflow : totalRealInflows
+        }));
         setDailyExpenseLogs(logs);
+
+        // Auto-heal and sync day_summaries in Firestore so stale ghost amounts are cleared
+        if (userData.role !== 'agent') {
+          const summaryId = `${effectiveDate}_${selectedLineId || 'global'}`;
+          const summaryRef = doc(db, "day_summaries", summaryId);
+          getDoc(summaryRef).then(sSnap => {
+            if (sSnap.exists()) {
+              if (sSnap.data().expenses !== totalRealExpenses || sSnap.data().manualInflows !== totalRealInflows) {
+                updateDoc(summaryRef, {
+                  expenses: totalRealExpenses,
+                  manualInflows: totalRealInflows
+                }).catch(e => console.warn("Sync day_summaries update error:", e));
+              }
+            } else if (totalRealExpenses > 0 || totalRealInflows > 0) {
+              setDoc(summaryRef, {
+                date: effectiveDate,
+                lineId: selectedLineId || 'global',
+                expenses: totalRealExpenses,
+                manualInflows: totalRealInflows,
+                openingBalance: 0
+              }).catch(e => console.warn("Sync day_summaries set error:", e));
+            }
+          }).catch(e => console.warn("Sync day_summaries get error:", e));
+        }
       });
       
       // Let's complete the callback
@@ -313,6 +362,9 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
       const txType = log.type || 'outflow';
       const amount = log.amount || 0;
       
+      // Optimistic UI update so the entry disappears immediately
+      setDailyExpenseLogs(prev => prev.filter(l => l.id !== log.id));
+
       await deleteDoc(doc(db, "expenses_log", log.id));
 
       const summaryId = `${log.date || effectiveDate}_${lineId}`;
@@ -342,6 +394,9 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
 
   const netFlow = (closureStats.agentCol + closureStats.adminCol + closureStats.docCharges + closureStats.penalties + closureStats.extraCol + (closureStats.manualInflows || 0) - closureStats.agentDisburse - closureStats.adminDisburse - closureStats.expenses);
   const closingCash = closureStats.openingBalance + netFlow;
+
+  const netOnline = closureStats.totalOnlineIn || 0;
+  const netCash = netFlow - netOnline;
 
   return (
     <div className="space-y-6">
@@ -449,8 +504,13 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Extra Collections</span>
                  <span className="text-sm font-black text-indigo-500">+{formatCurrency(closureStats.extraCol)}</span>
                </div>
-               <div className="flex justify-between items-center border-t border-slate-100 dark:border-slate-800/40 pt-2 mt-2">
-                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Other Inflows</span>
+               <div 
+                 onClick={() => setActiveRegistry('inflow')} 
+                 className="flex justify-between items-center cursor-pointer hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 p-1 -m-1 rounded-lg transition-colors border border-transparent hover:border-emerald-100 dark:hover:border-emerald-900/40 border-t border-slate-100 dark:border-slate-800/40 pt-2 mt-2 group/inflow"
+               >
+                 <span className="text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter flex items-center gap-1">
+                   Other Inflows <Search size={10} className="text-slate-400 group-hover/inflow:text-emerald-600 transition-colors" />
+                 </span>
                  <span className="text-sm font-black text-emerald-700 dark:text-emerald-400">+{formatCurrency(closureStats.manualInflows)}</span>
                </div>
            </div>
@@ -478,11 +538,14 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Admin Expenses</span>
                   <span className="text-sm font-black text-rose-300">-{formatCurrency(closureStats.adminExpenses)}</span>
                 </div>
-                <div onClick={() => setShowExpenseDetails(true)} className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -m-1 rounded-lg transition-colors border border-transparent hover:border-slate-100">
-                  <span className="text-[10px] font-black text-slate-900 uppercase tracking-tighter flex items-center gap-1">
-                    Daily Expenses <Search size={10} className="text-slate-400" />
+                <div 
+                  onClick={() => setActiveRegistry('expense')} 
+                  className="flex justify-between items-center cursor-pointer hover:bg-rose-50/70 dark:hover:bg-rose-950/30 p-1 -m-1 rounded-lg transition-colors border border-transparent hover:border-rose-100 dark:hover:border-rose-900/40 group/expense"
+                >
+                  <span className="text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter flex items-center gap-1">
+                    Daily Expenses <Search size={10} className="text-slate-400 group-hover/expense:text-rose-500 transition-colors" />
                   </span>
-                  <span className="text-sm font-black text-rose-400">-{formatCurrency(closureStats.expenses)}</span>
+                  <span className="text-sm font-black text-rose-500 dark:text-rose-400">-{formatCurrency(closureStats.expenses)}</span>
                 </div>
                <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
                  <span className="text-[10px] font-black text-slate-900 uppercase">Net Flow</span>
@@ -493,55 +556,135 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
             </div>
          </Card>
 
-        <Card className="md:col-span-2 glass-card border-none shadow-2xl bg-slate-900 text-white p-8 relative overflow-hidden flex flex-col justify-center">
-           <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
+        <Card className="md:col-span-2 glass-card border border-slate-100 dark:border-slate-800 shadow-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white p-7 relative overflow-hidden flex flex-col justify-between">
+           <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-emerald-500/10 via-emerald-500/5 to-transparent pointer-events-none" />
+           
+           {/* Top Section: Title, Net Closing Cash, Badges, and Scale Icon */}
            <div className="flex items-center justify-between relative z-10">
               <div className="flex-1">
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Net Closing Cash</p>
-                 <h2 className={`text-5xl font-black tracking-tighter ${ closingCash >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                 <div className="flex items-center gap-2 mb-2">
+                   <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.3em]">Net Closing Cash</p>
+                   <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 font-black text-[8px] uppercase tracking-widest px-2.5 py-0.5 shadow-2xs">
+                      Live Balance Audit
+                   </Badge>
+                 </div>
+                 <h2 className={`text-5xl font-black tracking-tighter ${ closingCash >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                     {formatCurrency(closingCash)}
                  </h2>
-                <div className="flex items-center gap-3 mt-4">
-                   <Badge className="bg-white/10 text-white border-none font-black text-[9px] uppercase tracking-widest px-3">
+                <div className="flex items-center gap-3 mt-3">
+                   <Badge className="bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-white border border-slate-200 dark:border-white/10 font-black text-[9px] uppercase tracking-widest px-3 py-1 shadow-2xs">
                       Verified Audit
                    </Badge>
-                   <span className="text-[10px] font-bold text-slate-500 italic uppercase">Refreshed: {new Date().toLocaleTimeString()}</span>
+                   <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Refreshed: {new Date().toLocaleTimeString()}</span>
                 </div>
               </div>
-              <div className="h-20 w-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
-                 <Scale className={`h-10 w-10 ${ closingCash >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+              <div className="h-20 w-20 rounded-3xl bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-sm">
+                 <Scale className={`h-10 w-10 ${ closingCash >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`} />
+              </div>
+           </div>
+
+           {/* Real Net Flow Mode Breakdown: High-Contrast Green & Violet & Blue */}
+           <div className="mt-5 pt-4 border-t border-slate-200 dark:border-white/10 relative z-10 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Net Flow Mode (Real Data)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* High Contrast Green Box: Net Cash In Hand */}
+                <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border-2 border-emerald-300 dark:border-emerald-600 shadow-sm hover:shadow-md transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-xl shadow-xs shrink-0">
+                      💵
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-emerald-900 dark:text-emerald-300">Net Cash In Hand</p>
+                      <p className="text-[8px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-tight">Physical Collection</p>
+                    </div>
+                  </div>
+                  <span className="text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight">
+                    {formatCurrency(netCash)}
+                  </span>
+                </div>
+
+                {/* High Contrast Blue Box: Net Online / UPI */}
+                <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-blue-50/90 dark:bg-blue-950/40 border-2 border-blue-300 dark:border-blue-600 shadow-sm hover:shadow-md transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-blue-500 text-white flex items-center justify-center text-xl shadow-xs shrink-0">
+                      📱
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-300">Net Online / UPI</p>
+                      <p className="text-[8px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-tight">Direct Bank Credit</p>
+                    </div>
+                  </div>
+                  <span className="text-2xl font-black text-blue-700 dark:text-blue-300 tracking-tight">
+                    {formatCurrency(netOnline)}
+                  </span>
+                </div>
               </div>
            </div>
         </Card>
       </div>
 
-      <Dialog open={showExpenseDetails} onOpenChange={setShowExpenseDetails}>
-        <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden border-none shadow-2xl glass-card">
-          <div className="bg-slate-900 p-6 text-white">
+            <Dialog open={activeRegistry !== null} onOpenChange={(open) => !open && setActiveRegistry(null)}>
+        <DialogContent className="w-[94vw] sm:max-w-[500px] max-h-[82vh] sm:max-h-[85vh] flex flex-col p-0 overflow-hidden border border-slate-100 dark:border-slate-800 shadow-2xl glass-card rounded-3xl z-[150]">
+          <div className="bg-slate-900 p-5 sm:p-6 text-white shrink-0 pr-12 relative">
              <DialogTitle className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
-                <FileText size={20} className="text-accent" />
-                Transaction Registry
+                <FileText size={20} className={activeRegistry === 'inflow' ? "text-emerald-400" : "text-rose-400"} />
+                {activeRegistry === 'inflow' ? "Inflow Registry" : "Expense Registry"}
              </DialogTitle>
              <DialogDescription className="text-slate-400 text-xs mt-1">
-                Detailed expenditure and inflow logs for {formatDate(effectiveDate)}
+                {activeRegistry === 'inflow'
+                  ? `Detailed manual inflow logs for ${formatDate(effectiveDate)}`
+                  : `Detailed expenditure logs for ${formatDate(effectiveDate)}`}
              </DialogDescription>
+
+             {/* Mode Switch Tabs */}
+             <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => { setEditingExpense(null); setActiveRegistry('expense'); }}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    activeRegistry === 'expense'
+                      ? 'bg-rose-500 text-white shadow-md'
+                      : 'bg-slate-800/90 text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  Daily Expenses ({dailyExpenseLogs.filter(l => l.type !== 'inflow').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditingExpense(null); setActiveRegistry('inflow'); }}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    activeRegistry === 'inflow'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'bg-slate-800/90 text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  Manual Inflows ({dailyExpenseLogs.filter(l => l.type === 'inflow').length})
+                </button>
+             </div>
           </div>
-          <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+          <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-4 overscroll-contain bg-white dark:bg-slate-950">
              {(() => {
-                const sortedLogs = [...dailyExpenseLogs].sort((a, b) => {
+                const targetLogs = dailyExpenseLogs.filter(l => 
+                  activeRegistry === 'inflow' ? l.type === 'inflow' : l.type !== 'inflow'
+                );
+
+                const sortedLogs = [...targetLogs].sort((a, b) => {
                   const timeA = a.createdAt || a.timestamp || "";
                   const timeB = b.createdAt || b.timestamp || "";
                   return timeA.localeCompare(timeB);
                 });
+
                 let running = 0;
                 const displayLogs = sortedLogs.map(log => {
                   const amt = log.amount || 0;
-                  if (log.type === "inflow") {
-                    running += amt;
-                  } else {
-                    running -= amt;
-                  }
-                  return { ...log, runningBalance: running };
+                  running += amt;
+                  return { ...log, runningTotal: running };
                 }).reverse();
 
                 if (displayLogs.length === 0) {
@@ -550,7 +693,11 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
                        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-300">
                           <Info size={24} />
                        </div>
-                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No transactions recorded for this session</p>
+                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                         {activeRegistry === 'inflow' 
+                           ? "No manual inflows recorded for this session" 
+                           : "No daily expenses recorded for this session"}
+                       </p>
                     </div>
                   );
                 }
@@ -616,7 +763,7 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
                                {log.type === "inflow" ? "+" : "-"}{formatCurrency(log.amount)}
                              </p>
                              <p className="text-[9px] font-black text-slate-450 dark:text-slate-500 mt-0.5 text-right">
-                               Bal: {log.runningBalance >= 0 ? "+" : ""}{formatCurrency(log.runningBalance)}
+                               Total: {log.type === "inflow" ? "+" : "-"}{formatCurrency(log.runningTotal)}
                              </p>
                           </div>
                           <div className="flex items-center gap-1 justify-end flex-wrap">
@@ -630,9 +777,15 @@ const DailyReconciliation = ({ targetDate, lineId: propLineId }: DailyReconcilia
                        </div>
                      </>
                    )}
-                </div>
-                ));
-             })()}
+                 </div>
+                 ));
+              })()}
+          </div>
+          {/* Registry Close Footer */}
+          <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 flex justify-end shrink-0">
+             <Button onClick={() => setActiveRegistry(null)} className="bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold px-5 h-9 cursor-pointer">
+                Close
+             </Button>
           </div>
         </DialogContent>
       </Dialog>

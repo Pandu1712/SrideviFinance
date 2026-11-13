@@ -146,8 +146,14 @@ const ManageAdmins = () => {
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Active Contact</Label>
                 <div className="relative group">
                   <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
-                  <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="+91 XXXXX XXXXX" />
+                  <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} className="pl-9 h-11 finance-input" placeholder="10-digit mobile" />
                 </div>
+                {form.phone && form.phone.length > 0 && form.phone.length < 10 && (
+                  <p className="text-[10px] font-bold text-amber-600 mt-1">⚠️ Enter 10-digit mobile ({form.phone.length}/10)</p>
+                )}
+                {form.phone && form.phone.length === 10 && (
+                  <p className="text-[10px] font-bold text-emerald-600 mt-1">✓ Valid 10-digit mobile</p>
+                )}
               </div>
               
               <div className="bg-amber-50 rounded-xl p-4 border border-amber-100 mt-4">

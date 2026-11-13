@@ -49,10 +49,10 @@ const accountSchema = z.object({
   village: z.string().optional(),
   occupation: z.string().optional(),
   documentsTaken: z.string().optional(),
-  altPhone: z.string().optional(),
+  altPhone: z.string().regex(/^[0-9]{10}$/, "Alternative phone must be 10 digits").optional().or(z.literal("")),
   documentCharge: z.string().optional(),
   guarantorName: z.string().optional(),
-  guarantorPhone: z.string().optional(),
+  guarantorPhone: z.string().regex(/^[0-9]{10}$/, "Guarantor phone must be 10 digits").optional().or(z.literal("")),
   loanAmount: z.string().min(1, "Principal amount is required"),
   interestAmount: z.string().min(1, "Interest amount is required"),
   customerLocation: z.string().optional(),
@@ -62,10 +62,13 @@ const accountSchema = z.object({
   totalAmount: z.string().min(1, "Total amount is required"),
   startDate: z.string().min(1, "Required"),
   endDate: z.string().min(1, "Required"),
-  paymentType: z.enum(["cash", "upi", "account"]),
+  paymentType: z.enum(["cash", "upi", "account", "split"]),
   upiId: z.string().optional(),
   bankAccountNumber: z.string().optional(),
   bankIfsc: z.string().optional(),
+  splitCashAmount: z.string().optional(),
+  splitOnlineAmount: z.string().optional(),
+  splitOnlineType: z.enum(["upi", "account"]).optional().default("upi"),
   commission: z.string().default("0"),
   initialPaid: z.string().default("0"),
   creationDate: z.string().min(1, "Creation date is required"),
@@ -114,6 +117,9 @@ const NewAccount = () => {
       accountCreationDate: "Account Creation Date *",
       endDate: "End Date",
       paymentType: "Payment Type *",
+      splitPayment: "Split / Partial (Cash + Online)",
+      splitCash: "Cash Amount (₹) *",
+      splitOnline: "Online / Bank Amount (₹) *",
       upiIdDetails: "UPI ID Details",
       assignLine: "Assign Operational Line *",
       guarantorInformation: "Guarantor Information",
@@ -163,6 +169,9 @@ const NewAccount = () => {
       accountCreationDate: "ఖాతా సృష్టించిన తేదీ *",
       endDate: "ముగింపు తేదీ (End Date)",
       paymentType: "చెల్లింపు పద్ధతి * (Type)",
+      splitPayment: "విభజన చెల్లింపు (నగదు + ఆన్‌లైన్)",
+      splitCash: "నగదు మొత్తం (₹) *",
+      splitOnline: "ఆన్‌లైన్ / బ్యాంక్ మొత్తం (₹) *",
       upiIdDetails: "UPI ID వివరాలు",
       assignLine: "లైన్ కేటాయించండి *",
       guarantorInformation: "జామీనుదారు వివరాలు (Guarantor)",
@@ -242,6 +251,9 @@ const NewAccount = () => {
     if (data.totalAmount) setValue("totalAmount", String(data.totalAmount));
     if (data.paymentFrequency) setValue("paymentFrequency", data.paymentFrequency);
     if (data.paymentType) setValue("paymentType", data.paymentType);
+    if (data.splitCashAmount) setValue("splitCashAmount", String(data.splitCashAmount));
+    if (data.splitOnlineAmount) setValue("splitOnlineAmount", String(data.splitOnlineAmount));
+    if (data.splitOnlineType) setValue("splitOnlineType", data.splitOnlineType);
     if (data.installmentAmount) setValue("installmentAmount", String(data.installmentAmount));
     if (data.documentCharge) setValue("documentCharge", String(data.documentCharge));
     if (data.commission) setValue("commission", String(data.commission));
@@ -292,6 +304,9 @@ const NewAccount = () => {
       lineId: selectedLineId || "",
       paymentFrequency: "daily",
       paymentType: "cash",
+      splitCashAmount: "",
+      splitOnlineAmount: "",
+      splitOnlineType: "upi",
       loanAmount: "",
       interestAmount: "",
       totalAmount: "",
@@ -425,6 +440,9 @@ const NewAccount = () => {
       paymentFrequency: "daily",
       interestAmount: "0",
       paymentType: "cash",
+      splitCashAmount: "",
+      splitOnlineAmount: "",
+      splitOnlineType: "upi",
       customerLocation: "",
       documentsTaken: "",
       documentCharge: "0",
@@ -465,6 +483,9 @@ const NewAccount = () => {
   const totalAmount = watch("totalAmount");
   const creationDate = watch("creationDate");
   const paymentType = watch("paymentType");
+  const splitCashAmount = watch("splitCashAmount");
+  const splitOnlineAmount = watch("splitOnlineAmount");
+  const splitOnlineType = watch("splitOnlineType") || "upi";
 
   // Sync startDate with creationDate automatically
   useEffect(() => {
@@ -602,6 +623,10 @@ const NewAccount = () => {
             installmentAmount: String(data.installmentAmount || ""),
             installmentsCount: data.installmentsCount ? String(data.installmentsCount) : (data.totalAmount && data.installmentAmount ? String(Math.round(data.totalAmount / data.installmentAmount)) : ""),
             totalAmount: String(data.totalAmount || ""),
+            paymentType: data.paymentType || "cash",
+            splitCashAmount: data.splitCashAmount ? String(data.splitCashAmount) : "",
+            splitOnlineAmount: data.splitOnlineAmount ? String(data.splitOnlineAmount) : "",
+            splitOnlineType: data.splitOnlineType || "upi",
             commission: String(data.commission || "0"),
             documentCharge: String(data.documentCharge || "0"),
             initialPaid: String(data.initialPaid || "0"),
@@ -697,11 +722,22 @@ const NewAccount = () => {
       ["Total Amount", `Rs. ${formatCurrencyPDF(data.loanAmount)}`],
       ["Interest Amount", `Rs. ${formatCurrencyPDF(data.interestAmount)}`],
       ["Total Payable", `Rs. ${formatCurrencyPDF(data.totalAmount)}`],
-      ["Payment Type", data.paymentType?.toUpperCase()],
+      ["Payment Type", data.paymentType === "split" ? "SPLIT / PARTIAL PAYMENT" : data.paymentType?.toUpperCase()],
       ["Direction/Location", data.customerLocation || "N/A"],
     ];
 
-    if (data.paymentType === "upi" && data.upiId) {
+    if (data.paymentType === "split") {
+      const splitCash = parseFloat(data.splitCashAmount || "0") || 0;
+      const splitOnline = parseFloat(data.splitOnlineAmount || "0") || 0;
+      const onlineMethod = data.splitOnlineType === "account" ? "Bank" : "UPI/Phone";
+      financeInfo.push(["Split Breakdown", `Cash: Rs. ${formatCurrencyPDF(splitCash)} + ${onlineMethod}: Rs. ${formatCurrencyPDF(splitOnline)}`]);
+      if (data.splitOnlineType === "account") {
+        financeInfo.push(["A/C Number", data.bankAccountNumber || "N/A"]);
+        financeInfo.push(["IFSC Code", data.bankIfsc || "N/A"]);
+      } else if (data.upiId) {
+        financeInfo.push(["UPI ID / Phone", data.upiId]);
+      }
+    } else if (data.paymentType === "upi" && data.upiId) {
       financeInfo.push(["UPI ID", data.upiId]);
     } else if (data.paymentType === "account") {
       financeInfo.push(["A/C Number", data.bankAccountNumber || "N/A"]);
@@ -773,6 +809,10 @@ const NewAccount = () => {
       }
 
       const total = parseFloat(data.totalAmount);
+      const splitCashVal = data.paymentType === "split" ? (parseFloat(data.splitCashAmount || "0") || 0) : 0;
+      const splitOnlineVal = data.paymentType === "split" ? (parseFloat(data.splitOnlineAmount || "0") || 0) : 0;
+      const splitOnlineTypeVal = data.paymentType === "split" ? (data.splitOnlineType || "upi") : "upi";
+
       const payload = {
         ...data,
         installmentAmount: parseFloat(data.installmentAmount),
@@ -784,6 +824,9 @@ const NewAccount = () => {
         documentCharge: parseFloat(data.documentCharge || "0"),
         customerLocation: data.customerLocation || "",
         documents: documents,
+        splitCashAmount: splitCashVal,
+        splitOnlineAmount: splitOnlineVal,
+        splitOnlineType: splitOnlineTypeVal,
       };
 
       if (isEdit && id) {
@@ -860,12 +903,21 @@ const NewAccount = () => {
         // Find disbursement posting and update/create
         const disbursementPost = snapPostings.docs.find(d => d.data().status === "disbursement");
         const loanAmt = parseFloat(data.loanAmount);
+        const onlineMethodName = splitOnlineTypeVal === "account" ? "Bank" : "UPI/Phone";
+        const splitDisburseNote = data.paymentType === "split"
+          ? `Split: Cash ₹${splitCashVal.toLocaleString("en-IN")} + ${onlineMethodName} ₹${splitOnlineVal.toLocaleString("en-IN")}`
+          : "";
+
         if (loanAmt > 0) {
           if (disbursementPost) {
             batch.update(doc(db, "postings", disbursementPost.id), {
               amount: loanAmt,
               date: data.startDate,
               payMode: data.paymentType,
+              splitCashAmount: splitCashVal,
+              splitOnlineAmount: splitOnlineVal,
+              splitOnlineType: splitOnlineTypeVal,
+              note: splitDisburseNote,
               accountNo: data.accountNo,
               lineId: data.lineId,
               memberName: data.name,
@@ -880,6 +932,10 @@ const NewAccount = () => {
               amount: loanAmt,
               status: "disbursement",
               payMode: data.paymentType,
+              splitCashAmount: splitCashVal,
+              splitOnlineAmount: splitOnlineVal,
+              splitOnlineType: splitOnlineTypeVal,
+              note: splitDisburseNote,
               lineId: data.lineId,
               memberName: data.name,
               nameTelugu: data.nameTelugu || "",
@@ -988,6 +1044,11 @@ const NewAccount = () => {
         const accountDocRef = await addDoc(collection(db, "accounts"), newPayload);
 
         // 1. Record Disbursement Posting
+        const onlineMethodName = splitOnlineTypeVal === "account" ? "Bank" : "UPI/Phone";
+        const splitDisburseNote = data.paymentType === "split"
+          ? `Split: Cash ₹${splitCashVal.toLocaleString("en-IN")} + ${onlineMethodName} ₹${splitOnlineVal.toLocaleString("en-IN")}`
+          : "";
+
         await addDoc(collection(db, "postings"), {
           accountId: accountDocRef.id,
           accountNo: data.accountNo,
@@ -995,6 +1056,10 @@ const NewAccount = () => {
           amount: parseFloat(data.loanAmount),
           status: "disbursement",
           payMode: data.paymentType,
+          splitCashAmount: splitCashVal,
+          splitOnlineAmount: splitOnlineVal,
+          splitOnlineType: splitOnlineTypeVal,
+          note: splitDisburseNote,
           lineId: data.lineId,
           memberName: data.name,
           nameTelugu: data.nameTelugu || "",
@@ -1112,6 +1177,9 @@ const NewAccount = () => {
           upiId: "",
           bankAccountNumber: "",
           bankIfsc: "",
+          splitCashAmount: "",
+          splitOnlineAmount: "",
+          splitOnlineType: "upi",
           creationDate: new Date().toISOString().split("T")[0],
         });
         
@@ -1355,12 +1423,33 @@ const NewAccount = () => {
                   )}
                 </div>
                 <Input {...register("phone")} className="finance-input" placeholder="10-digit mobile" />
+                {watch("phone") && watch("phone").length > 0 && watch("phone").length < 10 && (
+                  <p className="text-[11px] font-bold text-amber-600 mt-1 flex items-center gap-1">
+                    ⚠️ Enter complete 10-digit mobile ({watch("phone").length}/10 digits)
+                  </p>
+                )}
+                {watch("phone") && watch("phone").length === 10 && (
+                  <p className="text-[11px] font-bold text-emerald-600 mt-1 flex items-center gap-1">
+                    ✓ Valid 10-digit mobile number
+                  </p>
+                )}
                 {errors.phone && <p className="text-xs text-destructive mt-1">{errors.phone.message}</p>}
               </div>
 
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">{tLocal("alternativePhoneNumber")}</Label>
                 <Input {...register("altPhone")} className="finance-input" placeholder="Alt 10-digit mobile" />
+                {watch("altPhone") && watch("altPhone").length > 0 && watch("altPhone").length < 10 && (
+                  <p className="text-[11px] font-bold text-amber-600 mt-1 flex items-center gap-1">
+                    ⚠️ Enter complete 10-digit mobile ({watch("altPhone").length}/10 digits)
+                  </p>
+                )}
+                {watch("altPhone") && watch("altPhone").length === 10 && (
+                  <p className="text-[11px] font-bold text-emerald-600 mt-1 flex items-center gap-1">
+                    ✓ Valid 10-digit mobile number
+                  </p>
+                )}
+                {errors.altPhone && <p className="text-xs text-destructive mt-1">{errors.altPhone.message}</p>}
               </div>
 
               <div className="space-y-2 flex flex-col">
@@ -1619,8 +1708,8 @@ const NewAccount = () => {
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-accent">{tLocal("accountCreationDate")}</Label>
                   <div className="relative">
-                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-accent/60" />
-                    <Input type="date" {...register("creationDate")} className="pl-9 finance-input border-accent/20 bg-accent/5" readOnly={!checkPermission(userData, "canChangeDate")} />
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-accent/60 pointer-events-none" />
+                    <Input type="date" {...register("creationDate")} className="pl-9 finance-input border-accent/20 bg-accent/5 cursor-pointer" readOnly={!checkPermission(userData, "canChangeDate")} />
                   </div>
                   <p className="text-[10px] text-muted-foreground px-1 italic">Date of registration</p>
                 </div>
@@ -1629,8 +1718,8 @@ const NewAccount = () => {
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("endDate")}</Label>
                   <div className="relative">
-                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60" />
-                    <Input type="date" {...register("endDate")} className="pl-9 finance-input bg-muted/30" readOnly />
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60 pointer-events-none" />
+                    <Input type="date" {...register("endDate")} className="pl-9 finance-input bg-muted/30 cursor-pointer" readOnly />
                   </div>
                   <p className="text-[10px] text-muted-foreground px-1 italic">Auto-calculated expiry</p>
                 </div>
@@ -1646,6 +1735,7 @@ const NewAccount = () => {
                         <SelectItem value="cash">Cash Payment</SelectItem>
                         <SelectItem value="upi">UPI Transfer</SelectItem>
                         <SelectItem value="account">Bank Account</SelectItem>
+                        <SelectItem value="split">{tLocal("splitPayment")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1653,6 +1743,7 @@ const NewAccount = () => {
                   <AnimatePresence mode="wait">
                     {paymentType === "upi" && (
                       <motion.div 
+                        key="upi-panel"
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
@@ -1669,6 +1760,7 @@ const NewAccount = () => {
 
                     {paymentType === "account" && (
                       <motion.div 
+                        key="account-panel"
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
@@ -1690,6 +1782,169 @@ const NewAccount = () => {
                             placeholder="e.g. SBIN0001234" 
                           />
                         </div>
+                      </motion.div>
+                    )}
+
+                    {paymentType === "split" && (
+                      <motion.div 
+                        key="split-panel"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-4 rounded-xl border border-primary/20 bg-primary/5 p-4 overflow-hidden"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                            Partial / Split Breakdown
+                          </span>
+                          {parseFloat(loanAmount || "0") > 0 && (
+                            <Badge variant="outline" className="font-mono text-xs border-primary/30 text-primary bg-background/80">
+                              Loan: ₹{parseFloat(loanAmount).toLocaleString("en-IN")}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Split Amounts Inputs */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-[#0F172A] dark:text-slate-200">
+                              {tLocal("splitCash")}
+                            </Label>
+                            <Input 
+                              type="number"
+                              step="any"
+                              placeholder="e.g. 20000"
+                              {...register("splitCashAmount")}
+                              className="finance-input bg-white dark:bg-slate-900 border-primary/20 font-bold"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-[#0F172A] dark:text-slate-200">
+                              {tLocal("splitOnline")}
+                            </Label>
+                            <Input 
+                              type="number"
+                              step="any"
+                              placeholder="e.g. 30000"
+                              {...register("splitOnlineAmount")}
+                              className="finance-input bg-white dark:bg-slate-900 border-primary/20 font-bold"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Balance status / helper */}
+                        {parseFloat(loanAmount || "0") > 0 && (
+                          (() => {
+                            const totalLoan = parseFloat(loanAmount || "0");
+                            const cVal = parseFloat(splitCashAmount || "0") || 0;
+                            const oVal = parseFloat(splitOnlineAmount || "0") || 0;
+                            const currentSum = cVal + oVal;
+                            const diff = totalLoan - currentSum;
+                            const isMatch = Math.abs(diff) < 0.01 && currentSum > 0;
+
+                            return (
+                              <div className="space-y-2">
+                                {isMatch ? (
+                                  <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 p-2.5 rounded-lg">
+                                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                    <span>Amounts match Principal: ₹{cVal.toLocaleString("en-IN")} (Cash) + ₹{oVal.toLocaleString("en-IN")} (Online) = ₹{totalLoan.toLocaleString("en-IN")}</span>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-2.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <span>
+                                      Current Split Total: <strong>₹{currentSum.toLocaleString("en-IN")}</strong> / ₹{totalLoan.toLocaleString("en-IN")} 
+                                      {diff > 0 ? ` (Remaining: ₹${diff.toLocaleString("en-IN")})` : ` (Exceeds by: ₹${Math.abs(diff).toLocaleString("en-IN")})`}
+                                    </span>
+                                    {diff !== 0 && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-[11px] font-bold border-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-200 shrink-0"
+                                        onClick={() => {
+                                          if (cVal > 0 && cVal <= totalLoan) {
+                                            setValue("splitOnlineAmount", String(Math.max(0, totalLoan - cVal)));
+                                          } else if (oVal > 0 && oVal <= totalLoan) {
+                                            setValue("splitCashAmount", String(Math.max(0, totalLoan - oVal)));
+                                          } else {
+                                            setValue("splitOnlineAmount", String(totalLoan));
+                                          }
+                                        }}
+                                      >
+                                        Auto-Balance
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()
+                        )}
+
+                        {/* Online Channel Selection: Phone/UPI vs Bank */}
+                        <div className="space-y-2 pt-2 border-t border-primary/10">
+                          <Label className="text-xs font-semibold text-primary">
+                            Online Channel (Phone / Bank)
+                          </Label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setValue("splitOnlineType", "upi")}
+                              className={cn(
+                                "h-9 px-3 text-xs font-bold rounded-lg border transition-all flex items-center justify-center gap-1.5",
+                                splitOnlineType === "upi"
+                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                  : "bg-white dark:bg-slate-900 text-muted-foreground border-border hover:bg-muted/50"
+                              )}
+                            >
+                              Phone / UPI
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setValue("splitOnlineType", "account")}
+                              className={cn(
+                                "h-9 px-3 text-xs font-bold rounded-lg border transition-all flex items-center justify-center gap-1.5",
+                                splitOnlineType === "account"
+                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                  : "bg-white dark:bg-slate-900 text-muted-foreground border-border hover:bg-muted/50"
+                              )}
+                            >
+                              Bank Account
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Detail Inputs based on selected online channel */}
+                        {splitOnlineType === "upi" ? (
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-primary">Phone / UPI ID (Optional)</Label>
+                            <Input 
+                              {...register("upiId")} 
+                              className="finance-input bg-white dark:bg-slate-900 border-primary/20 text-xs" 
+                              placeholder="e.g. 9876543210@upi or PhonePe/GPay" 
+                            />
+                          </div>
+                        ) : (
+                          <div className="space-y-3 pt-1">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-semibold text-primary">Bank Account Number (Optional)</Label>
+                              <Input 
+                                {...register("bankAccountNumber")} 
+                                className="finance-input bg-white dark:bg-slate-900 border-primary/20 text-xs" 
+                                placeholder="Bank A/C Number" 
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-semibold text-primary">IFSC Code (Optional)</Label>
+                              <Input 
+                                {...register("bankIfsc")} 
+                                className="finance-input bg-white dark:bg-slate-900 border-primary/20 uppercase text-xs" 
+                                placeholder="e.g. SBIN0001234" 
+                              />
+                            </div>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1730,6 +1985,17 @@ const NewAccount = () => {
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">{tLocal("guarantorPhone")}</Label>
                   <Input {...register("guarantorPhone")} className="finance-input" placeholder="10-digit mobile" />
+                  {watch("guarantorPhone") && watch("guarantorPhone").length > 0 && watch("guarantorPhone").length < 10 && (
+                    <p className="text-[11px] font-bold text-amber-600 mt-1 flex items-center gap-1">
+                      ⚠️ Enter complete 10-digit mobile ({watch("guarantorPhone").length}/10 digits)
+                    </p>
+                  )}
+                  {watch("guarantorPhone") && watch("guarantorPhone").length === 10 && (
+                    <p className="text-[11px] font-bold text-emerald-600 mt-1 flex items-center gap-1">
+                      ✓ Valid 10-digit mobile number
+                    </p>
+                  )}
+                  {errors.guarantorPhone && <p className="text-xs text-destructive mt-1">{errors.guarantorPhone.message}</p>}
                 </div>
               </div>
             </div>

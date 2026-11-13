@@ -379,12 +379,12 @@ const PostingSearch = () => {
           <div className="md:col-span-3 space-y-2">
             <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">{tLocal("auditTimeline")}</Label>
             <div className="relative group">
-              <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-accent transition-colors" />
+              <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 group-focus-within:text-accent transition-colors pointer-events-none" />
               <Input 
                 type="date" 
                 value={date} 
                 onChange={e => setDate(e.target.value)} 
-                className="pl-11 h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-accent/20 transition-all shadow-inner" 
+                className="pl-11 h-14 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-accent/20 transition-all shadow-inner cursor-pointer" 
               />
             </div>
           </div>
@@ -644,14 +644,23 @@ const PostingSearch = () => {
                         </Badge>
                       </td>
                       <td className="p-4 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-[10px] font-black uppercase tracking-tighter text-slate-400">{r.payMode}</span>
-                          {r.note && (
-                            <span className="text-[9px] font-medium text-slate-500 max-w-[120px] truncate" title={r.note}>
-                              {r.note}
+                        {r.payMode?.toLowerCase() === 'split' ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-800">SPLIT</span>
+                            <span className="text-[10px] font-bold text-slate-700 whitespace-normal break-words max-w-[150px]">
+                              {r.note || `Cash: ₹${r.splitCashAmount} + Online: ₹${r.splitOnlineAmount}`}
                             </span>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-[10px] font-black uppercase tracking-tighter text-slate-400">{r.payMode}</span>
+                            {r.note && (
+                              <span className="text-[9px] font-medium text-slate-500 whitespace-normal break-words max-w-[140px]" title={r.note}>
+                                {r.note}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                         <td className="p-4 text-right">
                           <div className="flex justify-end gap-1">
@@ -710,12 +719,12 @@ const PostingSearch = () => {
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Correction Date</Label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
                 <Input 
                   type="date" 
                   value={editDate} 
                   onChange={e => setEditDate(e.target.value)} 
-                  className="pl-9 h-12 finance-input font-bold" 
+                  className="pl-9 h-12 finance-input font-bold cursor-pointer" 
                 />
               </div>
             </div>
