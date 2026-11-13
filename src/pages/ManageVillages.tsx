@@ -117,7 +117,7 @@ const ManageVillages = () => {
       pincode: village.pincode || "",
       postOffice: village.postOffice || ""
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToTop();
   };
 
   const handleCancelEdit = () => {

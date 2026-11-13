@@ -23,7 +23,7 @@ import {
   Wallet, UserPlus, Calendar, Info, Calculator, UserCheck, IndianRupee, TrendingUp, Download, CreditCard, MapPin, Check, ChevronsUpDown, Plus, CheckCircle2,
   FileText, Upload, X, File, Image as ImageIcon, Search, RefreshCw
 } from "lucide-react";
-import { cn, formatCurrency, checkPermission } from "@/lib/utils";
+import { cn, formatCurrency, checkPermission, scrollToTop } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { uploadToCloudinary } from "@/lib/cloudinary";
@@ -37,6 +37,36 @@ const formatCurrencyPDF = (amount: number | string | undefined | null) => {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(num || 0).replace("₹", "Rs ");
+};
+
+const computeEndDate = (startStr: string, tenureUnits: number, freq: string) => {
+  if (!startStr || isNaN(tenureUnits) || tenureUnits <= 0) return "";
+  try {
+    const parts = startStr.split("-");
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const end = new Date(y, m, d);
+      if (isNaN(end.getTime())) return "";
+
+      if (freq === "daily") {
+        end.setDate(end.getDate() + tenureUnits);
+      } else if (freq === "weekly") {
+        end.setDate(end.getDate() + (tenureUnits * 7));
+      } else if (freq === "monthly") {
+        end.setMonth(end.getMonth() + tenureUnits);
+      }
+      
+      const resY = end.getFullYear();
+      const resM = String(end.getMonth() + 1).padStart(2, "0");
+      const resD = String(end.getDate()).padStart(2, "0");
+      return `${resY}-${resM}-${resD}`;
+    }
+  } catch (e) {
+    console.error("Error computing end date:", e);
+  }
+  return "";
 };
 
 const accountSchema = z.object({
@@ -255,6 +285,12 @@ const NewAccount = () => {
     if (data.splitOnlineAmount) setValue("splitOnlineAmount", String(data.splitOnlineAmount));
     if (data.splitOnlineType) setValue("splitOnlineType", data.splitOnlineType);
     if (data.installmentAmount) setValue("installmentAmount", String(data.installmentAmount));
+    if (data.installmentsCount) {
+      setValue("installmentsCount", String(data.installmentsCount));
+    } else if (data.totalAmount && data.installmentAmount) {
+      setValue("installmentsCount", String(Math.round(parseFloat(data.totalAmount) / parseFloat(data.installmentAmount))));
+    }
+    if (data.endDate) setValue("endDate", String(data.endDate));
     if (data.documentCharge) setValue("documentCharge", String(data.documentCharge));
     if (data.commission) setValue("commission", String(data.commission));
     if (data.upiId) setValue("upiId", data.upiId);
@@ -431,6 +467,7 @@ const NewAccount = () => {
     setValue,
     watch,
     reset,
+    getValues,
     formState: { errors },
   } = useForm<AccountForm>({
     resolver: zodResolver(accountSchema),
@@ -501,47 +538,68 @@ const NewAccount = () => {
     }
   }, [userData, isEdit, navigate]);
 
-  // Calculate Principal (loanAmount) based on Total Amount and Interest
-  useEffect(() => {
-    if (totalAmount && interestAmount) {
-      const total = parseFloat(totalAmount);
-      const interest = parseFloat(interestAmount);
-      if (!isNaN(total) && !isNaN(interest)) {
-        const principal = total - interest;
-        setValue("loanAmount", principal.toString());
-      }
-    }
-  }, [totalAmount, interestAmount, setValue]);
+  // Unified single-directional finance recalculation handler (prevents circular feedback loop and input blinking/glitching)
+  const recalculateFinance = useCallback((source: "total" | "interest" | "count" | "amount" | "frequency" | "date", overrideVal?: string) => {
+    const totStr = source === "total" && overrideVal !== undefined ? overrideVal : (getValues("totalAmount") || "");
+    const intStr = source === "interest" && overrideVal !== undefined ? overrideVal : (getValues("interestAmount") || "");
+    const countStr = source === "count" && overrideVal !== undefined ? overrideVal : (getValues("installmentsCount") || "");
+    const instStr = source === "amount" && overrideVal !== undefined ? overrideVal : (getValues("installmentAmount") || "");
+    const freq = source === "frequency" && overrideVal !== undefined ? overrideVal : (getValues("paymentFrequency") || "daily");
+    const dateStr = source === "date" && overrideVal !== undefined ? overrideVal : (getValues("creationDate") || new Date().toISOString().split("T")[0]);
 
-  // 1. Calculate Installment Amount based on Total Amount and Installments Count
-  useEffect(() => {
-    if (totalAmount && installmentsCount) {
-      const total = parseFloat(totalAmount);
-      const count = parseFloat(installmentsCount);
-      if (!isNaN(total) && !isNaN(count) && count > 0) {
-        const inst = Math.ceil(total / count);
-        const currentInst = watch("installmentAmount");
-        if (currentInst !== inst.toString()) {
-          setValue("installmentAmount", inst.toString());
+    const total = parseFloat(totStr);
+    const interest = parseFloat(intStr) || 0;
+
+    // 1. Principal = Total - Interest
+    if (!isNaN(total)) {
+      const principal = Math.max(0, total - interest);
+      setValue("loanAmount", principal.toString(), { shouldValidate: true });
+    }
+
+    // 2. Derive installment amount or installments count based on which input triggered the change
+    let tenureUnits = 0;
+
+    if (source === "count") {
+      const count = parseInt(countStr, 10);
+      if (!isNaN(count) && count > 0) {
+        tenureUnits = count;
+        if (!isNaN(total) && total > 0) {
+          const inst = Math.ceil(total / count);
+          setValue("installmentAmount", inst.toString(), { shouldValidate: true });
         }
       }
-    }
-  }, [totalAmount, installmentsCount, setValue]);
-
-  // 2. Calculate Installments Count based on Total Amount and Installment Amount
-  useEffect(() => {
-    if (totalAmount && installmentAmount) {
-      const total = parseFloat(totalAmount);
-      const inst = parseFloat(installmentAmount);
-      if (!isNaN(total) && !isNaN(inst) && inst > 0) {
+    } else if (source === "amount") {
+      const inst = parseFloat(instStr);
+      if (!isNaN(inst) && inst > 0 && !isNaN(total) && total > 0) {
         const count = Math.round(total / inst);
-        const currentCount = watch("installmentsCount");
-        if (currentCount !== count.toString()) {
-          setValue("installmentsCount", count.toString());
+        tenureUnits = count;
+        setValue("installmentsCount", count.toString(), { shouldValidate: true });
+      }
+    } else {
+      // If total or interest or frequency or date changed:
+      const count = parseInt(countStr, 10);
+      const inst = parseFloat(instStr);
+      if (!isNaN(count) && count > 0) {
+        tenureUnits = count;
+        if (!isNaN(total) && total > 0) {
+          const newInst = Math.ceil(total / count);
+          setValue("installmentAmount", newInst.toString(), { shouldValidate: true });
         }
+      } else if (!isNaN(inst) && inst > 0 && !isNaN(total) && total > 0) {
+        const newCount = Math.round(total / inst);
+        tenureUnits = newCount;
+        setValue("installmentsCount", newCount.toString(), { shouldValidate: true });
       }
     }
-  }, [totalAmount, installmentAmount, setValue]);
+
+    // 3. Compute End Date
+    if (tenureUnits > 0 && dateStr) {
+      const endStr = computeEndDate(dateStr, tenureUnits, freq);
+      if (endStr) {
+        setValue("endDate", endStr, { shouldValidate: true });
+      }
+    }
+  }, [getValues, setValue]);
   
   // Transliteration logic for Telugu Name
   useEffect(() => {
@@ -581,28 +639,6 @@ const NewAccount = () => {
     return () => clearTimeout(timer);
   }, [watch("fatherHusbandName"), setValue]);
 
-  // Calculate End Date based on Total Amount, Installment, and Frequency
-  useEffect(() => {
-    if (installmentAmount && totalAmount && creationDate && paymentFrequency) {
-      const inst = parseFloat(installmentAmount);
-      const total = parseFloat(totalAmount);
-      if (inst > 0 && total > 0) {
-        const tenureUnits = Math.ceil(total / inst);
-        const start = new Date(creationDate);
-        const end = new Date(start);
-        
-        if (paymentFrequency === "daily") {
-          end.setDate(start.getDate() + tenureUnits);
-        } else if (paymentFrequency === "weekly") {
-          end.setDate(start.getDate() + (tenureUnits * 7));
-        } else if (paymentFrequency === "monthly") {
-          end.setMonth(start.getMonth() + tenureUnits);
-        }
-        
-        setValue("endDate", end.toISOString().split("T")[0]);
-      }
-    }
-  }, [installmentAmount, totalAmount, creationDate, paymentFrequency, setValue]);
 
   useEffect(() => {
     const fetchExisting = async () => {
@@ -1054,6 +1090,8 @@ const NewAccount = () => {
           accountNo: data.accountNo,
           date: data.startDate,
           amount: parseFloat(data.loanAmount),
+          totalAmount: parseFloat(data.totalAmount),
+          interestAmount: parseFloat(data.interestAmount),
           status: "disbursement",
           payMode: data.paymentType,
           splitCashAmount: splitCashVal,
@@ -1184,7 +1222,7 @@ const NewAccount = () => {
         });
         
         // Scroll to top for next entry
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        scrollToTop();
       }
     } catch (err: any) {
       toast.error(err.message || "Operation failed");
@@ -1594,7 +1632,13 @@ const NewAccount = () => {
                     <Input 
                       type="text"
                       inputMode="decimal"
-                      {...register("totalAmount")} 
+                      {...register("totalAmount", {
+                        onChange: (e) => {
+                          const val = e.target.value.replace(/[^0-9.]/g, "");
+                          setValue("totalAmount", val, { shouldValidate: true });
+                          recalculateFinance("total", val);
+                        }
+                      })} 
                       className="pl-9 finance-input font-bold" 
                       placeholder="e.g. 25000"
                     />
@@ -1609,9 +1653,15 @@ const NewAccount = () => {
                     <Input 
                       type="text"
                       inputMode="decimal"
-                      {...register("interestAmount")} 
+                      {...register("interestAmount", {
+                        onChange: (e) => {
+                          const val = e.target.value.replace(/[^0-9.]/g, "");
+                          setValue("interestAmount", val, { shouldValidate: true });
+                          recalculateFinance("interest", val);
+                        }
+                      })} 
                       className="pl-9 finance-input" 
-                      placeholder="e.g. 25000"
+                      placeholder="e.g. 5000"
                     />
                   </div>
                   {errors.interestAmount && <p className="text-[10px] text-destructive">{errors.interestAmount.message}</p>}
@@ -1633,7 +1683,13 @@ const NewAccount = () => {
 
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("paymentFrequency")}</Label>
-                  <Select onValueChange={(v: any) => setValue("paymentFrequency", v)} value={paymentFrequency}>
+                  <Select 
+                    onValueChange={(v: any) => {
+                      setValue("paymentFrequency", v, { shouldValidate: true });
+                      recalculateFinance("frequency", v);
+                    }} 
+                    value={paymentFrequency}
+                  >
                     <SelectTrigger className="finance-input">
                       <SelectValue placeholder="Select frequency" />
                     </SelectTrigger>
@@ -1652,8 +1708,14 @@ const NewAccount = () => {
                     <Input 
                       type="text"
                       inputMode="numeric"
-                      {...register("installmentsCount")} 
-                      className="pl-9 finance-input" 
+                      {...register("installmentsCount", {
+                        onChange: (e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, "");
+                          setValue("installmentsCount", val, { shouldValidate: true });
+                          recalculateFinance("count", val);
+                        }
+                      })} 
+                      className="pl-9 finance-input font-bold" 
                       placeholder={paymentFrequency === "daily" ? "e.g. 10 Days" : paymentFrequency === "weekly" ? "e.g. 10 Weeks" : "e.g. 10 Months"}
                     />
                   </div>
@@ -1667,8 +1729,14 @@ const NewAccount = () => {
                     <Input 
                       type="text"
                       inputMode="decimal"
-                      {...register("installmentAmount")} 
-                      className="pl-9 finance-input" 
+                      {...register("installmentAmount", {
+                        onChange: (e) => {
+                          const val = e.target.value.replace(/[^0-9.]/g, "");
+                          setValue("installmentAmount", val, { shouldValidate: true });
+                          recalculateFinance("amount", val);
+                        }
+                      })} 
+                      className="pl-9 finance-input font-bold" 
                       placeholder="Amount per payment"
                     />
                   </div>
@@ -1709,7 +1777,19 @@ const NewAccount = () => {
                   <Label className="text-sm font-semibold text-accent">{tLocal("accountCreationDate")}</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-accent/60 pointer-events-none" />
-                    <Input type="date" {...register("creationDate")} className="pl-9 finance-input border-accent/20 bg-accent/5 cursor-pointer" readOnly={!checkPermission(userData, "canChangeDate")} />
+                    <Input 
+                      type="date" 
+                      {...register("creationDate", {
+                        onChange: (e) => {
+                          const val = e.target.value;
+                          setValue("creationDate", val, { shouldValidate: true });
+                          setValue("startDate", val, { shouldValidate: true });
+                          recalculateFinance("date", val);
+                        }
+                      })} 
+                      className="pl-9 finance-input border-accent/20 bg-accent/5 cursor-pointer font-bold" 
+                      readOnly={!checkPermission(userData, "canChangeDate")} 
+                    />
                   </div>
                   <p className="text-[10px] text-muted-foreground px-1 italic">Date of registration</p>
                 </div>
@@ -1719,7 +1799,7 @@ const NewAccount = () => {
                   <Label className="text-sm font-semibold text-[#0F172A] dark:text-slate-200">{tLocal("endDate")}</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-3 h-4 w-4 text-primary/60 pointer-events-none" />
-                    <Input type="date" {...register("endDate")} className="pl-9 finance-input bg-muted/30 cursor-pointer" readOnly />
+                    <Input type="date" {...register("endDate")} className="pl-9 finance-input bg-muted/30 cursor-pointer font-bold" readOnly />
                   </div>
                   <p className="text-[10px] text-muted-foreground px-1 italic">Auto-calculated expiry</p>
                 </div>

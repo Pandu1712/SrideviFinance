@@ -397,6 +397,7 @@ const Ledger = () => {
 
   const handleSearch = async () => {
     if (!accountNo || !userData) return;
+    scrollToTop();
     setLoading(true);
     try {
       let q;

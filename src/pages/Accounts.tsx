@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLine } from "@/contexts/LineContext";
@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ShieldAlert, KeyRound, ArrowRightLeft, BookOpen, Calendar as CalendarIcon, UserPlus, Info, Printer, Download, FileSpreadsheet } from "lucide-react";
+import { ShieldAlert, KeyRound, ArrowRightLeft, BookOpen, Calendar as CalendarIcon, UserPlus, Info, Printer, Download, FileSpreadsheet, ChevronDown, Check, Search, X } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDocs, where } from "firebase/firestore";
 import { formatDate } from "@/lib/utils";
@@ -50,7 +50,7 @@ const Accounts = () => {
   const lineName = currentLine ? currentLine.name : "GENERAL";
   
   // Views
-  const [activeView, setActiveView] = useState<"menu" | "new-account" | "posting" | "investor-finance" | "trial-balance">("menu");
+  const [activeView, setActiveView] = useState<"menu" | "new-account" | "posting" | "account-display" | "investor-finance" | "trial-balance">("menu");
 
   // Dialog States
   const [modalOpen, setModalOpen] = useState(false);
@@ -88,6 +88,58 @@ const Accounts = () => {
   const [manualLedgerPostings, setManualLedgerPostings] = useState<any[]>([]);
   const [selectedManualEntry, setSelectedManualEntry] = useState<any | null>(null);
   const [selectedAggregatedDate, setSelectedAggregatedDate] = useState<string | null>(null);
+
+  // Account Display States (Matching Image 3)
+  const [selectedDisplayAccount, setSelectedDisplayAccount] = useState<any | null>(null);
+  const [displayClosingDate, setDisplayClosingDate] = useState(new Date().toISOString().split("T")[0]);
+  const [displayRangeStart, setDisplayRangeStart] = useState("2026-08-01");
+  const [displayRangeEnd, setDisplayRangeEnd] = useState(new Date().toISOString().split("T")[0]);
+  const [displayViewMode, setDisplayViewMode] = useState<"single" | "detailed" | "consolidate" | "line-ac">("single");
+  const [selectedDisplayRow, setSelectedDisplayRow] = useState<any | null>(null);
+
+  // Account Display Custom Dropdown States
+  const [isAccNoOpen, setIsAccNoOpen] = useState(false);
+  const [isAccNameOpen, setIsAccNameOpen] = useState(false);
+  const [accNameSearch, setAccNameSearch] = useState("");
+  const accNoRef = useRef<HTMLDivElement>(null);
+  const accNameRef = useRef<HTMLDivElement>(null);
+
+  // Close Account Display dropdowns on click outside or escape
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (accNoRef.current && !accNoRef.current.contains(event.target as Node)) {
+        setIsAccNoOpen(false);
+      }
+      if (accNameRef.current && !accNameRef.current.contains(event.target as Node)) {
+        setIsAccNameOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsAccNoOpen(false);
+        setIsAccNameOpen(false);
+      }
+    };
+    if (isAccNoOpen || isAccNameOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isAccNoOpen, isAccNameOpen]);
+
+  // Filter accounts for Account Name search in Account Display
+  const filteredDisplayAccounts = useMemo(() => {
+    if (!accNameSearch.trim()) return ledgerAccounts;
+    const term = accNameSearch.toLowerCase();
+    return ledgerAccounts.filter(a => 
+      (a.acNo || "").toLowerCase().includes(term) ||
+      (a.acName || "").toLowerCase().includes(term) ||
+      (a.acType || "").toLowerCase().includes(term)
+    );
+  }, [ledgerAccounts, accNameSearch]);
 
   // Investor Finance States
   const calculateDays = (transDateStr: string, asOfDateStr: string) => {
@@ -149,9 +201,9 @@ const Accounts = () => {
   const [allLineDailyPostings, setAllLineDailyPostings] = useState<any[]>([]);
   const [allLineExpenses, setAllLineExpenses] = useState<any[]>([]);
 
-  // Sync Customer accounts, Daily postings, and Expense logs for Trial Balance calculations
+  // Sync Customer accounts, Daily postings, and Expense logs for Trial Balance & Account Display calculations
   useEffect(() => {
-    if (activeView !== "trial-balance" || !selectedLineId) return;
+    if ((activeView !== "trial-balance" && activeView !== "account-display") || !selectedLineId) return;
 
     // Sync Customer accounts
     const qCust = query(
@@ -407,6 +459,12 @@ const Accounts = () => {
         return numA - numB;
       });
       setLedgerAccounts(list);
+      setSelectedDisplayAccount(prev => {
+        if (prev && list.some(a => a.id === prev.id)) {
+          return list.find(a => a.id === prev.id) || prev;
+        }
+        return list[0] || null;
+      });
     });
     return () => unsubscribe();
   }, [selectedLineId]);
@@ -429,7 +487,7 @@ const Accounts = () => {
         const linePrefix = (lineName.match(/^\d+/)?.[0] || lineName.split(" ")[0] || lineName).toUpperCase();
         
         const target15 = [
-          { acNo: "0", acName: `LINE 3 LAKSHMI DEVI A/C`, acType: "Investment", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Investment", category: "Investment", lineId: selectedLineId },
+          { acNo: "0", acName: `LINE ${linePrefix} LAKSHMI DEVI A/C`, acType: "Investment", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Investment", category: "Investment", lineId: selectedLineId },
           { acNo: "1", acName: `LINE ${linePrefix} OPENING BALANCE`, acType: "Investment", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Investment", category: "Investment", lineId: selectedLineId },
           { acNo: "2", acName: `LINE ${linePrefix} COMMISSION`, acType: "Profit", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Indirect Income", category: "Profit", lineId: selectedLineId },
           { acNo: "3", acName: `LINE ${linePrefix} COLLECTION`, acType: "Vaddi", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Direct Income", category: "Vaddi", lineId: selectedLineId },
@@ -443,7 +501,8 @@ const Accounts = () => {
           { acNo: "11", acName: `LINE ${linePrefix} LESS`, acType: "Expenditure", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Indirect Expenses", category: "Expenditure", lineId: selectedLineId },
           { acNo: "12", acName: `LINE ${linePrefix} EXCESS`, acType: "Vaddi", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Direct Income", category: "Vaddi", lineId: selectedLineId },
           { acNo: "13", acName: `LINE ${linePrefix} RUSUMU`, acType: "Vaddi", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Direct Income", category: "Vaddi", lineId: selectedLineId },
-          { acNo: "14", acName: `LINE ${linePrefix} TICKETS`, acType: "Vaddi", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Direct Income", category: "Vaddi", lineId: selectedLineId }
+          { acNo: "14", acName: `LINE ${linePrefix} TICKETS`, acType: "Vaddi", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Direct Income", category: "Vaddi", lineId: selectedLineId },
+          { acNo: "15", acName: `LINE ${linePrefix} INTEREST`, acType: "Vaddi", interestRateMonthly: "0", interestRateDaily: "0", date: "2026-08-01", group: "Direct Income", category: "Vaddi", lineId: selectedLineId }
         ];
 
         // 1. Purge any accounts that do not strictly match the target 15 codes and names
@@ -512,20 +571,23 @@ const Accounts = () => {
     const unsubscribe = onSnapshot(q, (snap) => {
       const postingsList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       
-      const acNo = selectedLedger.acNo;
+      const acNo = String(selectedLedger.acNo);
       
       let filtered: any[] = [];
-      let mode: "commission" | "collection" | "payment" | "none" = "none";
+      let mode: "commission" | "collection" | "payment" | "interest" | "none" = "none";
       
-      if (acNo === "2" || acNo === 2) {
+      if (acNo === "2") {
         mode = "commission";
         filtered = postingsList.filter(p => p.status === "charge" || (p.documentCharge && parseFloat(p.documentCharge) > 0));
-      } else if (acNo === "3" || acNo === 3) {
+      } else if (acNo === "3") {
         mode = "collection";
         filtered = postingsList.filter(p => p.status === "collection" || p.status === "other");
-      } else if (acNo === "4" || acNo === 4) {
+      } else if (acNo === "4") {
         mode = "payment";
         filtered = postingsList.filter(p => p.status === "disbursement" || p.status === "payment");
+      } else if (acNo === "15") {
+        mode = "interest";
+        filtered = postingsList.filter(p => p.status === "disbursement" || p.status === "payment" || (p.interestAmount && parseFloat(p.interestAmount) > 0));
       }
 
       const groupMap: { [date: string]: { date: string; amount: number; type: string } } = {};
@@ -546,7 +608,11 @@ const Accounts = () => {
           if (p.extraAmount) amt += parseFloat(p.extraAmount) || 0;
           if (p.penaltyAmount) amt += parseFloat(p.penaltyAmount) || 0;
         } else if (mode === "payment") {
-          amt += parseFloat(p.amount) || 0;
+          const cust = allLineCustomers.find(c => c.id === p.accountId);
+          amt += (cust && parseFloat(cust.totalAmount) > 0) ? parseFloat(cust.totalAmount) : (p.totalAmount ? parseFloat(p.totalAmount) : (parseFloat(p.amount) || 0));
+        } else if (mode === "interest") {
+          const cust = allLineCustomers.find(c => c.id === p.accountId);
+          amt += (cust && parseFloat(cust.interestAmount) > 0) ? parseFloat(cust.interestAmount) : (p.interestAmount ? parseFloat(p.interestAmount) : 0);
         }
         
         if (amt > 0) {
@@ -566,7 +632,7 @@ const Accounts = () => {
     });
 
     return () => unsubscribe();
-  }, [activeView, selectedLineId, selectedLedger]);
+  }, [activeView, selectedLineId, selectedLedger, allLineCustomers]);
 
   // Sync manual ledger postings
   useEffect(() => {
@@ -769,7 +835,15 @@ const Accounts = () => {
         }
       }
     },
-    { label: "Account display", action: () => navigate("/ledger") },
+    { 
+      label: "Account display", 
+      action: () => {
+        setActiveView("account-display");
+        if (ledgerAccounts.length > 0) {
+          setSelectedDisplayAccount(ledgerAccounts[0]);
+        }
+      } 
+    },
     { label: "Interest Calculator", action: () => navigate("/calculator") },
     { label: "Investor's Account (Finance Type)", action: () => {
         setActiveView("investor-finance");
@@ -851,6 +925,311 @@ const Accounts = () => {
   }, [finalAggregatedPostings]);
 
   const currentBalance = totalJama - totalKharchu;
+
+  // Real-time calculation for Account Display (Matching Image 3)
+  const { displayOpeningBalance, displayAccountRows, displayTotalJama, displayTotalKharchu, displayClosingBalance } = useMemo(() => {
+    if (!selectedDisplayAccount) {
+      return {
+        displayOpeningBalance: 0,
+        displayAccountRows: [],
+        displayTotalJama: 0,
+        displayTotalKharchu: 0,
+        displayClosingBalance: 0
+      };
+    }
+
+    const acNo = String(selectedDisplayAccount.acNo);
+    const acId = selectedDisplayAccount.id;
+    const acNameUpper = (selectedDisplayAccount.acName || "").toUpperCase();
+
+    const allTx: { id?: string; date: string; jama: number; kharchu: number; details: string; closeDt?: string; isManual?: boolean }[] = [];
+
+    // 1. Manual ledger postings for this account
+    allLineLedgerPostings.forEach(p => {
+      if (p.ledgerId === acId || p.acNo === acNo) {
+        const j = parseFloat(p.jama) || 0;
+        const k = parseFloat(p.kharchu) || 0;
+        if (j > 0 || k > 0) {
+          allTx.push({
+            id: p.id,
+            date: p.date || "",
+            jama: j,
+            kharchu: k,
+            details: p.description || "Manual Entry",
+            closeDt: "-",
+            isManual: true
+          });
+        }
+      }
+    });
+
+    const manualDates = new Set<string>(allTx.map(t => t.date).filter(Boolean));
+
+    // 2. Automated transactions based on standard accounts:
+    // Account 2: Commission (charges & doc charges)
+    if (acNo === "2" || acNameUpper.includes("COMMISSION")) {
+      const groupedComm: { [d: string]: number } = {};
+      allLineDailyPostings.forEach(p => {
+        const d = p.date || "";
+        if (manualDates.has(d)) return;
+        let amt = 0;
+        if (p.status === "charge") amt += parseFloat(p.amount) || 0;
+        if (p.documentCharge) amt += parseFloat(p.documentCharge) || 0;
+        if (amt > 0) groupedComm[d] = (groupedComm[d] || 0) + amt;
+      });
+      Object.entries(groupedComm).forEach(([d, amt]) => {
+        allTx.push({
+          date: d,
+          jama: amt,
+          kharchu: 0,
+          details: "Commission / Document Charge",
+          closeDt: "-"
+        });
+      });
+    }
+
+    // Account 3: Collection (Vaddi / collections)
+    if (acNo === "3" || acNameUpper.includes("COLLECTION")) {
+      const groupedColl: { [d: string]: number } = {};
+      allLineDailyPostings.forEach(p => {
+        if (p.payMode === "pay_later") return;
+        const d = p.date || "";
+        if (manualDates.has(d)) return;
+        if (p.status === "collection" || p.status === "other" || !p.status) {
+          const amt = (parseFloat(p.amount) || 0) + (parseFloat(p.extraAmount) || 0) + (parseFloat(p.penaltyAmount) || 0);
+          if (amt > 0) groupedColl[d] = (groupedColl[d] || 0) + amt;
+        }
+      });
+      Object.entries(groupedColl).forEach(([d, amt]) => {
+        allTx.push({
+          date: d,
+          jama: amt,
+          kharchu: 0,
+          details: "Daily Customer Collection",
+          closeDt: "-"
+        });
+      });
+    }
+
+    // Account 4: Payment / Disbursement (Vaddi / loan payment)
+    if (acNo === "4" || acNameUpper.includes("PAYMENT")) {
+      const groupedPay: { [d: string]: number } = {};
+      allLineDailyPostings.forEach(p => {
+        if (p.status === "disbursement" || p.status === "payment") {
+          const d = p.date || "";
+          if (manualDates.has(d)) return;
+          const cust = allLineCustomers.find(c => c.id === p.accountId);
+          const amt = (cust && parseFloat(cust.totalAmount) > 0) ? parseFloat(cust.totalAmount) : (p.totalAmount ? parseFloat(p.totalAmount) : (parseFloat(p.amount) || 0));
+          if (amt > 0) groupedPay[d] = (groupedPay[d] || 0) + amt;
+        }
+      });
+      Object.entries(groupedPay).forEach(([d, amt]) => {
+        allTx.push({
+          date: d,
+          jama: 0,
+          kharchu: amt,
+          details: "Loan Disbursement Payment",
+          closeDt: "-"
+        });
+      });
+    }
+
+    // Account 15: Interest (Direct Income)
+    if (acNo === "15" || acNameUpper.includes("INTEREST")) {
+      const groupedInt: { [d: string]: number } = {};
+      allLineDailyPostings.forEach(p => {
+        if (p.status === "disbursement" || p.status === "payment") {
+          const d = p.date || "";
+          if (manualDates.has(d)) return;
+          const cust = allLineCustomers.find(c => c.id === p.accountId);
+          const amt = (cust && parseFloat(cust.interestAmount) > 0) ? parseFloat(cust.interestAmount) : (p.interestAmount ? parseFloat(p.interestAmount) : 0);
+          if (amt > 0) groupedInt[d] = (groupedInt[d] || 0) + amt;
+        }
+      });
+      Object.entries(groupedInt).forEach(([d, amt]) => {
+        allTx.push({
+          date: d,
+          jama: amt,
+          kharchu: 0,
+          details: "Loan Interest Income",
+          closeDt: "-"
+        });
+      });
+    }
+
+    // Account 6 / 8 / 9 / 10 / 11: Expenses
+    if (acNo === "6" || acNo === "8" || acNo === "9" || acNo === "10" || acNo === "11" || acNameUpper.includes("SADAR") || acNameUpper.includes("RENT") || acNameUpper.includes("SALARIES") || acNameUpper.includes("PETROL") || acNameUpper.includes("LESS")) {
+      allLineExpenses.forEach(e => {
+        const d = e.date || "";
+        if (manualDates.has(d)) return;
+        const amt = parseFloat(e.amount) || 0;
+        const eType = (e.type || e.category || "").toUpperCase();
+        const isMatch = (acNo === "6" || acNameUpper.includes("SADAR")) ||
+          (acNo === "8" && eType.includes("RENT")) ||
+          (acNo === "9" && eType.includes("SALAR")) ||
+          (acNo === "10" && eType.includes("PETROL")) ||
+          (acNo === "11" && eType.includes("LESS"));
+
+        if (isMatch && amt > 0) {
+          allTx.push({
+            date: d,
+            jama: 0,
+            kharchu: amt,
+            details: e.note || e.description || `${selectedDisplayAccount.acName} Expense`,
+            closeDt: "-"
+          });
+        }
+      });
+    }
+
+    // Sort chronologically ascending
+    allTx.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+    // Calculate opening balance before displayRangeStart
+    let opening = 0;
+    const inRange: typeof allTx = [];
+
+    allTx.forEach(tx => {
+      const val = tx.jama - tx.kharchu;
+      if (displayRangeStart && tx.date < displayRangeStart) {
+        opening += val;
+      } else if (!displayRangeEnd || tx.date <= displayRangeEnd) {
+        inRange.push(tx);
+      }
+    });
+
+    const totJama = inRange.reduce((sum, tx) => sum + tx.jama, 0);
+    const totKharchu = inRange.reduce((sum, tx) => sum + tx.kharchu, 0);
+    const closing = opening + totJama - totKharchu;
+
+    return {
+      displayOpeningBalance: opening,
+      displayAccountRows: inRange,
+      displayTotalJama: totJama,
+      displayTotalKharchu: totKharchu,
+      displayClosingBalance: closing
+    };
+  }, [selectedDisplayAccount, allLineLedgerPostings, allLineDailyPostings, allLineExpenses, allLineCustomers, displayRangeStart, displayRangeEnd]);
+
+  // Consolidated accounts summary for "Show Consolidate"
+  const consolidatedAccountRows = useMemo(() => {
+    return ledgerAccounts.map(acc => {
+      const acNo = String(acc.acNo);
+      const acId = acc.id;
+      const acNameUpper = (acc.acName || "").toUpperCase();
+
+      let jama = 0;
+      let kharchu = 0;
+      const manualDatesForAcc = new Set<string>();
+
+      allLineLedgerPostings.forEach(p => {
+        if (p.ledgerId === acId || p.acNo === acNo) {
+          if (!displayRangeStart || p.date >= displayRangeStart) {
+            if (!displayRangeEnd || p.date <= displayRangeEnd) {
+              if (p.date) manualDatesForAcc.add(p.date);
+              jama += parseFloat(p.jama) || 0;
+              kharchu += parseFloat(p.kharchu) || 0;
+            }
+          }
+        }
+      });
+
+      if (acNo === "3" || acNameUpper.includes("COLLECTION")) {
+        allLineDailyPostings.forEach(p => {
+          if (p.payMode === "pay_later") return;
+          if (p.date && manualDatesForAcc.has(p.date)) return;
+          if (p.status === "collection" || p.status === "other" || !p.status) {
+            if ((!displayRangeStart || p.date >= displayRangeStart) && (!displayRangeEnd || p.date <= displayRangeEnd)) {
+              jama += (parseFloat(p.amount) || 0) + (parseFloat(p.extraAmount) || 0) + (parseFloat(p.penaltyAmount) || 0);
+            }
+          }
+        });
+      }
+
+      if (acNo === "2" || acNameUpper.includes("COMMISSION")) {
+        allLineDailyPostings.forEach(p => {
+          if (p.date && manualDatesForAcc.has(p.date)) return;
+          if ((!displayRangeStart || p.date >= displayRangeStart) && (!displayRangeEnd || p.date <= displayRangeEnd)) {
+            if (p.status === "charge") jama += parseFloat(p.amount) || 0;
+            if (p.documentCharge) jama += parseFloat(p.documentCharge) || 0;
+          }
+        });
+      }
+
+      if (acNo === "4" || acNameUpper.includes("PAYMENT")) {
+        allLineDailyPostings.forEach(p => {
+          if (p.date && manualDatesForAcc.has(p.date)) return;
+          if (p.status === "disbursement" || p.status === "payment") {
+            if ((!displayRangeStart || p.date >= displayRangeStart) && (!displayRangeEnd || p.date <= displayRangeEnd)) {
+              const cust = allLineCustomers.find(c => c.id === p.accountId);
+              const tot = (cust && parseFloat(cust.totalAmount) > 0) ? parseFloat(cust.totalAmount) : (p.totalAmount ? parseFloat(p.totalAmount) : (parseFloat(p.amount) || 0));
+              kharchu += tot;
+            }
+          }
+        });
+      }
+
+      if (acNo === "15" || acNameUpper.includes("INTEREST")) {
+        allLineDailyPostings.forEach(p => {
+          if (p.date && manualDatesForAcc.has(p.date)) return;
+          if (p.status === "disbursement" || p.status === "payment") {
+            if ((!displayRangeStart || p.date >= displayRangeStart) && (!displayRangeEnd || p.date <= displayRangeEnd)) {
+              const cust = allLineCustomers.find(c => c.id === p.accountId);
+              const intAmt = (cust && parseFloat(cust.interestAmount) > 0) ? parseFloat(cust.interestAmount) : (p.interestAmount ? parseFloat(p.interestAmount) : 0);
+              jama += intAmt;
+            }
+          }
+        });
+      }
+
+      if (acNo === "6" || acNo === "8" || acNo === "9" || acNo === "10" || acNo === "11" || acNameUpper.includes("SADAR") || acNameUpper.includes("RENT") || acNameUpper.includes("SALARIES") || acNameUpper.includes("PETROL") || acNameUpper.includes("LESS")) {
+        allLineExpenses.forEach(e => {
+          if (e.date && manualDatesForAcc.has(e.date)) return;
+          if ((!displayRangeStart || e.date >= displayRangeStart) && (!displayRangeEnd || e.date <= displayRangeEnd)) {
+            const eType = (e.type || e.category || "").toUpperCase();
+            const isMatch = (acNo === "6" || acNameUpper.includes("SADAR")) ||
+              (acNo === "8" && eType.includes("RENT")) ||
+              (acNo === "9" && eType.includes("SALAR")) ||
+              (acNo === "10" && eType.includes("PETROL")) ||
+              (acNo === "11" && eType.includes("LESS"));
+            if (isMatch) kharchu += parseFloat(e.amount) || 0;
+          }
+        });
+      }
+
+      const balance = jama - kharchu;
+      return {
+        ...acc,
+        totalJama: jama,
+        totalKharchu: kharchu,
+        balance,
+        status: balance >= 0 ? "CR" : "DR"
+      };
+    });
+  }, [ledgerAccounts, allLineLedgerPostings, allLineDailyPostings, allLineExpenses, allLineCustomers, displayRangeStart, displayRangeEnd]);
+
+  const handleDeleteDayPosting = async () => {
+    if (!selectedDisplayAccount || !displayRangeStart) {
+      toast.error("Please select an account and date");
+      return;
+    }
+    const dayPostings = allLineLedgerPostings.filter(p => 
+      p.ledgerId === selectedDisplayAccount.id && p.date === displayRangeStart
+    );
+    if (dayPostings.length === 0) {
+      toast.info("No manual postings found on this date to delete.");
+      return;
+    }
+    if (!window.confirm(`Delete ${dayPostings.length} manual posting(s) for ${selectedDisplayAccount.acName} on ${formatToDDMMYY(displayRangeStart)}?`)) return;
+    try {
+      for (const p of dayPostings) {
+        await deleteDoc(doc(db, "ledger_postings", p.id));
+      }
+      toast.success("Day posting deleted successfully!");
+    } catch (e) {
+      toast.error("Failed to delete day posting");
+    }
+  };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-slate-900/40 p-2 sm:p-6">
@@ -1209,7 +1588,12 @@ const Accounts = () => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate("/ledger")}
+                onClick={() => {
+                  setActiveView("account-display");
+                  if (ledgerAccounts.length > 0) {
+                    setSelectedDisplayAccount(ledgerAccounts[0]);
+                  }
+                }}
                 className="bg-slate-800 text-[#18FFFF] border border-cyan-400/40 hover:bg-slate-700/60 text-xs font-bold uppercase tracking-wider h-10 px-6"
               >
                 Account Display
@@ -1217,7 +1601,12 @@ const Accounts = () => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate("/daily-posting")}
+                onClick={() => {
+                  setActiveView("posting");
+                  if (ledgerAccounts.length > 0) {
+                    setSelectedLedger(ledgerAccounts[0]);
+                  }
+                }}
                 className="bg-slate-800 text-[#18FFFF] border border-cyan-400/40 hover:bg-slate-700/60 text-xs font-bold uppercase tracking-wider h-10 px-6"
               >
                 Posting
@@ -1414,8 +1803,8 @@ const Accounts = () => {
                   <div className="bg-amber-100 border-b border-amber-200 grid grid-cols-4 px-1 py-1.5 font-black text-[9px] text-amber-800 text-center">
                     <span>DT</span>
                     <span>DESC</span>
-                    <span>DR.</span>
                     <span>CR.</span>
+                    <span>DR.</span>
                   </div>
                   <div className="flex-1 overflow-y-auto custom-scrollbar font-mono text-[9px]">
                     {finalAggregatedPostings.length === 0 ? (
@@ -1452,8 +1841,8 @@ const Accounts = () => {
                           >
                             <span className="truncate">{formatToDDMMYY(p.date)}</span>
                             <span className="font-bold text-amber-800 truncate">{p.type === "COMMISSION" ? "కమిషన్" : p.type === "COLLECTION" ? "కలెక్షన్" : "పేమెంట్"}</span>
-                            <span className="font-bold text-red-700">{isOutflow ? `₹${(p.amount || 0).toFixed(0)}` : "0.00"}</span>
                             <span className="font-bold text-emerald-700">{!isOutflow ? `₹${(p.amount || 0).toFixed(0)}` : "0.00"}</span>
+                            <span className="font-bold text-red-700">{isOutflow ? `₹${(p.amount || 0).toFixed(0)}` : "0.00"}</span>
                           </div>
                         );
                       })
@@ -1509,6 +1898,20 @@ const Accounts = () => {
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      setActiveView("account-display");
+                      if (selectedLedger) {
+                        setSelectedDisplayAccount(selectedLedger);
+                      } else if (ledgerAccounts.length > 0) {
+                        setSelectedDisplayAccount(ledgerAccounts[0]);
+                      }
+                    }}
+                    className="w-full bg-[#18FFFF] hover:bg-[#84FFFF] text-slate-950 py-1.5 border-2 border-t-white border-l-white border-r-cyan-700 border-b-cyan-700 font-bold uppercase text-[9px] tracking-wider active:border-t-cyan-700 active:border-l-cyan-700 active:border-r-white active:border-b-white transition-all shadow"
+                  >
+                    ACCOUNT DISPLAY
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setActiveView("menu")}
                     className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 py-2 border-2 border-t-white border-l-white border-r-amber-700 border-b-amber-700 font-bold uppercase text-[9px] tracking-wider active:border-t-amber-700 active:border-l-amber-700 active:border-r-white active:border-b-white transition-all"
                   >
@@ -1549,6 +1952,566 @@ const Accounts = () => {
               </div>
 
             </div>
+          </motion.div>
+        )}
+
+        {activeView === "account-display" && (
+          <motion.div
+            key="account-display-view"
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="w-full max-w-6xl bg-[#091515] border-[6px] border-double border-amber-500/80 rounded-[2.5rem] p-4 sm:p-6 shadow-[0_0_50px_rgba(245,158,11,0.15)] relative flex flex-col min-h-[38rem]"
+          >
+            {/* Corner symbols */}
+            <div className="absolute top-4 left-4 text-amber-500/30 text-xl font-serif pointer-events-none select-none">卐</div>
+            <div className="absolute top-4 right-4 text-amber-500/30 text-xl font-serif pointer-events-none select-none">卐</div>
+            <div className="absolute bottom-4 left-4 text-amber-500/30 text-xl font-serif pointer-events-none select-none">卐</div>
+            <div className="absolute bottom-4 right-4 text-amber-500/30 text-xl font-serif pointer-events-none select-none">卐</div>
+
+            {/* Title Bar */}
+            <div className="text-center mb-3 border-b border-amber-500/20 pb-2 flex justify-between items-center px-4">
+              <span className="text-xs font-mono font-bold text-amber-500/60">[12]</span>
+              <h2 className="text-lg sm:text-xl font-bold tracking-widest text-amber-500 font-serif uppercase">
+                {lineName.toUpperCase()} ACCOUNT DISPLAY
+              </h2>
+              <span className="text-[10px] text-slate-500 tracking-wider">Sri Devi Groups</span>
+            </div>
+
+            {/* Top Toolbar (Orange/Amber Box from Image 3) */}
+            <div className="bg-amber-600/95 border-2 border-t-amber-400 border-l-amber-400 border-r-amber-800 border-b-amber-800 p-2 rounded-t shadow-md flex flex-wrap items-center justify-between gap-2 text-slate-950 font-bold text-xs relative z-30">
+              <div className="flex flex-wrap items-center gap-2 flex-1">
+                
+                {/* Account Number Custom Dropdown */}
+                <div className="flex items-center gap-1 relative" ref={accNoRef}>
+                  <span className="text-white text-[11px] font-black uppercase tracking-wider">Account</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAccNoOpen(prev => !prev);
+                      setIsAccNameOpen(false);
+                    }}
+                    className="bg-[#22c55e] hover:bg-[#16a34a] text-slate-950 font-black text-xs px-2.5 py-1 rounded border-2 border-t-white border-l-white border-r-emerald-800 border-b-emerald-800 shadow cursor-pointer focus:outline-none flex items-center gap-1 active:scale-95 transition-all"
+                  >
+                    <span>{selectedDisplayAccount?.acNo ?? "-"}</span>
+                    <ChevronDown className={`h-3 w-3 transition-transform ${isAccNoOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {isAccNoOpen && (
+                    <div className="absolute left-0 top-full mt-1.5 bg-white border-2 border-zinc-700 rounded shadow-2xl z-[9999] min-w-[220px] max-h-64 overflow-y-auto custom-scrollbar divide-y divide-zinc-200 animate-in fade-in-0 zoom-in-95 duration-150">
+                      {ledgerAccounts.map(acc => {
+                        const isSel = selectedDisplayAccount?.id === acc.id;
+                        return (
+                          <div
+                            key={acc.id}
+                            onClick={() => {
+                              setSelectedDisplayAccount(acc);
+                              setDisplayViewMode("single");
+                              setIsAccNoOpen(false);
+                            }}
+                            className={`px-3 py-2 text-xs font-bold flex items-center justify-between cursor-pointer transition-colors ${
+                              isSel ? "bg-[#22c55e] text-slate-950 font-black" : "bg-white text-slate-900 hover:bg-emerald-100"
+                            }`}
+                          >
+                            <span className="font-mono font-black text-sm">#{acc.acNo}</span>
+                            <span className="text-[10px] truncate max-w-[130px] text-slate-700">{acc.acName}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Account Name Custom Dropdown with Live Search */}
+                <div className="flex items-center gap-1 flex-1 min-w-[240px] relative" ref={accNameRef}>
+                  <span className="text-white text-[11px] font-black uppercase tracking-wider">Name</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAccNameOpen(prev => !prev);
+                      setIsAccNoOpen(false);
+                    }}
+                    className="w-full bg-[#fed7aa] hover:bg-[#fdba74] text-amber-950 font-black text-xs px-2.5 py-1 rounded border-2 border-t-white border-l-white border-r-amber-800 border-b-amber-800 shadow cursor-pointer focus:outline-none flex items-center justify-between truncate active:scale-[0.99] transition-all"
+                  >
+                    <span className="truncate">
+                      {selectedDisplayAccount 
+                        ? `${selectedDisplayAccount.acNo} - ${selectedDisplayAccount.acName} (${selectedDisplayAccount.acType})`
+                        : "Select Account..."}
+                    </span>
+                    <ChevronDown className={`h-3.5 w-3.5 text-amber-900 shrink-0 ml-1 transition-transform ${isAccNameOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {isAccNameOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border-2 border-zinc-700 rounded-md shadow-[0_10px_35px_rgba(0,0,0,0.35)] z-[9999] max-h-72 flex flex-col overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150">
+                      {/* Search Bar */}
+                      <div className="p-1.5 border-b border-zinc-200 bg-zinc-100 flex items-center gap-1">
+                        <Search className="h-3.5 w-3.5 text-zinc-500 shrink-0 ml-1" />
+                        <input
+                          type="text"
+                          placeholder="Search account name or #..."
+                          value={accNameSearch}
+                          onChange={e => setAccNameSearch(e.target.value)}
+                          className="w-full bg-white text-slate-900 border border-zinc-300 rounded px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          autoFocus
+                          onClick={e => e.stopPropagation()}
+                        />
+                        {accNameSearch && (
+                          <button type="button" onClick={() => setAccNameSearch("")} className="text-zinc-400 hover:text-zinc-600 p-0.5">
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Account Options List */}
+                      <div className="overflow-y-auto max-h-56 divide-y divide-zinc-100 custom-scrollbar bg-white">
+                        {filteredDisplayAccounts.map(acc => {
+                          const isSel = selectedDisplayAccount?.id === acc.id;
+                          return (
+                            <div
+                              key={acc.id}
+                              onClick={() => {
+                                setSelectedDisplayAccount(acc);
+                                setDisplayViewMode("single");
+                                setIsAccNameOpen(false);
+                                setAccNameSearch("");
+                              }}
+                              className={`px-3 py-2 text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                                isSel ? "bg-[#fed7aa] text-amber-950 font-black" : "bg-white text-slate-900 hover:bg-amber-100/80 font-bold"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded font-black ${
+                                  isSel ? "bg-amber-600 text-white" : "bg-zinc-200 text-slate-800"
+                                }`}>
+                                  #{acc.acNo}
+                                </span>
+                                <span className="truncate">{acc.acName}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                <span className="text-[9px] uppercase px-1.5 py-0.5 rounded font-black bg-zinc-100 text-zinc-700">
+                                  {acc.acType}
+                                </span>
+                                {isSel && <Check className="h-3.5 w-3.5 text-amber-950 ml-1" />}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Red *** info button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedDisplayAccount) {
+                      toast.info(`Account: ${selectedDisplayAccount.acNo} - ${selectedDisplayAccount.acName} | Type: ${selectedDisplayAccount.acType}`);
+                    }
+                  }}
+                  className="bg-red-600 hover:bg-red-500 text-white font-black text-xs px-2.5 py-1 border-2 border-t-white border-l-white border-r-red-950 border-b-red-950 rounded shadow active:scale-95"
+                  title="View Account Details"
+                >
+                  ***
+                </button>
+
+                {/* Print button */}
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="bg-zinc-200 hover:bg-zinc-100 text-slate-900 font-black text-xs px-3 py-1 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 rounded shadow uppercase tracking-wider active:scale-95"
+                >
+                  Print
+                </button>
+              </div>
+
+              {/* Ac Closing Dt */}
+              <div className="flex items-center gap-1 bg-amber-700/60 px-2 py-1 rounded border border-amber-500/40 text-white">
+                <span className="text-[10px] font-black uppercase tracking-wider whitespace-nowrap">Ac Closing Dt:</span>
+                <input
+                  type="date"
+                  value={displayClosingDate}
+                  onChange={e => {
+                    setDisplayClosingDate(e.target.value);
+                    if (e.target.value) e.target.blur();
+                  }}
+                  className="bg-white text-slate-950 font-mono font-bold text-xs px-1.5 py-0.5 rounded border border-zinc-400 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Sub-header Bar (Cyan/Mint Opening Balance Bar from Image 3) */}
+            <div className="bg-[#a7f3d0] border-2 border-t-emerald-300 border-b-emerald-600 px-3 py-1.5 flex justify-between items-center text-slate-900 font-mono font-bold text-xs shadow-inner">
+              <span className="text-slate-800 text-[11px] uppercase tracking-wider">
+                {displayViewMode === "consolidate" ? "CONSOLIDATED ACCOUNTS STATEMENT" : `LEDGER STATEMENT: ${selectedDisplayAccount?.acName || "-"}`}
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-700">Opening Balance:</span>
+                <span className="bg-white text-emerald-950 font-black px-2 py-0.5 rounded border border-emerald-500 shadow-sm">
+                  ₹{displayOpeningBalance.toFixed(2)} {displayOpeningBalance >= 0 ? "CR" : "DR"}
+                </span>
+              </div>
+            </div>
+
+            {/* Main Area: Center Table + Right Controls */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mt-2 flex-1 text-slate-950 font-sans text-xs">
+              
+              {/* Left/Center Table: Sage/Yellow Ledger Sheet */}
+              <div className="lg:col-span-9 bg-zinc-300 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 p-2 sm:p-3 rounded-md shadow-2xl flex flex-col justify-between min-h-[22rem]">
+                
+                {/* Central Table Box */}
+                <div className="flex-1 bg-[#d5e8d4] border-2 border-t-zinc-600 border-l-zinc-600 border-r-white border-b-white rounded-sm overflow-hidden flex flex-col">
+                  
+                  {displayViewMode === "consolidate" ? (
+                    /* Consolidated View Table */
+                    <>
+                      <div className="bg-[#fff2cc] border-b border-amber-300 grid grid-cols-12 px-2 py-2 font-black text-[10px] text-amber-900 text-center uppercase tracking-wider">
+                        <span className="col-span-1">AC#</span>
+                        <span className="col-span-4 text-left pl-2">ACCOUNT NAME</span>
+                        <span className="col-span-2">TYPE</span>
+                        <span className="col-span-2 text-right pr-2">JAMA (CR)</span>
+                        <span className="col-span-2 text-right pr-2">KHARCHU (DR)</span>
+                        <span className="col-span-1 text-right">BAL</span>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar font-mono text-[10px] divide-y divide-emerald-200/50 bg-[#e8f5e9]">
+                        {consolidatedAccountRows.map((acc, idx) => (
+                          <div
+                            key={acc.id || idx}
+                            onClick={() => {
+                              setSelectedDisplayAccount(acc);
+                              setDisplayViewMode("single");
+                            }}
+                            className="grid grid-cols-12 px-2 py-2 text-center hover:bg-[#c8e6c9] cursor-pointer transition-colors"
+                          >
+                            <span className="col-span-1 font-bold text-slate-700">{acc.acNo}</span>
+                            <span className="col-span-4 text-left font-bold text-slate-900 pl-2 truncate">{acc.acName}</span>
+                            <span className="col-span-2 text-slate-600 text-[9px] uppercase font-bold">{acc.acType}</span>
+                            <span className="col-span-2 text-right font-extrabold text-emerald-800 pr-2">
+                              {acc.totalJama > 0 ? `₹${acc.totalJama.toFixed(2)}` : "-"}
+                            </span>
+                            <span className="col-span-2 text-right font-extrabold text-red-800 pr-2">
+                              {acc.totalKharchu > 0 ? `₹${acc.totalKharchu.toFixed(2)}` : "-"}
+                            </span>
+                            <span className={`col-span-1 text-right font-black text-[9px] ${acc.balance >= 0 ? "text-emerald-900" : "text-red-900"}`}>
+                              {acc.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    /* Single Account Statement Table matching Image 3 */
+                    <>
+                      {/* Headers: DT | JAMA | KHARCHU | DETAILS | CLOSE_DT */}
+                      <div className="bg-[#fff2cc] border-b border-amber-300 grid grid-cols-12 px-2 py-2 font-black text-[10px] text-amber-900 text-center uppercase tracking-wider">
+                        <span className="col-span-2 text-left pl-1">DT</span>
+                        <span className="col-span-2 text-right pr-2">JAMA</span>
+                        <span className="col-span-2 text-right pr-2">KHARCHU</span>
+                        <span className="col-span-4 text-left pl-3">DETAILS</span>
+                        <span className="col-span-2 text-center">CLOSE_DT</span>
+                      </div>
+
+                      {/* Scrollable list */}
+                      <div className="flex-1 overflow-y-auto custom-scrollbar font-mono text-[10px] divide-y divide-emerald-200/50 bg-[#e8f5e9]">
+                        {displayAccountRows.length === 0 ? (
+                          <div className="py-16 text-center text-emerald-800/60 font-sans italic space-y-1">
+                            <p className="font-bold">No transactions found for {selectedDisplayAccount?.acName}</p>
+                            <p className="text-[10px] text-slate-500 font-mono">Range: {formatToDDMMYY(displayRangeStart)} to {formatToDDMMYY(displayRangeEnd)}</p>
+                          </div>
+                        ) : (
+                          displayAccountRows.map((tx, idx) => {
+                            const isSelected = selectedDisplayRow?.id === tx.id || (selectedDisplayRow?.date === tx.date && selectedDisplayRow?.details === tx.details);
+                            return (
+                              <div
+                                key={tx.id || idx}
+                                onClick={() => setSelectedDisplayRow(tx)}
+                                className={`grid grid-cols-12 px-2 py-1.5 text-center hover:bg-[#c8e6c9] cursor-pointer transition-colors ${
+                                  isSelected ? "bg-amber-200 font-bold border-l-4 border-amber-600" : ""
+                                }`}
+                              >
+                                <span className="col-span-2 text-left pl-1 font-bold text-slate-700">{formatToDDMMYY(tx.date)}</span>
+                                <span className="col-span-2 text-right pr-2 font-black text-emerald-800">
+                                  {tx.jama > 0 ? `₹${tx.jama.toFixed(2)}` : "-"}
+                                </span>
+                                <span className="col-span-2 text-right pr-2 font-black text-red-800">
+                                  {tx.kharchu > 0 ? `₹${tx.kharchu.toFixed(2)}` : "-"}
+                                </span>
+                                <span className="col-span-4 text-left pl-3 truncate font-sans font-semibold text-slate-850">
+                                  {tx.details}
+                                </span>
+                                <span className="col-span-2 text-center text-slate-500 font-mono text-[9px]">
+                                  {tx.closeDt || "-"}
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Summary Calculation Footer Blocks matching Image 3 bottom yellow/blue layout */}
+                  <div className="bg-[#bbf7d0] border-t-2 border-emerald-400 p-2 font-mono text-[10px] font-bold text-slate-900 space-y-1.5">
+                    {/* Row 1: Total Balance (JAMA and KHARCHU in yellow boxes) */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-[#fef08a] border border-amber-400 text-amber-950 px-3 py-0.5 rounded shadow-sm min-w-[90px] text-right font-black">
+                          ₹{displayTotalJama.toFixed(2)}
+                        </span>
+                        <span className="bg-[#fef08a] border border-amber-400 text-amber-950 px-3 py-0.5 rounded shadow-sm min-w-[90px] text-right font-black">
+                          ₹{displayTotalKharchu.toFixed(2)}
+                        </span>
+                      </div>
+                      <span className="font-black text-slate-800 uppercase tracking-wider text-[11px] pr-4">Total Balance</span>
+                    </div>
+
+                    {/* Row 2: Cyan/Blue subtotal box */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-[90px]" />
+                        <span className="bg-[#38bdf8] border border-sky-500 text-slate-950 px-3 py-0.5 rounded shadow-sm min-w-[90px] text-right font-black">
+                          ₹{displayTotalKharchu.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Row 3: Net Closing Balance in yellow box */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-[#fef08a] border border-amber-400 text-amber-950 px-3 py-0.5 rounded shadow-sm min-w-[90px] text-right font-black text-xs">
+                          ₹{displayClosingBalance.toFixed(2)}
+                        </span>
+                      </div>
+                      <span className="font-black text-slate-800 uppercase tracking-wider text-[11px] pr-4">
+                        Closing Balance ({displayClosingBalance >= 0 ? "CR" : "DR"})
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* Right Controls Sidebar matching Image 3 */}
+              <div className="lg:col-span-3 bg-zinc-300 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 p-2.5 rounded-md shadow-2xl flex flex-col justify-between space-y-3">
+                
+                {/* Top Action Button: Edit & Delete */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedDisplayRow) {
+                      toast.info("Click a row in the table first to select it.");
+                      return;
+                    }
+                    if (selectedDisplayRow.isManual) {
+                      if (window.confirm(`Delete manual entry of ₹${selectedDisplayRow.jama || selectedDisplayRow.kharchu} on ${selectedDisplayRow.date}?`)) {
+                        deleteDoc(doc(db, "ledger_postings", selectedDisplayRow.id))
+                          .then(() => toast.success("Entry deleted successfully"))
+                          .catch(() => toast.error("Failed to delete"));
+                      }
+                    } else {
+                      toast.info(`Auto-aggregated transaction (${selectedDisplayRow.details}). Edit source transaction from Postings or Expenses.`);
+                    }
+                  }}
+                  className="w-full bg-[#86efac] hover:bg-[#4ade80] text-emerald-950 py-1.5 border-2 border-t-white border-l-white border-r-emerald-800 border-b-emerald-800 font-black uppercase text-[10px] tracking-wider shadow rounded active:scale-95"
+                >
+                  Edit & Delete
+                </button>
+
+                {/* Box 1: Single Account */}
+                <div className="bg-zinc-200 border border-zinc-400 p-2 rounded shadow-inner space-y-1.5">
+                  <span className="text-[10px] font-black uppercase text-slate-700 tracking-wider block">Single Account</span>
+                  <input
+                    type="date"
+                    value={displayRangeEnd}
+                    onChange={e => {
+                      setDisplayRangeEnd(e.target.value);
+                      setDisplayRangeStart(e.target.value);
+                      if (e.target.value) e.target.blur();
+                    }}
+                    className="w-full bg-white text-slate-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-zinc-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDisplayViewMode("single");
+                      window.print();
+                    }}
+                    className="w-full bg-zinc-100 hover:bg-white text-slate-800 py-1 border border-zinc-400 font-bold text-[10px] uppercase tracking-wider rounded shadow-sm"
+                  >
+                    Print
+                  </button>
+                </div>
+
+                {/* Box 2: Range From (Single Account) */}
+                <div className="bg-zinc-200 border border-zinc-400 p-2 rounded shadow-inner space-y-1.5">
+                  <span className="text-[10px] font-black uppercase text-slate-700 tracking-wider block">Range From</span>
+                  <div className="space-y-1">
+                    <input
+                      type="date"
+                      value={displayRangeStart}
+                      onChange={e => {
+                        setDisplayRangeStart(e.target.value);
+                        if (e.target.value) e.target.blur();
+                      }}
+                      className="w-full bg-white text-slate-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-zinc-400"
+                    />
+                    <div className="text-[9px] text-slate-500 font-bold text-center">To</div>
+                    <input
+                      type="date"
+                      value={displayRangeEnd}
+                      onChange={e => {
+                        setDisplayRangeEnd(e.target.value);
+                        if (e.target.value) e.target.blur();
+                      }}
+                      className="w-full bg-white text-slate-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-zinc-400"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDisplayViewMode("single");
+                        toast.success("Applied date filter");
+                      }}
+                      className="bg-zinc-100 hover:bg-white text-slate-900 py-1 border border-zinc-400 font-bold text-[10px] uppercase rounded shadow-sm"
+                    >
+                      Show
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="bg-zinc-100 hover:bg-white text-slate-900 py-1 border border-zinc-400 font-bold text-[10px] uppercase rounded shadow-sm"
+                    >
+                      Print
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDeleteDayPosting}
+                    className="w-full bg-red-100 hover:bg-red-200 text-red-950 py-1 border border-red-300 font-bold text-[9px] uppercase tracking-wider rounded"
+                  >
+                    Delete Day Posting
+                  </button>
+                </div>
+
+                {/* Box 3: All Accounts */}
+                <div className="bg-zinc-200 border border-zinc-400 p-2 rounded shadow-inner space-y-1.5">
+                  <span className="text-[10px] font-black uppercase text-slate-700 tracking-wider block">All Accounts</span>
+                  <input
+                    type="date"
+                    value={displayClosingDate}
+                    onChange={e => {
+                      setDisplayClosingDate(e.target.value);
+                      if (e.target.value) e.target.blur();
+                    }}
+                    className="w-full bg-white text-slate-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-zinc-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDisplayViewMode("consolidate");
+                      window.print();
+                    }}
+                    className="w-full bg-sky-100 hover:bg-sky-200 text-sky-950 py-1 border border-sky-300 font-bold text-[10px] uppercase rounded shadow-sm"
+                  >
+                    Print
+                  </button>
+                </div>
+
+                {/* Box 4: Range From (All Accounts) */}
+                <div className="bg-zinc-200 border border-zinc-400 p-2 rounded shadow-inner space-y-1.5">
+                  <span className="text-[10px] font-black uppercase text-slate-700 tracking-wider block">Range From</span>
+                  <div className="space-y-1">
+                    <input
+                      type="date"
+                      value={displayRangeStart}
+                      onChange={e => {
+                        setDisplayRangeStart(e.target.value);
+                        if (e.target.value) e.target.blur();
+                      }}
+                      className="w-full bg-white text-slate-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-zinc-400"
+                    />
+                    <div className="text-[9px] text-slate-500 font-bold text-center">To</div>
+                    <input
+                      type="date"
+                      value={displayRangeEnd}
+                      onChange={e => {
+                        setDisplayRangeEnd(e.target.value);
+                        if (e.target.value) e.target.blur();
+                      }}
+                      className="w-full bg-white text-slate-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-zinc-400"
+                    />
+                  </div>
+                  <div className="space-y-1 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDisplayViewMode("detailed");
+                        toast.success("Detailed All Accounts view activated");
+                      }}
+                      className="w-full bg-zinc-100 hover:bg-white text-slate-900 py-1 border border-zinc-400 font-bold text-[9px] uppercase rounded shadow-sm"
+                    >
+                      Show Detailed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDisplayViewMode("consolidate");
+                        toast.success("Consolidated Accounts view activated");
+                      }}
+                      className="w-full bg-[#38bdf8] hover:bg-[#0284c7] text-slate-950 py-1 border border-sky-600 font-bold text-[9px] uppercase rounded shadow-sm"
+                    >
+                      Show Consolidate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDisplayViewMode("line-ac");
+                        const lineAc = ledgerAccounts.find(a => a.acNo === "1") || ledgerAccounts[0];
+                        if (lineAc) setSelectedDisplayAccount(lineAc);
+                        toast.success("Line Account view activated");
+                      }}
+                      className="w-full bg-zinc-100 hover:bg-white text-slate-900 py-1 border border-zinc-400 font-bold text-[9px] uppercase rounded shadow-sm"
+                    >
+                      Show Line Ac
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bottom Navigation Buttons (matching Image 3 bottom right) */}
+                <div className="space-y-1.5 pt-2 border-t border-zinc-400">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveView("posting");
+                      if (selectedDisplayAccount) setSelectedLedger(selectedDisplayAccount);
+                    }}
+                    className="w-full bg-[#86efac] hover:bg-[#4ade80] text-emerald-950 py-1.5 border-2 border-t-white border-l-white border-r-emerald-800 border-b-emerald-800 font-black uppercase text-[10px] tracking-wider rounded shadow active:scale-95"
+                  >
+                    Posting
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveView("new-account")}
+                    className="w-full bg-zinc-200 hover:bg-white text-slate-900 py-1.5 border-2 border-t-white border-l-white border-r-zinc-600 border-b-zinc-600 font-black uppercase text-[10px] tracking-wider rounded shadow active:scale-95"
+                  >
+                    New Account
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveView("menu")}
+                    className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 py-1.5 border-2 border-t-white border-l-white border-r-amber-700 border-b-amber-700 font-black uppercase text-[10px] tracking-wider rounded shadow active:scale-95"
+                  >
+                    Main Menu
+                  </button>
+                </div>
+
+              </div>
+
+            </div>
+
           </motion.div>
         )}
 

@@ -23,7 +23,7 @@ import { useLine } from "@/contexts/LineContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { collection, getDocs, query, where, DocumentData, onSnapshot, orderBy, limit, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, scrollToTop } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
 const DashboardLayout = () => {
@@ -40,12 +40,25 @@ const DashboardLayout = () => {
     }
   };
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
 
   const navTo = (path: string) => {
     triggerHaptic();
     setIsDrawerOpen(false);
+    scrollToTop("instant");
+    if (mainRef.current) mainRef.current.scrollTop = 0;
     navigate(path);
   };
+
+  useEffect(() => {
+    scrollToTop("instant");
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+    const t = setTimeout(() => {
+      scrollToTop("instant");
+      if (mainRef.current) mainRef.current.scrollTop = 0;
+    }, 50);
+    return () => clearTimeout(t);
+  }, [location.pathname, location.search]);
 
 
 
@@ -342,19 +355,27 @@ const DashboardLayout = () => {
         )}
 
         {/* Main Content with Page Transitions */}
-        <main className={cn(
+        <main 
+          ref={mainRef}
+          className={cn(
           "flex-1 p-4 overflow-x-hidden overflow-y-auto bg-slate-50/30 dark:bg-slate-950/20 print:overflow-visible print:h-auto",
           isFullPortfolioDashboard 
             ? "pt-4 lg:p-8 pb-8" 
             : "pt-20 lg:p-8 pb-32 lg:pb-16"
         )}>
-          <AnimatePresence>
+          <AnimatePresence 
+            mode="wait"
+            onExitComplete={() => {
+              scrollToTop("instant");
+              if (mainRef.current) mainRef.current.scrollTop = 0;
+            }}
+          >
             <motion.div
               key={location.pathname}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.12 }}
               className="w-full"
             >
               <Outlet />

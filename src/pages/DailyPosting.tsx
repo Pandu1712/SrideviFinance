@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, FileText, CheckCircle2, Wallet, Calendar, CreditCard, ArrowRight, User, IndianRupee, Users, Filter, Zap, Printer, Phone, MapPin, AlertCircle, Edit, Settings, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { formatCurrency, formatDate, cn, playSuccessSound, checkPermission } from "@/lib/utils";
+import { formatCurrency, formatDate, cn, playSuccessSound, checkPermission, scrollToTop } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { logActivity } from "@/lib/audit";
@@ -249,7 +249,7 @@ const DailyPosting = () => {
     // Switch view on mobile to form
     if (window.innerWidth < 1024) {
       setMobileView("form");
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollToTop();
     }
   };
 
@@ -304,7 +304,7 @@ const DailyPosting = () => {
       
       // Scroll to top on mobile
       if (window.innerWidth < 1024) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        scrollToTop();
       }
     } catch (err) {
       console.error(err);
