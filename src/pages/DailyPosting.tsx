@@ -151,6 +151,7 @@ const DailyPosting = () => {
     splitOnlineType: "upi",
   });
   const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
+  const [pendingPostingData, setPendingPostingData] = useState<any>(null);
   const [lastPostedAmount, setLastPostedAmount] = useState<number | null>(null);
 
   // Fetch accounts in line

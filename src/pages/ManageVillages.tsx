@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { MapPin, Plus, Trash2, ShieldAlert, Edit, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, scrollToTop } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 const ManageVillages = () => {
   const { userData, loading: authLoading } = useAuth();

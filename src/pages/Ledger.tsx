@@ -3,14 +3,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLine } from "@/contexts/LineContext";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, DocumentData, orderBy, doc, runTransaction } from "firebase/firestore";
+import { collection, getDocs, query, where, DocumentData, orderBy, doc, runTransaction, updateDoc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookOpen, Search, User, Filter, Download, FileText, ArrowUpDown, Trash2, CreditCard, Image as ImageIcon, File, FileSpreadsheet, Edit, IndianRupee, Calendar, ArrowRightLeft, MoveRight, Printer, Share2, MessageSquare } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatCurrency, formatDate, formatCurrencyPDF, checkPermission, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatCurrencyPDF, checkPermission, cn, scrollToTop } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -127,10 +127,16 @@ const Ledger = () => {
     fetchAgents();
   }, []);
 
-  // Auto-search if param exists
+  // Auto-search if param exists or changes
   useEffect(() => {
-    if (userData && accountNo) handleSearch();
-  }, [userData]);
+    const accParam = searchParams.get("acc");
+    if (accParam && accParam !== accountNo) {
+      setAccountNo(accParam);
+      if (userData) handleSearch(accParam);
+    } else if (userData && accountNo) {
+      handleSearch(accountNo);
+    }
+  }, [userData, searchParams]);
 
   const getShareMessage = (type: "reminder" | "overdue") => {
     if (!accountInfo) return "";
@@ -395,32 +401,85 @@ const Ledger = () => {
     }
   };
 
-  const handleSearch = async () => {
-    if (!accountNo || !userData) return;
-    scrollToTop();
+  const handleSearch = async (targetAccountNo?: string) => {
+    const rawAcc = targetAccountNo !== undefined ? targetAccountNo : accountNo;
+    const searchAcc = (rawAcc || "").trim();
+    if (!searchAcc) {
+      toast.error("Please enter an account number");
+      return;
+    }
+    if (!userData) return;
+    try {
+      scrollToTop();
+    } catch (e) {
+      console.warn("scrollToTop failed:", e);
+    }
     setLoading(true);
     try {
-      let q;
-      if (!selectedLineId) {
-        toast.error("Please select a line first from the sidebar");
+      let accDoc: any = null;
+
+      // 1. Try with selectedLineId first if available
+      if (selectedLineId) {
+        let q = query(collection(db, "accounts"), where("accountNo", "==", searchAcc), where("lineId", "==", selectedLineId));
+        if (userData.role === "admin") {
+          q = query(q, where("adminId", "==", userData.uid));
+        }
+        const accSnap = await getDocs(q);
+        if (!accSnap.empty) {
+          accDoc = accSnap.docs[0];
+        }
+      }
+
+      // 2. If not found or no selectedLineId, search across all lines
+      if (!accDoc) {
+        let q = query(collection(db, "accounts"), where("accountNo", "==", searchAcc));
+        if (userData.role === "admin") {
+          q = query(q, where("adminId", "==", userData.uid));
+        }
+        const accSnap = await getDocs(q);
+        if (!accSnap.empty) {
+          accDoc = accSnap.docs[0];
+        }
+      }
+
+      // 3. Fallback: If numeric, search with padding and common prefixes (e.g. "3" -> "03", "003", "0003", "ACC-3", "ACC-0003")
+      if (!accDoc && !isNaN(Number(searchAcc))) {
+        const numVal = parseInt(searchAcc, 10);
+        const candidates = [
+          String(numVal),
+          String(numVal).padStart(2, "0"),
+          String(numVal).padStart(3, "0"),
+          String(numVal).padStart(4, "0"),
+          `ACC-${numVal}`,
+          `ACC-${String(numVal).padStart(4, "0")}`
+        ];
+        for (const candidate of candidates) {
+          if (candidate === searchAcc) continue;
+          let candQ = selectedLineId
+            ? query(collection(db, "accounts"), where("accountNo", "==", candidate), where("lineId", "==", selectedLineId))
+            : query(collection(db, "accounts"), where("accountNo", "==", candidate));
+          if (userData.role === "admin") candQ = query(candQ, where("adminId", "==", userData.uid));
+          let candSnap = await getDocs(candQ);
+          if (candSnap.empty) {
+            let candQAll = query(collection(db, "accounts"), where("accountNo", "==", candidate));
+            if (userData.role === "admin") candQAll = query(candQAll, where("adminId", "==", userData.uid));
+            candSnap = await getDocs(candQAll);
+          }
+          if (!candSnap.empty) {
+            accDoc = candSnap.docs[0];
+            break;
+          }
+        }
+      }
+
+      if (!accDoc) {
+        toast.error(`Account "#${searchAcc}" not found`);
+        setAccountInfo(null);
+        setPostings([]);
         setLoading(false);
         return;
       }
 
-      q = query(collection(db, "accounts"), where("accountNo", "==", accountNo), where("lineId", "==", selectedLineId));
-
-      if (userData.role === "admin") {
-        q = query(q, where("adminId", "==", userData.uid));
-      }
-
-      const accSnap = await getDocs(q);
-      if (accSnap.empty) {
-        setAccountInfo(null);
-        setPostings([]);
-        return;
-      }
-
-      const accDoc = accSnap.docs[0];
       const acc = { id: accDoc.id, ...(accDoc.data() as any) };
 
       // Fetch all postings for this account, sorted by date
@@ -430,15 +489,28 @@ const Ledger = () => {
       );
 
       const pSnap = await getDocs(pq);
-      const posts: DocumentData[] = pSnap.docs
-        .map(d => ({ id: d.id, ...(d.data() as any) }))
+      let rawPostings = pSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+      // Fallback: If no postings found by accountId, check by accountNo
+      if (rawPostings.length === 0 && acc.accountNo) {
+        const pq2 = query(
+          collection(db, "postings"),
+          where("accountNo", "==", acc.accountNo)
+        );
+        const pSnap2 = await getDocs(pq2);
+        rawPostings = pSnap2.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      }
+
+      const posts: DocumentData[] = rawPostings
         .filter(p => 
-          (p.status === 'collection' || p.status === 'penalty' || p.status === 'extra_collection' || p.status === 'extra_transfer_out') &&
+          p.status !== 'disbursement' &&
+          p.status !== 'charge' &&
+          p.status !== 'deleted' &&
           p.payMode?.toLowerCase() !== 'pay_later'
         );
 
       // Sort locally to avoid index requirement
-      posts.sort((a, b) => (a.date > b.date ? 1 : -1));
+      posts.sort((a, b) => ((a.date || "") > (b.date || "") ? 1 : -1));
       setPostings(posts);
 
       const validPosts = posts.filter(p => p.payMode?.toLowerCase() !== 'pay_later');
@@ -474,9 +546,9 @@ const Ledger = () => {
       }
 
       toast.success("Ledger generated successfully");
-    } catch (err) {
+    } catch (err: any) {
       console.error("Ledger Search Error:", err);
-      toast.error("Failed to generate statement");
+      toast.error("Failed to generate statement: " + (err?.message || "Unknown error"));
     } finally {
       setLoading(false);
     }
@@ -486,21 +558,50 @@ const Ledger = () => {
   const buildLedgerRows = () => {
     if (!accountInfo) return [];
 
-    const start = new Date(accountInfo.startDate);
+    const parseSafeDate = (dStr: any): Date => {
+      if (!dStr) return new Date();
+      if (dStr instanceof Date && !isNaN(dStr.getTime())) return new Date(dStr.getTime());
+      if (typeof dStr === "string") {
+        const trimmed = dStr.trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+          const parts = trimmed.split("T")[0].split("-");
+          const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+          if (!isNaN(d.getTime())) return d;
+        }
+        if (/^\d{2}-\d{2}-\d{4}/.test(trimmed)) {
+          const parts = trimmed.split("-");
+          const d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+          if (!isNaN(d.getTime())) return d;
+        }
+        const d = new Date(trimmed);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return new Date();
+    };
+
+    const formatDateKey = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+
+    const rawStartDate = accountInfo.startDate || accountInfo.creationDate || (postings.length > 0 ? postings[0].date : "") || formatDateKey(new Date());
+    const start = parseSafeDate(rawStartDate);
     const freq = accountInfo.paymentFrequency || "weekly";
     const total = Number(accountInfo.totalAmount) || 0;
     const inst = Number(accountInfo.installmentAmount) || 1;
 
     // Sort postings by date ascending
-    const sortedPostings = [...postings].sort((a, b) => a.date.localeCompare(b.date));
+    const sortedPostings = [...postings].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
     // Determine latest posting date
-    let latestPostingDate = accountInfo.startDate;
+    let latestPostingDate = rawStartDate;
     if (sortedPostings.length > 0) {
-      latestPostingDate = sortedPostings[sortedPostings.length - 1].date;
+      latestPostingDate = sortedPostings[sortedPostings.length - 1].date || rawStartDate;
     }
 
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = formatDateKey(new Date());
     const maxDateLimit = latestPostingDate > todayStr ? latestPostingDate : todayStr;
 
     // Total collections across all valid postings
@@ -535,8 +636,8 @@ const Ledger = () => {
         nextCycleDateObj.setMonth(start.getMonth() + cycleIndex + 1);
       }
 
-      const cycleStartDateStr = cycleStartDateObj.toISOString().split("T")[0];
-      const nextCycleDateStr = nextCycleDateObj.toISOString().split("T")[0];
+      const cycleStartDateStr = formatDateKey(cycleStartDateObj);
+      const nextCycleDateStr = formatDateKey(nextCycleDateObj);
 
       // Filter postings that fall into this cycle's date range
       // For the first cycle (cycleIndex === 0), also include any postings before the cycleStartDate
@@ -841,6 +942,7 @@ const Ledger = () => {
                   onChange={e => setAccountNo(e.target.value)}
                   placeholder={tLocal("enterAccountNo")}
                   className="pl-9 finance-input"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                 />
               </div>
@@ -879,7 +981,7 @@ const Ledger = () => {
             >
               {tLocal("clearDateFilters")}
             </Button>
-            <Button onClick={handleSearch} disabled={loading || !accountNo} className="bg-accent text-accent-foreground hover:bg-accent/90 min-w-[150px] font-bold h-9">
+            <Button onClick={() => handleSearch()} disabled={loading || !accountNo.trim()} className="bg-accent text-accent-foreground hover:bg-accent/90 min-w-[150px] font-bold h-9">
               {loading ? "Searching..." : tLocal("generateLedger")}
             </Button>
           </div>
